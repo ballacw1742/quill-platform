@@ -75,9 +75,13 @@ class TriageEvent:
             return None
         if status not in (None, "submitted", "dry_run"):
             return None
-        # event_id: prefer approval_id when present (stable + unique), else
-        # composite of (ts, kind, summary).
-        event_id = rec.get("approval_id") or f"{rec.get('ts','')}-{kind}-{rec.get('summary','')}"
+        # event_id: prefer the dispatcher-stamped event_id (Phase F.1); fall
+        # back to approval_id; finally synthesize from (ts, kind, summary).
+        event_id = (
+            rec.get("event_id")
+            or rec.get("approval_id")
+            or f"{rec.get('ts','')}-{kind}-{rec.get('summary','')}"
+        )
         payload = rec.get("payload") or {
             # Minimal envelope so the chain has *something* to feed agents.
             "summary": rec.get("summary"),

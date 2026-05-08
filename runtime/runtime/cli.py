@@ -228,5 +228,143 @@ def cmd_registry_register(
     click.echo(json.dumps(out, indent=2, default=str))
 
 
+# ----------------------------------------------------------------------
+# `quill-runtime triage` — continuous triage daemon (Phase F.1)
+# ----------------------------------------------------------------------
+@main.group("triage")
+def cmd_triage() -> None:
+    """Continuous triage dispatcher — auto-runs agent chains on every event."""
+
+
+@cmd_triage.command("start")
+@click.option(
+    "--source",
+    "source_type",
+    default=None,
+    type=click.Choice(["mock", "webhook"]),
+    help="Event source. Defaults to TRIAGE_EVENT_SOURCE env var or 'mock'.",
+)
+@click.option(
+    "--log-path",
+    default=None,
+    help="Override path to dispatch.log (mock source only).",
+)
+@click.option(
+    "--poll-interval",
+    "poll_interval",
+    default=None,
+    type=float,
+    help="Seconds between polls. Defaults to TRIAGE_POLL_INTERVAL_SECONDS or 5.",
+)
+def cmd_triage_start(
+    source_type: str | None,
+    log_path: str | None,
+    poll_interval: float | None,
+) -> None:
+    """Boot the TriageDispatcher daemon (foreground)."""
+    import os as _os
+
+    from runtime.triage_dispatcher import (
+        TriageDispatcher,
+        build_default_source,
+    )
+
+    # Honor the TRIAGE_DISPATCHER_ENABLED gate per spec.
+    enabled = _os.environ.get("TRIAGE_DISPATCHER_ENABLED", "true").lower()
+    if enabled in ("0", "false", "no"):
+        click.echo("TRIAGE_DISPATCHER_ENABLED=false; refusing to start.", err=True)
+        sys.exit(1)
+
+    source_type = source_type or _os.environ.get("TRIAGE_EVENT_SOURCE", "mock")
+    if poll_interval is None:
+        try:
+            poll_interval = float(_os.environ.get("TRIAGE_POLL_INTERVAL_SECONDS", "5"))
+        except ValueError:
+            poll_interval = 5.0
+
+    cfg = get_config()
+    log_path_obj = Path(log_path) if log_path else None
+    source = build_default_source(
+        source_type=source_type,
+        log_path=log_path_obj,
+        poll_interval_s=poll_interval,
+    )
+    dispatcher = TriageDispatcher(config=cfg)
+
+    click.echo(
+        f"[triage] starting source={source_type} poll={poll_interval}s queue={cfg.queue_api_url}",
+        err=True,
+    )
+
+    async def _run() -> None:
+        await dispatcher.start(source)
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        click.echo("[triage] interrupted; shutting down", err=True)
+        sys.exit(0)
+
+
+@cmd_triage.command("replay")
+@click.argument("log_path")
+@click.option(
+    "--from-cursor/--no-from-cursor",
+    default=False,
+    help="Resume from existing cursor (default: replay full log).",
+)
+def cmd_triage_replay(log_path: str, from_cursor: bool) -> None:
+    """Replay a dispatch.log file once (no polling), then exit."""
+    from runtime.triage_dispatcher import (
+        MockDataEventSource,
+        TriageDispatcher,
+    )
+
+    log_p = Path(log_path)
+    if not log_p.exists():
+        click.echo(f"log not found: {log_p}", err=True)
+        sys.exit(2)
+    if not from_cursor:
+        cursor = log_p.with_suffix(log_p.suffix + ".cursor")
+        if cursor.exists():
+            cursor.unlink()
+
+    cfg = get_config()
+    src = MockDataEventSource(log_p, poll_interval_s=0.1)
+    dispatcher = TriageDispatcher(config=cfg)
+
+    async def _run() -> None:
+        # Stop after a single read pass — we set the source's stop event
+        # immediately after consuming the existing file contents.
+        async def _consumer() -> None:
+            try:
+                async for event in src:
+                    await dispatcher.dispatch(event)
+            finally:
+                pass
+
+        async def _stopper() -> None:
+            # Give the consumer one full poll cycle to read the file.
+            await asyncio.sleep(0.2)
+            src.stop()
+            dispatcher.stop()
+
+        await asyncio.gather(_consumer(), _stopper())
+
+    asyncio.run(_run())
+    click.echo(
+        json.dumps(
+            {
+                "events_seen": dispatcher.stats.events_seen,
+                "chains_run": dispatcher.stats.chains_run,
+                "chains_succeeded": dispatcher.stats.chains_succeeded,
+                "chains_failed": dispatcher.stats.chains_failed,
+                "events_skipped": dispatcher.stats.events_skipped,
+            },
+            indent=2,
+        )
+    )
+
+
 if __name__ == "__main__":
     main()
