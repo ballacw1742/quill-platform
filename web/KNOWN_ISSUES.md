@@ -1,5 +1,55 @@
 # KNOWN_ISSUES.md — feat/ui-ios-redesign
 
+## Phase F.1 — Continuous Triage + Live Drafts (May 8, 2026)
+
+F1.1 **`(visible-tolerable)` — Live draft badge depends on chain_outputs schema staying as today's shape.**
+  The badge in `ApprovalRow.tsx` and the panel in `ChainOutputsPanel.tsx`
+  use a heuristic to identify the triage step (agent_id contains 'triage'
+  or output has `discipline`/`category`/`priority`/`spec_section`) and the
+  drafter step (agent_id contains 'drafter'/'draft' or output has
+  `draft_markdown`/`draft_response`/`response_markdown`). New chain agents
+  with different output shapes will fall into the generic 'Other agent
+  outputs' collapsible. Fix when adding non-RFI/non-submittal chains.
+
+F1.2 **`(visible-tolerable)` — Drafter markdown is rendered through
+  rehype-sanitize default schema.** Same posture as the documents tab.
+  If a drafter agent produces inline HTML or scripts they get stripped;
+  if they produce raw markdown they render fine. No XSS surface, but a
+  drafter that emits HTML by mistake will render as plain text. Surface
+  in agent eval if it shows up.
+
+F1.3 **`(invisible)` — Chain confidence threshold is hard-coded at 0.7
+  inside `runtime/runtime/chains.py`.** RFI_CHAIN and SUBMITTAL_CHAIN both
+  use `confidence_gate(0.7)`. To change the threshold today you edit the
+  declaration. Promote to env / config when we have telemetry showing
+  the right value.
+
+F1.4 **`(visible-tolerable)` — TriageDispatcher is dev/mock only.**
+  `--source webhook` raises NotImplementedError. Real Procore webhook
+  integration is a separate sprint. Production rollout requires that
+  source plus event de-dup against the API's audit log (rather than the
+  in-memory set used today).
+
+F1.5 **`(visible-tolerable)` — Same dispatch.log line is consumed twice
+  if the API _also_ writes to it AND the mock-data dispatcher writes
+  to it AND the TriageDispatcher's in-memory dedup set is bounded at
+  5,000 entries.** In a long-running daemon (>5k events without restart)
+  events older than 5k slots can theoretically retrigger if the log
+  gets rewound (file truncate). Practically: not a concern at our event
+  volume, but a real persistent dedup table belongs in the API layer
+  before we go to production.
+
+F1.6 **`(invisible)` — TriageDispatcher imports `runtime.chains` at
+  module load.** If a future chain references an agent prompt that
+  doesn't exist in the prompts repo, `Agent(agent_id)` will fail at
+  *first dispatch*, not at startup. Logs surface the failure and the
+  daemon keeps running. Worth adding a `--validate-chains` flag that
+  loads every declared chain's agents at boot.
+
+---
+
+# KNOWN_ISSUES.md — feat/ui-ios-redesign
+
 Tracked rough edges from the iOS redesign sprint. Every entry has a
 user-visible severity tag per CONTRIBUTING_AGENTS.md rule 6:
 

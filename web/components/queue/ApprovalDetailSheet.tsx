@@ -25,6 +25,8 @@ import { EditPayloadDialog } from "@/components/approval/EditPayloadDialog";
 import { JsonBlock } from "@/components/approval/JsonBlock";
 import { useApproval, useAudit, useDecide } from "@/lib/api";
 import type { ApprovalItem } from "@/lib/schemas";
+import { getChainOutputs } from "@/lib/schemas";
+import { ChainOutputsPanel } from "./ChainOutputsPanel";
 import type { ActionIntent } from "@/lib/auth";
 import { formatDistanceToNowStrict } from "date-fns";
 import { toast } from "sonner";
@@ -499,6 +501,12 @@ function DetailContent({
           <FlagChips item={item} />
         )}
       </section>
+
+      {/* ── Live draft (chained agent outputs) — Phase F.1 ───────── */}
+      {(() => {
+        const chain = getChainOutputs(item.proposed_action.payload);
+        return chain ? <ChainOutputsPanel chain={chain} /> : null;
+      })()}
 
       {/* ── Why panel — collapsed by default ────────────────────── */}
       <WhyPanel item={item} />

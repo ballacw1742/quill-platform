@@ -317,6 +317,9 @@ class Dispatcher:
     def _log_dispatch(self, event: FeederEvent, *, status: str,
                       body: dict[str, Any] | None,
                       response: Any) -> None:
+        # Phase F.1: embed the original event payload so the
+        # TriageDispatcher (runtime/runtime/triage_dispatcher.py) can pick
+        # up the event with enough context to feed downstream agents.
         rec = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "kind": event.kind,
@@ -327,9 +330,30 @@ class Dispatcher:
             "lane": (body or {}).get("lane"),
             "priority": (body or {}).get("priority"),
             "agent_id": (body or {}).get("agent_id"),
+            # Full event payload for downstream chain consumption.
+            "payload": event.payload,
+            # Stable event_id for dedup across dispatcher restarts.
+            "event_id": _event_id_for(event, status, response),
         }
         with DISPATCH_LOG.open("a") as f:
             f.write(json.dumps(rec) + "\n")
+
+
+def _event_id_for(event: FeederEvent, status: str, response: Any) -> str:
+    """Stable id for dedup. Prefer the API-assigned approval_id; otherwise
+    composite of (kind, primary-ref, status)."""
+    if isinstance(response, dict) and response.get("approval_id"):
+        return str(response["approval_id"])
+    p = event.payload
+    primary_ref = (
+        p.get("rfi_id")
+        or p.get("submittal_id")
+        or p.get("dfr_id")
+        or p.get("po_id")
+        or p.get("inbound_id")
+        or ""
+    )
+    return f"{event.kind}:{primary_ref}:{status}"
 
 
 def _summary_for(event: FeederEvent) -> str:

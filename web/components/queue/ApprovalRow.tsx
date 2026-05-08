@@ -2,8 +2,9 @@
 
 import * as React from "react";
 import { formatDistanceToNowStrict } from "date-fns";
-import { Check, ExternalLink, X } from "lucide-react";
+import { Check, ExternalLink, Sparkles, X } from "lucide-react";
 import type { ApprovalItem } from "@/lib/schemas";
+import { getChainOutputs } from "@/lib/schemas";
 import { ListRow } from "@/components/ui/list-row";
 import { SwipeRow, type SwipeAction } from "@/components/ui/swipe-row";
 import { AgentBadge } from "./AgentBadge";
@@ -42,6 +43,7 @@ export function ApprovalRow({
 
   const flags = detectFlags(item);
   const hasCriticalFlag = flags.some((f) => f.tone === "danger");
+  const hasLiveDraft = !!getChainOutputs(item.proposed_action.payload);
   // Swipe is enabled only on Lane 2 (single-sig) and only when not critical-flagged.
   const swipeEnabled =
     !!onApprove &&
@@ -99,7 +101,23 @@ export function ApprovalRow({
         iconTone="neutral"
         title={truncate(title, 64)}
         subtitle={summary}
-        chip={chip}
+        chip={
+          hasLiveDraft ? (
+            <span className="inline-flex items-center gap-1">
+              <span
+                className="inline-flex items-center gap-0.5 rounded-full bg-accent/10 px-1.5 py-0.5 text-caption-2 font-medium text-accent"
+                aria-label="Live draft pre-populated"
+                title="This item already has a draft response"
+              >
+                <Sparkles className="h-3 w-3" aria-hidden="true" />
+                Live draft
+              </span>
+              <span className="text-label-tertiary">{chip}</span>
+            </span>
+          ) : (
+            chip
+          )
+        }
         chevron={false}
         accent={accent}
         onClick={() => onOpen(item.approval_id)}
