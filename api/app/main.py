@@ -7,34 +7,31 @@ import logging
 import uuid
 from contextlib import asynccontextmanager
 
-import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from app import __version__
 from app.config import get_settings
 from app.db import connect, disconnect
 from app.logging_setup import configure_logging
 from app.routes import admin, approvals, audit, auth, realtime
+from app.services import sentry as sentry_svc
 from app.services.sla import run_forever as sla_run_forever
 
 _settings = get_settings()
 configure_logging(_settings.LOG_LEVEL)
 log = logging.getLogger("quill.main")
 
-if _settings.SENTRY_DSN:
-    sentry_sdk.init(
-        dsn=_settings.SENTRY_DSN,
-        integrations=[FastApiIntegration()],
-        traces_sample_rate=0.1,
-        environment="dev",
-    )
+# Initialize Sentry once at module import time. Safe even with no DSN —
+# the wrapper just installs scope tags. We re-call inside lifespan in case
+# the env was loaded after import.
+sentry_svc.init()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    sentry_svc.init()
     await connect()
     log.info("db connected")
     sla_task = asyncio.create_task(sla_run_forever())
@@ -70,10 +67,12 @@ app.add_middleware(
 async def request_id_middleware(request: Request, call_next):
     rid = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = rid
+    sentry_svc.tag_request(rid)
     try:
         response = await call_next(request)
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         log.exception("unhandled error", extra={"request_id": rid})
+        sentry_svc.capture_exception(e, request_id=rid)
         return JSONResponse(
             status_code=500,
             content={"detail": "internal error", "request_id": rid},
