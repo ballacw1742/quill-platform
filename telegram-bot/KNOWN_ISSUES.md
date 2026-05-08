@@ -83,3 +83,51 @@ bot. Each entry has a severity tag and target sprint.
 - **Fix:** if multi-user, add per-chat GC + maybe upload Trim'd
   history to Drive for future replay.
 - **Target:** post-handover.
+
+## Phase F.2 (voice notes)
+
+### 7. Voice transcription is English-only
+- **Severity:** `(visible-but-tolerable)` for Charles (US-only)
+- **What:** `WhisperClient` defaults to `language="en"` which biases
+  Whisper-1 toward English transcription. Whisper-1 supports many
+  languages but auto-detection isn't enabled.
+- **Fix:** drop the `language=` form parameter (or set it from
+  per-user preferences) when multi-language support is needed.
+- **Target:** Phase F.5 if/when Charles travels or onboards a non-EN
+  partner.
+
+### 8. 25 MB upload cap is shared with Telegram
+- **Severity:** `(invisible)` in practice
+- **What:** Whisper API caps at 25 MB; Telegram's voice-note recorder
+  practically caps recordings around 60s/few-MB so this rarely bites.
+  We short-circuit before download when `voice.file_size > 25 MB`.
+- **Fix:** if Charles ever needs longer recordings, chunk the audio
+  via ffmpeg before uploading.
+- **Target:** post-handover.
+
+### 9. No TTS reply yet — bot answers with text only
+- **Severity:** `(visible-but-tolerable)`
+- **What:** Charles records voice, gets text back. Reading on a site
+  walk works but a TTS reply would be hands-free end-to-end.
+- **Fix:** wire OpenAI's `audio.speech` (TTS-1) into the voice handler
+  to optionally reply with an .mp3.
+- **Target:** Phase F.5 (explicit deferral).
+
+### 10. Voice audio crosses OpenAI's API (privacy)
+- **Severity:** `(visible-but-tolerable)` — documented behaviour
+- **What:** Voice files leave the Mac Studio and hit
+  `api.openai.com/v1/audio/transcriptions`. OpenAI's data-use policy
+  for API calls applies. For fully on-prem transcription we'd run
+  whisper.cpp locally.
+- **Fix:** swap `WhisperClient` for a local whisper.cpp adapter behind
+  the same interface.
+- **Target:** post-handover, only if Charles wants on-prem audio.
+
+### 11. Whisper-1 doesn't return per-utterance confidence
+- **Severity:** `(invisible)`
+- **What:** `TranscriptionResult.confidence` is always `None` because
+  Whisper-1's `verbose_json` doesn't report it. The field stays in the
+  dataclass so future models (or local whisper.cpp with a softmax
+  proxy) can fill it without breaking the consumer contract.
+- **Fix:** none required today.
+- **Target:** none.

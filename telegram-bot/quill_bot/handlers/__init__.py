@@ -1,8 +1,8 @@
 """Telegram bot command handlers (Sprint 2.4 + Phase B)."""
 
-from quill_bot.handlers import decisions, health, nl, queue, start
+from quill_bot.handlers import decisions, health, nl, queue, start, voice
 
-__all__ = ["decisions", "health", "nl", "queue", "start"]
+__all__ = ["decisions", "health", "nl", "queue", "start", "voice"]
 
 
 COMMAND_LIST = [
@@ -35,6 +35,8 @@ def help_text() -> str:
         "• _any chiller items?_\n"
         "• _what did I sign yesterday?_\n"
         "• _draft a status update for this week_\n\n"
+        "🎙️ *Voice notes work too.* Hold the mic in Telegram, talk, send. "
+        "I'll transcribe via Whisper and answer the same way.\n\n"
         "I'll never approve, sign, or send anything for you — for write "
         "actions I produce a 60-second deep link to the web app where "
         "Face ID does the ceremony.\n\n"
