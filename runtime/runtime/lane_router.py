@@ -22,6 +22,26 @@ We then map tiers to wire-level Lane integers (per `app.enums.Lane`):
   - `safety_flag` is true AND any of (`cost_impact_flag`, `schedule_impact_flag`) is true, OR
   - `required_approvers` already lists more than one approver (e.g. partner), OR
   - the input explicitly asks for dual review (`requires_dual_approval=true`).
+
+Sprint-4 fix #6 — trust-tier alias normalization
+------------------------------------------------
+The agent prompt repo and the API enum diverged organically:
+
+  Prompt-repo strings  | API ApiTier enum (`app.enums.TrustTier`)
+  -------------------- | --------------------------------------
+  tier-2-auto          | tier-2-auto
+  tier-1-spotcheck     | tier-1-spotcheck
+  tier-0-mandatory     | tier-0-mandatory
+  tier-2-charles-approves   —  alias used by daily-brief and procurement-watch;
+                            historically mapped to Lane 2 single-approver.
+  tier_2_charles_approves   —  underscore-style misspell seen in two
+                            evals fixtures
+  tier-2 / tier-1 / tier-0  —  short-form, allowed in early evals
+
+`normalize_trust_tier()` is the canonical mapping from any string ever
+seen in the wild to the API enum value. All call sites that read a
+string out of an agent's `system.md` front-matter MUST go through this
+function before handing the value to API code.
 """
 
 from __future__ import annotations
@@ -41,6 +61,56 @@ _TIER_STRICTNESS: dict[str, int] = {
 
 # Default tier when an unrecognized string shows up — be conservative.
 _DEFAULT_UNKNOWN_TIER = "tier-0-mandatory"
+
+
+# ---------------------------------------------------------------------------
+# Sprint-4 fix #6: explicit prompt-tier → ApiTier alias map.
+#
+# Keys are normalized: lowercased, underscores collapsed to dashes, leading
+# `tier_` accepted as `tier-`. The mapping is intentionally exhaustive over
+# every string we have ever seen in agentic-pmo-prompts/agents/*/system.md
+# plus a couple of likely typos. Unknown strings collapse to the strictest
+# tier so we never accidentally weaken the gate.
+# ---------------------------------------------------------------------------
+ApiTier = str  # API enum value, mirror of app.enums.TrustTier in the API.
+
+_PROMPT_TIER_ALIASES: dict[str, ApiTier] = {
+    # Canonical API enum values (idempotent)
+    "tier-0-mandatory": "tier-0-mandatory",
+    "tier-1-spotcheck": "tier-1-spotcheck",
+    "tier-2-auto": "tier-2-auto",
+    # Long-form aliases used by the prompt repo
+    "tier-2-charles-approves": "tier-1-spotcheck",  # Lane 2 single-approver
+    # Short forms accepted in early eval fixtures
+    "tier-0": "tier-0-mandatory",
+    "tier-1": "tier-1-spotcheck",
+    "tier-2": "tier-2-auto",
+    # Common typos / synonyms
+    "mandatory": "tier-0-mandatory",
+    "spotcheck": "tier-1-spotcheck",
+    "spot-check": "tier-1-spotcheck",
+    "auto": "tier-2-auto",
+    "automatic": "tier-2-auto",
+    "charles-approves": "tier-1-spotcheck",
+}
+
+
+def _canon_key(s: str) -> str:
+    return (s or "").strip().lower().replace("_", "-")
+
+
+def normalize_trust_tier(
+    prompt_tier: str | None,
+    *,
+    default: ApiTier = "tier-0-mandatory",
+) -> ApiTier:
+    """Map any prompt-repo trust-tier string to an API ApiTier value.
+
+    Returns ``default`` (strictest) when the input is empty / unrecognized.
+    """
+    if not prompt_tier:
+        return default
+    return _PROMPT_TIER_ALIASES.get(_canon_key(prompt_tier), default)
 
 LOW_CONFIDENCE_THRESHOLD = 0.70
 
@@ -154,4 +224,10 @@ def route_lane(
     )
 
 
-__all__ = ["LaneDecision", "route_lane", "LOW_CONFIDENCE_THRESHOLD"]
+__all__ = [
+    "LaneDecision",
+    "route_lane",
+    "LOW_CONFIDENCE_THRESHOLD",
+    "normalize_trust_tier",
+    "ApiTier",
+]

@@ -58,6 +58,13 @@ def main() -> None:
     default=None,
     help="Skip the live LLM call and replay this pre-recorded output JSON file. Useful for demos without an API key.",
 )
+@click.option(
+    "--no-cache",
+    "no_cache",
+    is_flag=True,
+    default=False,
+    help="Disable Anthropic prompt caching (Sprint-4 fix #9). Useful for cache-cold debugging.",
+)
 def cmd_run(
     agent_id: str,
     input_path: str,
@@ -66,6 +73,7 @@ def cmd_run(
     workflow: str | None,
     priority: str,
     replay_output: str | None,
+    no_cache: bool,
 ) -> None:
     """Run a single agent against a single input file."""
     payload = _read_input(input_path)
@@ -103,6 +111,7 @@ def cmd_run(
             workflow=workflow,
             priority=priority,
             model_override=model_override,
+            prompt_cache=not no_cache,
         )
     )
     _print_run(run)
@@ -185,13 +194,12 @@ def cmd_registry_register(
             return 1
         return 2
 
+    # Sprint-4 fix #6: delegate the prompt-tier → API enum mapping to the
+    # canonical normalizer in runtime.lane_router so we don't drift.
+    from runtime.lane_router import normalize_trust_tier
+
     def _api_tier(t: str) -> str:
-        # Map prompts-repo aliases to the API's TrustTier enum values.
-        if t in ("tier-2-auto",):
-            return "tier-2-auto"
-        if t in ("tier-1-spotcheck", "tier-2-charles-approves"):
-            return "tier-1-spotcheck"
-        return "tier-0-mandatory"
+        return normalize_trust_tier(t)
 
     async def _go() -> dict[str, Any]:
         results: dict[str, Any] = {}

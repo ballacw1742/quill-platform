@@ -53,6 +53,11 @@ class AgentRun:
     approval_id: str | None = None
     submitted_payload: dict[str, Any] | None = None
     error: str | None = None
+    # Sprint-4 fix #9: track Anthropic prompt-cache stats per run.
+    cache_used: bool = False
+    cache_hit: bool = False
+    cache_creation_input_tokens: int = 0
+    cache_read_input_tokens: int = 0
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -120,6 +125,7 @@ class Agent:
         priority: str = "normal",
         required_approvers: list[str] | None = None,
         model_override: str | None = None,
+        prompt_cache: bool = True,
     ) -> AgentRun:
         cfg = self.config
         spec = self.spec
@@ -146,6 +152,10 @@ class Agent:
             latency_ms=0,
             tokens_used={"input": 0, "output": 0},
             fell_back=False,
+            cache_used=False,
+            cache_hit=False,
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
         )
 
         try:
@@ -154,6 +164,7 @@ class Agent:
                 system=spec.system_prompt,
                 user=user_msg,
                 upgrade_model=spec.upgrade_model,
+                prompt_cache=prompt_cache,
             )
         except LLMError as e:
             log.error("agent.run.llm_fail", agent_id=spec.agent_id, err=str(e))
@@ -168,6 +179,14 @@ class Agent:
             "output": llm_resp.output_tokens,
         }
         run_kwargs["fell_back"] = llm_resp.fell_back
+        run_kwargs["cache_used"] = getattr(llm_resp, "cache_used", False)
+        run_kwargs["cache_hit"] = getattr(llm_resp, "cache_hit", False)
+        run_kwargs["cache_creation_input_tokens"] = getattr(
+            llm_resp, "cache_creation_input_tokens", 0
+        )
+        run_kwargs["cache_read_input_tokens"] = getattr(
+            llm_resp, "cache_read_input_tokens", 0
+        )
 
         try:
             output = extract_json(llm_resp.text)
