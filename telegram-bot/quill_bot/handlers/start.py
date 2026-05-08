@@ -22,7 +22,8 @@ WELCOME_PAIRED = (
     "🔗 *Telegram paired.*\n"
     "You're connected as `{email}`.\n\n"
     "Just message me in plain English. I can find approvals, summarize the "
-    "day, draft updates, and more. /help for shortcuts."
+    "day, draft updates, and more. You can also send voice notes — "
+    "I'll transcribe and answer. /help for shortcuts."
 )
 
 WELCOME_NEEDS_CODE = (
