@@ -141,14 +141,19 @@ class QueueClient:
         resp = await self._request("GET", "/v1/agents")
         return resp.json()
 
-    async def update_agent(self, agent_id: str, patch: dict[str, Any]) -> dict[str, Any]:
-        """PATCH /v1/agents/{agent_id} — used for registry updates.
+    async def register_agent(self, agent_id: str, body: dict[str, Any]) -> dict[str, Any]:
+        """POST /v1/agents/{agent_id} — idempotent upsert into AgentRegistration.
 
-        NB: Sprint 1's admin API does not yet expose POST /v1/agents (insert).
-        Registration is implicit: any agent that POSTs an approval gets a row
-        auto-created by the approvals service. This method is the upsert path
-        for tweaking trust tier or default lane after the fact.
+        Added in Sprint 2.1 alongside the runtime; needed because Sprint 1's
+        approvals service does not auto-create AgentRegistration rows.
         """
+        resp = await self._request(
+            "POST", f"/v1/agents/{agent_id}", json=body, admin=True
+        )
+        return resp.json()
+
+    async def update_agent(self, agent_id: str, patch: dict[str, Any]) -> dict[str, Any]:
+        """PATCH /v1/agents/{agent_id} — patch trust tier / default lane / etc."""
         resp = await self._request(
             "PATCH", f"/v1/agents/{agent_id}", json=patch, admin=True
         )

@@ -1,0 +1,32 @@
+{
+  "rfi_id": "RFI-DC1-A-0247",
+  "discipline": "multi_discipline",
+  "secondary_disciplines": ["architectural", "mechanical", "structural"],
+  "category": "drawing_conflict",
+  "priority": "P2-high",
+  "suggested_responder_role": "architect_of_record",
+  "cost_impact_flag": true,
+  "schedule_impact_flag": true,
+  "safety_flag": false,
+  "summary": "Architectural RCP (A4.12) and mechanical chilled-water main (M4.04) conflict in the Data Hall A north corridor; routing above the ceiling further conflicts with the structural beam pocket on S3.04. CMU top-out next Tuesday creates a hard coordination deadline this Friday.",
+  "key_questions": [
+    "Is a corridor ceiling-height drop to 13'-6\" AFF acceptable?",
+    "Can the 36\" chilled-water main be re-routed above the architectural ceiling at 15'-0\" AFF given the S3.04 beam pocket?",
+    "If neither option is acceptable, is a design change required?"
+  ],
+  "citations": [
+    { "kind": "drawing", "ref": "A4.12 RCP — Data Hall A north corridor" },
+    { "kind": "drawing", "ref": "M4.04 — 36\" CHWS routing" },
+    { "kind": "drawing", "ref": "S3.04 — beam pocket detail" },
+    { "kind": "spec_section", "ref": "23 21 13 §3.4.A — chilled-water main clearance" },
+    { "kind": "spec_section", "ref": "09 51 23 §2.1.B — ceiling grid elevation" }
+  ],
+  "duplicate_of": null,
+  "escalation_reasons": [
+    "cost_impact",
+    "schedule_impact",
+    "ambiguous_discipline",
+    "affects_construction_sequence"
+  ],
+  "confidence": 0.82
+}

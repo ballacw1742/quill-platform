@@ -48,6 +48,12 @@ def main() -> None:
 @click.option("--model", "model_override", default=None, help="Override the agent's default model.")
 @click.option("--workflow", default=None, help="Workflow tag (defaults to agent_id).")
 @click.option("--priority", default="normal", show_default=True)
+@click.option(
+    "--replay-output",
+    "replay_output",
+    default=None,
+    help="Skip the live LLM call and replay this pre-recorded output JSON file. Useful for demos without an API key.",
+)
 def cmd_run(
     agent_id: str,
     input_path: str,
@@ -55,11 +61,37 @@ def cmd_run(
     model_override: str | None,
     workflow: str | None,
     priority: str,
+    replay_output: str | None,
 ) -> None:
     """Run a single agent against a single input file."""
     payload = _read_input(input_path)
     cfg = get_config()
-    agent = Agent(agent_id, config=cfg)
+
+    llm = None
+    if replay_output:
+        from runtime.llm_client import LLMClient, LLMResponse
+
+        recorded = json.loads(Path(replay_output).read_text(encoding="utf-8"))
+        body = "```json\n" + json.dumps(recorded, indent=2) + "\n```"
+
+        class _Replay(LLMClient):
+            def __init__(self) -> None:  # type: ignore[no-untyped-def]
+                pass
+
+            async def call_llm(self, **kwargs):  # type: ignore[override]
+                return LLMResponse(
+                    text=body,
+                    model_used=f"replay::{agent_id}",
+                    input_tokens=0,
+                    output_tokens=0,
+                    latency_ms=0,
+                    attempts=1,
+                    fell_back=False,
+                )
+
+        llm = _Replay()
+
+    agent = Agent(agent_id, config=cfg, llm=llm) if llm else Agent(agent_id, config=cfg)
     run = asyncio.run(
         agent.run(
             payload,
@@ -136,57 +168,48 @@ def cmd_registry_register(
 ) -> None:
     """Register one or more agents.
 
-    The Sprint-1 API auto-creates `AgentRegistration` rows the first time an
-    agent submits an approval. This command makes that explicit by submitting
-    a tiny "registration ping" approval per agent (lane 2 by default, payload
-    = {"_registration": true}). It then optionally PATCHes the row to apply
-    `--lane` / `--trust-tier`.
+    Calls `POST /v1/agents/{agent_id}` with the agent's front-matter-derived
+    defaults. Idempotent — re-running the command updates the same rows.
     """
     cfg = get_config()
     from runtime.agent_loader import load_agent
 
+    def _default_lane_for_tier(t: str) -> int:
+        # Mirrors lane_router.route_lane() but at registration time we have no
+        # output yet, so we just pick the agent's *baseline* lane.
+        if t == "tier-2-auto":
+            return 1
+        return 2
+
+    def _api_tier(t: str) -> str:
+        # Map prompts-repo aliases to the API's TrustTier enum values.
+        if t in ("tier-2-auto",):
+            return "tier-2-auto"
+        if t in ("tier-1-spotcheck", "tier-2-charles-approves"):
+            return "tier-1-spotcheck"
+        return "tier-0-mandatory"
+
     async def _go() -> dict[str, Any]:
         results: dict[str, Any] = {}
         async with QueueClient(cfg) as q:
-            existing = {row["agent_id"] for row in await q.list_agents()}
             for aid in agent_ids:
-                if aid in existing:
-                    results[aid] = {"status": "already-registered"}
-                else:
+                try:
                     spec = load_agent(aid, config=cfg)
-                    ping = {
-                        "agent_id": spec.agent_id,
-                        "agent_version": spec.version,
-                        "workflow": f"{spec.agent_id}.registration",
-                        "lane": 2,
-                        "priority": "low",
-                        "target_system": "none",
-                        "payload": {"_registration": True, "default_model": spec.default_model},
-                        "agent_confidence": 1.0,
-                        "agent_reasoning": "registry registration ping",
-                        "agent_model": spec.default_model,
-                        "agent_prompt_version": "registration",
+                    body: dict[str, Any] = {
+                        "version": spec.version,
+                        "trust_tier": trust_tier or _api_tier(spec.trust_tier_default),
+                        "default_lane": lane if lane is not None else _default_lane_for_tier(spec.trust_tier_default),
+                        "enabled": True,
+                        "notes": f"registered by quill-runtime; default_model={spec.default_model}",
                     }
-                    created = await q.create_approval(ping)
-                    # Cancel immediately so the queue isn't polluted with reg pings
-                    try:
-                        await q.cancel(created["id"], reason="registry registration ping")
-                    except Exception:
-                        pass
-                    results[aid] = {"status": "registered", "approval_id": created["id"]}
-
-                # Apply lane / trust-tier overrides if requested
-                if lane is not None or trust_tier is not None:
-                    patch = {}
-                    if lane is not None:
-                        patch["default_lane"] = lane
-                    if trust_tier is not None:
-                        patch["trust_tier"] = trust_tier
-                    try:
-                        await q.update_agent(aid, patch)
-                        results[aid]["patch"] = patch
-                    except Exception as e:
-                        results[aid]["patch_error"] = str(e)
+                    row = await q.register_agent(aid, body)
+                    results[aid] = {
+                        "status": "registered",
+                        "trust_tier": row.get("trust_tier"),
+                        "default_lane": row.get("default_lane"),
+                    }
+                except Exception as e:  # noqa: BLE001
+                    results[aid] = {"status": "error", "error": str(e)}
         return results
 
     out = asyncio.run(_go())
