@@ -20,6 +20,8 @@ dependencies = [
     "structlog>=24.1",
     "sentry-sdk>=1.40",
     "tzdata>=2023.4",
+    "anthropic>=0.40",
+    "jsonschema>=4.20",
 ]
 
 [project.optional-dependencies]
