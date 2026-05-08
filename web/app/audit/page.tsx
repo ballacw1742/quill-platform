@@ -31,7 +31,54 @@ import {
 } from "@/lib/api";
 import type { AuditEntry } from "@/lib/schemas";
 import { cn, shortHash } from "@/lib/utils";
+import { displayName, prettyCase } from "@/lib/agent-meta";
 import { toast } from "sonner";
+
+/**
+ * Translate an actor token like `agent:rfi-triage` or `user:charles@quill.local`
+ * into a human-readable label. Agent actors get the helper display name;
+ * everything else passes through pretty-cased so we never leak raw tokens.
+ */
+function displayActor(actor: string | undefined | null): string {
+  if (!actor) return "";
+  const colon = actor.indexOf(":");
+  if (colon === -1) return actor;
+  const kind = actor.slice(0, colon);
+  const rest = actor.slice(colon + 1);
+  if (kind === "agent") return displayName(rest);
+  if (kind === "user" || kind === "owner" || kind === "partner") return rest;
+  if (kind === "system") return "System";
+  return actor;
+}
+
+/**
+ * Translate event_type strings (e.g. `approval.created`) to plain English.
+ */
+function displayEvent(action: string | undefined | null): string {
+  if (!action) return "Event";
+  switch (action) {
+    case "approval.created":
+      return "Item created";
+    case "approval.approved":
+      return "Approved";
+    case "approval.rejected":
+      return "Sent back";
+    case "approval.escalated":
+      return "Escalated";
+    case "approval.executed":
+      return "Executed";
+    case "approval.expired":
+      return "Expired";
+    case "agent.trust_tier_changed":
+      return "Trust level changed";
+    case "audit.genesis":
+      return "Activity log started";
+    case "audit.verify":
+      return "Activity log verified";
+    default:
+      return prettyCase(action.replace(/\./g, " "));
+  }
+}
 
 /**
  * /audit — iOS-redesign chain log + verifier.
@@ -179,23 +226,26 @@ export default function AuditPage() {
           />
         ) : (
           <ul className="divide-y divide-separator/40 bg-bg-tertiary mx-4 rounded-lg overflow-hidden">
-            {filtered.slice(0, 200).map((e) => (
-              <li key={e.seq}>
-                <ListRow
-                  icon={eventIcon(e.action)}
-                  iconTone={eventTone(e.action)}
-                  title={e.action || "event"}
-                  subtitle={
-                    e.approval_id
-                      ? `${e.actor} · ${shortHash(e.approval_id, 14)}…`
-                      : e.actor
-                  }
-                  chip={shortHash(e.hash, 8)}
-                  onClick={() => setOpenEntry(e)}
-                  hideDivider
-                />
-              </li>
-            ))}
+            {filtered.slice(0, 200).map((e) => {
+              const human = displayActor(e.actor);
+              return (
+                <li key={e.seq}>
+                  <ListRow
+                    icon={eventIcon(e.action)}
+                    iconTone={eventTone(e.action)}
+                    title={displayEvent(e.action)}
+                    subtitle={
+                      e.approval_id
+                        ? `${human} · ${shortHash(e.approval_id, 14)}…`
+                        : human
+                    }
+                    chip={shortHash(e.hash, 8)}
+                    onClick={() => setOpenEntry(e)}
+                    hideDivider
+                  />
+                </li>
+              );
+            })}
           </ul>
         )}
         <div className="h-8" />
@@ -209,7 +259,7 @@ export default function AuditPage() {
         fullHeight
       >
         <BottomSheetTopBar
-          title={openEntry?.action ?? "Entry"}
+          title={openEntry ? displayEvent(openEntry.action) : "Entry"}
           left={
             <button
               type="button"
@@ -391,8 +441,8 @@ function EntryDetail({ entry }: { entry: AuditEntry }) {
           Event
         </div>
         <dl className="grid grid-cols-1 gap-y-1">
-          <Row k="Type" v={entry.action} />
-          <Row k="Actor" v={entry.actor} />
+          <Row k="Type" v={displayEvent(entry.action)} />
+          <Row k="Actor" v={displayActor(entry.actor)} />
           <Row
             k="Time"
             v={entry.ts ? new Date(entry.ts).toLocaleString() : "—"}

@@ -16,6 +16,7 @@ import {
 import { cn, truncate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { ApprovalItem } from "@/lib/schemas";
+import { displayName, displayWorkflow } from "@/lib/agent-meta";
 
 const TARGET_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   procore: Workflow,
@@ -55,10 +56,12 @@ export function ApprovalCard({ item }: { item: ApprovalItem }) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          <Badge variant="outline" className="font-mono text-[10px]">
-            {item.agent_id}
+          <Badge variant="outline" className="text-[10px]">
+            {displayName(item.agent_id)}
           </Badge>
-          <span className="truncate text-xs text-muted-foreground">{item.workflow}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {displayWorkflow(item.workflow)}
+          </span>
         </div>
         <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
       </div>

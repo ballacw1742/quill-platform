@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { JsonBlock } from "./JsonBlock";
 import type { ApprovalItem } from "@/lib/schemas";
+import { displayName } from "@/lib/agent-meta";
 
 export function ProposedActionPane({ item }: { item: ApprovalItem }) {
   const a = item.proposed_action;
@@ -16,8 +17,8 @@ export function ProposedActionPane({ item }: { item: ApprovalItem }) {
           <CardTitle className="flex items-center gap-2 text-sm">
             <Wand2 className="h-4 w-4 text-primary" /> Proposed action
           </CardTitle>
-          <Badge variant="outline" className="font-mono text-[10px]">
-            {item.agent_id} @ {item.agent_version}
+          <Badge variant="outline" className="text-[10px]">
+            {displayName(item.agent_id)} · v{item.agent_version}
           </Badge>
         </div>
       </CardHeader>

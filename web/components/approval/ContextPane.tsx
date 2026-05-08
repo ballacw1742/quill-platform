@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { ApprovalItem } from "@/lib/schemas";
+import { displayName } from "@/lib/agent-meta";
 
 function ConfidenceGauge({ value }: { value: number }) {
   const pct = Math.round(value * 100);
@@ -14,7 +15,7 @@ function ConfidenceGauge({ value }: { value: number }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[11px]">
-        <span className="text-muted-foreground">Agent confidence</span>
+        <span className="text-muted-foreground">Confidence</span>
         <span className={cn("font-mono font-medium", value < 0.7 ? "text-destructive" : value < 0.85 ? "text-warning" : "text-success")}>
           {pct}%
         </span>
@@ -118,8 +119,8 @@ export function ContextPane({ item }: { item: ApprovalItem }) {
             <div className="font-mono">{item.agent_model ?? "—"}</div>
           </div>
           <div>
-            <div className="text-muted-foreground">Prompt version</div>
-            <div className="font-mono">{item.prompt_version ?? `${item.agent_id}@${item.agent_version}`}</div>
+            <div className="text-muted-foreground">Helper</div>
+            <div>{displayName(item.agent_id)} · v{item.agent_version}</div>
           </div>
           <div>
             <div className="text-muted-foreground">Created</div>

@@ -32,6 +32,11 @@ import { cn, shortHash } from "@/lib/utils";
 import { AgentBadge } from "./AgentBadge";
 import { FlagChips } from "./FlagChips";
 import { LANE_META } from "./laneMeta";
+import {
+  displayName,
+  displayConfidence,
+  displayWorkflow,
+} from "@/lib/agent-meta";
 
 /**
  * ApprovalDetailSheet — bottom sheet that replaces the standalone
@@ -376,11 +381,11 @@ function DetailContent({
     addSuffix: true,
   });
   const triageFields: Array<[string, string | undefined]> = [
-    ["Workflow", item.workflow],
-    ["Lane", lane?.short],
-    ["Agent", `${item.agent_id} @ ${item.agent_version}`],
-    ["Confidence", `${Math.round((item.confidence ?? 0) * 100)}%`],
-    ["Target", item.proposed_action.target_system ?? "draft-only"],
+    ["Action type", displayWorkflow(item.workflow)],
+    ["Lane", lane?.label],
+    ["Helper", displayName(item.agent_id)],
+    ["Confidence", displayConfidence(item.confidence ?? 0, false)],
+    ["Target", item.proposed_action.target_system ?? "Draft only"],
     ["Project", item.context.project_id],
   ];
 
@@ -493,7 +498,7 @@ function DetailContent({
                 Created {age}
               </div>
               <div className="text-footnote text-label-tertiary">
-                {item.agent_id}
+                {displayName(item.agent_id)}
               </div>
             </div>
           </li>
