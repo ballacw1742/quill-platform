@@ -281,6 +281,57 @@ class WebAuthnCredential(Base):
     __table_args__ = (UniqueConstraint("credential_id_b64", name="uq_webauthn_credential_id"),)
 
 
+# ---------------------------------------------------------------------------
+# Document — Phase D.1 Documents service
+# ---------------------------------------------------------------------------
+class Document(Base):
+    """A persisted artifact produced by a PM agent and approved for publication.
+
+    Wire/DB shape mirrors web/DOCUMENTS_SPEC.md §"DB schema" (the authoritative
+    spec). On Postgres, `search_vector` is a generated tsvector column with a
+    GIN index; on SQLite (dev) it is omitted and search falls back to LIKE.
+    """
+
+    __tablename__ = "documents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+
+    # Identity / origin
+    artifact_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
+    artifact_type: Mapped[str] = mapped_column(String(64), index=True)
+
+    # Display
+    title: Mapped[str] = mapped_column(String(256))
+    summary: Mapped[str] = mapped_column(String(512), default="")
+    body_markdown: Mapped[str] = mapped_column(Text, default="")
+
+    # Producer
+    agent_id: Mapped[str] = mapped_column(String(64), index=True)
+    agent_display_name: Mapped[str] = mapped_column(String(128), default="")
+
+    # Lifecycle
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    approval_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("approval_items.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Tags + storage refs
+    tags: Mapped[list[Any]] = mapped_column(JSONType, default=list)
+    drive_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    minio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+
+    __table_args__ = (
+        Index("ix_documents_artifact_type_created", "artifact_type", "created_at"),
+        Index("ix_documents_agent_created", "agent_id", "created_at"),
+    )
+
+
 __all__ = [
     "ApprovalItem",
     "ApprovalRecord",
@@ -290,6 +341,7 @@ __all__ = [
     "AgentRegistration",
     "User",
     "WebAuthnCredential",
+    "Document",
     "Decision",
     "ExecutionResult",
 ]
