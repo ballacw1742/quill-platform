@@ -1,0 +1,30 @@
+{
+  "rfi": {
+    "id": "RFI-DC1-A-0247",
+    "subject": "Conflict between architectural reflected ceiling plan and mechanical drawings — Data Hall A north corridor",
+    "body": "Architectural sheet A4.12 RCP shows a continuous T-bar grid at elevation 14'-6\" AFF along the north corridor of Data Hall A (gridlines A.1–A.7 / 12–18). Mechanical sheet M4.04 shows a 36\" round chilled-water main routed at 14'-2\" AFF in the same corridor with a 4\" insulation jacket, putting the bottom of insulation at 13'-10\" AFF. There is no clearance for ceiling tile removal for filter access. Please confirm: (a) is the chilled-water main allowed to drop the corridor ceiling height to 13'-6\" AFF, (b) should we route the main above the architectural ceiling at 15'-0\", which conflicts with the structural 18\" beam pocket on S3.04, or (c) issue a design change. The CMU walls in this area are scheduled to top out next Tuesday, so we are blocked on coordination beyond Friday this week.",
+    "submitted_by": "GC MEP Coordinator",
+    "submitted_at": "2026-05-04T13:30:00Z",
+    "attachments": []
+  },
+  "context": {
+    "spec_index": [
+      { "section": "23 21 13", "excerpt": "§3.4.A Chilled-water mains in occupied corridors shall maintain 9'-0\" minimum AFF clearance to bottom of insulation." },
+      { "section": "09 51 23", "excerpt": "§2.1.B Acoustical T-bar grid: 14'-6\" AFF in all data hall corridors except as noted on the RCP." }
+    ],
+    "drawings": [
+      { "sheet": "A4.12", "excerpt": "RCP — Data Hall A north corridor — T-bar @ 14'-6\" AFF" },
+      { "sheet": "M4.04", "excerpt": "36\" CHWS routed N corridor, BOP 14'-2\" AFF, 4\" insulation" },
+      { "sheet": "S3.04", "excerpt": "Beam pocket — 18\" deep — bottom @ 14'-6\" AFF" }
+    ],
+    "prior_rfis": [
+      { "id": "RFI-DC1-A-0188", "subject": "Corridor ceiling height tolerance", "resolution": "9'-0\" minimum confirmed by AOR" }
+    ],
+    "project": {
+      "id": "DC-OH-08",
+      "name": "Data Center 1 — New Albany",
+      "current_phase": "construction",
+      "long_lead_list": ["chillers", "switchgear", "transformers", "gensets"]
+    }
+  }
+}
