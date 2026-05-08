@@ -1,8 +1,8 @@
-"""Telegram bot command handlers (Sprint 2.4)."""
+"""Telegram bot command handlers (Sprint 2.4 + Phase B)."""
 
-from quill_bot.handlers import decisions, health, queue, start
+from quill_bot.handlers import decisions, health, nl, queue, start
 
-__all__ = ["decisions", "health", "queue", "start"]
+__all__ = ["decisions", "health", "nl", "queue", "start"]
 
 
 COMMAND_LIST = [
