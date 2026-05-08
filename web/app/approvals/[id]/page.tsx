@@ -6,6 +6,7 @@ import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell
 import { ApprovalDetailSheet } from "@/components/queue/ApprovalDetailSheet";
 import { useApproval } from "@/lib/api";
 import { EmptyState } from "@/components/ui/empty-state";
+import { SkelBar } from "@/components/ui/skeletons";
 import { Inbox } from "lucide-react";
 
 /**
@@ -33,11 +34,14 @@ export default function ApprovalDeepLinkPage() {
       <div className="bg-bg-elevated min-h-[60vh] flex flex-col items-center justify-center px-6">
         {isLoading ? (
           <div
-            className="flex flex-col items-center gap-2"
+            role="status"
+            aria-busy="true"
             aria-label="Loading item"
+            className="w-full max-w-md text-center space-y-3 py-12"
           >
-            <span className="block h-4 w-40 rounded-sm bg-bg-elevated animate-shimmer" />
-            <span className="block h-3 w-56 rounded-sm bg-bg-elevated animate-shimmer" />
+            <SkelBar tone="dark" className="mx-auto h-5 w-2/3" />
+            <SkelBar tone="dark" className="mx-auto h-4 w-5/6" />
+            <SkelBar tone="dark" className="mx-auto h-4 w-3/4" />
           </div>
         ) : item ? (
           <div className="text-center space-y-2 py-12">

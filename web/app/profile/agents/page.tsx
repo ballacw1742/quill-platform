@@ -24,6 +24,7 @@ import {
 } from "@/lib/agent-meta";
 import { HelpHint } from "@/components/ui/help-hint";
 import { ErrorBanner } from "@/components/ui/error-banner";
+import { SkelList } from "@/components/ui/skeletons";
 import { toast } from "sonner";
 
 /**
@@ -80,16 +81,11 @@ export default function ProfileAgentsPage() {
         )}
         {isLoading ? (
           <ListGroup>
-            <div className="px-4 py-3 space-y-2">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <span
-                  key={i}
-                  className="block h-4 w-2/3 rounded-sm bg-bg-elevated animate-shimmer"
-                  aria-hidden="true"
-                />
-              ))}
-              <span className="sr-only">Loading helpers</span>
-            </div>
+            <SkelList
+              ariaLabel="Loading helpers"
+              count={5}
+              className="rounded-lg overflow-hidden"
+            />
           </ListGroup>
         ) : agents.length === 0 ? (
           <EmptyState

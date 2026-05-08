@@ -18,6 +18,7 @@ import { ListRow } from "@/components/ui/list-row";
 import { useHealth } from "@/lib/api";
 import type { Health } from "@/lib/schemas";
 import { formatCurrency, formatPercent, cn } from "@/lib/utils";
+import { SkelBar, SkelList } from "@/components/ui/skeletons";
 
 /**
  * /profile/health — replaces /health.
@@ -43,38 +44,52 @@ export default function ProfileHealthPage() {
 
       <GroupedList>
         {/* Hero — overall status */}
-        <section className="overflow-hidden rounded-xl bg-bg-tertiary shadow-card">
-          <div className="flex items-start gap-3 p-4">
-            <div
-              className={cn(
-                "flex h-12 w-12 shrink-0 items-center justify-center rounded-full",
-                status.tone === "success" && "bg-success/10 text-success",
-                status.tone === "warning" && "bg-warning/10 text-warning",
-                status.tone === "danger" && "bg-danger/10 text-danger",
-              )}
-              aria-hidden="true"
-            >
-              <CheckCircle2 className="h-7 w-7" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-title-3 text-label-primary">
-                {status.headline}
+        {isLoading && !data ? (
+          <section
+            className="overflow-hidden rounded-xl bg-bg-tertiary shadow-card"
+            role="status"
+            aria-busy="true"
+            aria-label="Loading status"
+          >
+            <div className="flex items-start gap-3 p-4">
+              <SkelBar className="h-12 w-12 shrink-0 rounded-full" />
+              <div className="flex-1 min-w-0 space-y-2">
+                <SkelBar className="h-5 w-1/2" />
+                <SkelBar className="h-3.5 w-1/3" />
               </div>
-              <div className="text-callout text-label-secondary">
-                {data?.checked_at ? (
-                  `Updated ${new Date(data.checked_at).toLocaleTimeString()}`
-                ) : isLoading ? (
-                  <span
-                    className="inline-block h-3 w-24 rounded-sm bg-bg-elevated animate-shimmer align-middle"
-                    aria-label="Loading"
-                  />
-                ) : (
-                  "—"
+            </div>
+          </section>
+        ) : (
+          <section className="overflow-hidden rounded-xl bg-bg-tertiary shadow-card">
+            <div className="flex items-start gap-3 p-4">
+              <div
+                className={cn(
+                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-full",
+                  status.tone === "success" && "bg-success/10 text-success",
+                  status.tone === "warning" && "bg-warning/10 text-warning",
+                  status.tone === "danger" && "bg-danger/10 text-danger",
                 )}
+                aria-hidden="true"
+              >
+                <CheckCircle2 className="h-7 w-7" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-title-3 text-label-primary">
+                  {status.headline}
+                </div>
+                <div className="text-callout text-label-secondary">
+                  {data?.checked_at
+                    ? `Updated ${new Date(data.checked_at).toLocaleTimeString()}`
+                    : "—"}
+                </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
+
+        {isLoading && !data && (
+          <SkelList ariaLabel="Loading subsystems" count={5} />
+        )}
 
         {data && (
           <>
@@ -213,7 +228,9 @@ function computeStatus(data: Health | undefined): {
   tone: "success" | "warning" | "danger";
   headline: string;
 } {
-  if (!data) return { tone: "warning", headline: "Loading status…" };
+  // The page renders a skeleton hero while !data; if we're called with no
+  // data anyway, fall back to a neutral state.
+  if (!data) return { tone: "success", headline: "—" };
   if (!data.audit_chain?.ok) {
     return { tone: "danger", headline: "Activity log drift" };
   }

@@ -17,6 +17,7 @@ import { sortItemsForLane, LANE_META } from "@/components/queue/laneMeta";
 import { laneTabLabel } from "@/lib/agent-meta";
 import { OnboardingOverlay } from "@/components/onboarding/OnboardingOverlay";
 import { ErrorBanner } from "@/components/ui/error-banner";
+import { SkelList } from "@/components/ui/skeletons";
 
 /**
  * /queue — iOS-redesign main screen, per MOBILE_UX_SPEC §"Tab 1 — Queue".
@@ -205,7 +206,7 @@ export default function QueuePage() {
             />
           )}
           {isLoading ? (
-            <SkeletonRows />
+            <SkelList ariaLabel="Loading queue" count={6} />
           ) : activeRows.length === 0 ? (
             <EmptyLaneState lane={lane} />
           ) : (
@@ -245,25 +246,6 @@ export default function QueuePage() {
         onClose={() => setOpenId(null)}
       />
     </MobileShell>
-  );
-}
-
-function SkeletonRows() {
-  return (
-    <ul className="divide-y divide-separator/40 bg-bg-tertiary">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <li
-          key={i}
-          className="flex items-center gap-3 px-4 py-3 min-h-[56px] animate-shimmer"
-        >
-          <span className="h-7 w-7 shrink-0 rounded-md bg-bg-elevated" />
-          <div className="flex-1 space-y-1.5">
-            <span className="block h-3.5 w-2/3 rounded-sm bg-bg-elevated" />
-            <span className="block h-3 w-5/6 rounded-sm bg-bg-elevated" />
-          </div>
-        </li>
-      ))}
-    </ul>
   );
 }
 

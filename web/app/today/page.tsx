@@ -18,6 +18,7 @@ import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
+import { SkelHeroCard, SkelSectionCard } from "@/components/ui/skeletons";
 import { useApprovals } from "@/lib/api";
 import type { ApprovalItem, Lane } from "@/lib/schemas";
 import { detectFlags } from "@/components/queue/FlagChips";
@@ -40,6 +41,7 @@ export default function TodayPage() {
 
   const stats = computeStats(items);
 
+  const isInitialLoading = isLoading && items.length === 0;
   const isEmpty =
     !isLoading && items.length === 0;
 
@@ -56,7 +58,17 @@ export default function TodayPage() {
               className="mx-0"
             />
           )}
-          {isEmpty ? (
+          {isInitialLoading ? (
+            <>
+              <SkelHeroCard />
+              <SkelSectionCard />
+              <SkelSectionCard />
+              <SkelSectionCard />
+              <SkelSectionCard />
+              <SkelSectionCard />
+              <SkelSectionCard />
+            </>
+          ) : isEmpty ? (
             <EmptyState
               icon={<Sparkles />}
               title="Quill is still learning your project."
