@@ -17,6 +17,7 @@ from app.db import connect, disconnect
 from app.logging_setup import configure_logging
 from app.routes import admin, approvals, audit, auth, realtime
 from app.services import sentry as sentry_svc
+from app.services.audit_mirror import get_mirror
 from app.services.sla import run_forever as sla_run_forever
 
 _settings = get_settings()
@@ -35,6 +36,9 @@ async def lifespan(app: FastAPI):
     await connect()
     log.info("db connected")
     sla_task = asyncio.create_task(sla_run_forever())
+    mirror = get_mirror()
+    await mirror.start()
+    log.info("audit_mirror started (mode=%s)", mirror.backend.mode)
     try:
         yield
     finally:
@@ -43,6 +47,7 @@ async def lifespan(app: FastAPI):
             await sla_task
         except asyncio.CancelledError:
             pass
+        await mirror.stop()
         await disconnect()
         log.info("db disconnected")
 

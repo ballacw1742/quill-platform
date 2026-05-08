@@ -2,19 +2,30 @@
 
 Every state change MUST funnel through `record_event`. Tampering is detected
 by `verify_chain`.
+
+Sprint 2.3 adds an offsite mirror: `record_event_with_mirror` is the new
+preferred entry point and chains the existing `record_event` with an
+async push to `app.services.audit_mirror`. The legacy `record_event` is
+kept for backwards compat (and is the path approvals.py + sla.py already
+use — they both flow through the dispatcher below).
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import os
 from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models import AuditLogEntry
+
+log = logging.getLogger("quill.audit")
 
 
 def _canonical(payload: dict[str, Any]) -> str:
@@ -55,6 +66,18 @@ async def _latest_hash(
     return last.hash, last.id
 
 
+def is_audit_frozen() -> bool:
+    """Truthy when the freeze touch-file is present. The nightly verify writes
+    this on a non-OK result; presence blocks new audit writes until ops clears it.
+    """
+    s = get_settings()
+    return bool(s.AUDIT_FREEZE_FLAG_PATH) and os.path.exists(s.AUDIT_FREEZE_FLAG_PATH)
+
+
+class AuditFrozenError(RuntimeError):
+    """Raised when the audit chain is in freeze mode and a write is attempted."""
+
+
 async def record_event(
     session: AsyncSession,
     *,
@@ -62,8 +85,18 @@ async def record_event(
     actor: str,
     approval_item_id: str | None,
     payload: dict[str, Any],
+    mirror: bool = True,
 ) -> AuditLogEntry:
-    """Append a chained event. Returns the new AuditLogEntry (not yet committed)."""
+    """Append a chained event. Returns the new AuditLogEntry (not yet committed).
+
+    If `mirror=True` (default), the entry is also pushed to the offsite mirror
+    queue immediately after the SQLAlchemy flush. The actual upload happens
+    asynchronously — the caller is *not* blocked on B2 latency.
+    """
+    if is_audit_frozen():
+        raise AuditFrozenError(
+            "audit chain is frozen — a verification failure has paused writes"
+        )
     prev_hash, _ = await _latest_hash(session, approval_item_id)
     ts = datetime.now(UTC)
     body = {
@@ -87,7 +120,36 @@ async def record_event(
     )
     session.add(entry)
     await session.flush()
+    if mirror:
+        try:
+            from app.services.audit_mirror import get_mirror
+
+            get_mirror().enqueue(entry)
+        except Exception as exc:  # noqa: BLE001
+            # Mirror enqueue must NEVER block the primary audit write.
+            log.warning("audit_mirror enqueue failed for entry=%s err=%s", entry.id, exc)
     return entry
+
+
+async def record_event_with_mirror(
+    session: AsyncSession,
+    *,
+    event_type: str,
+    actor: str,
+    approval_item_id: str | None,
+    payload: dict[str, Any],
+) -> AuditLogEntry:
+    """Explicitly mirrored variant. Identical to `record_event(mirror=True)`,
+    kept as a named entry point so callers can opt-in unambiguously.
+    """
+    return await record_event(
+        session,
+        event_type=event_type,
+        actor=actor,
+        approval_item_id=approval_item_id,
+        payload=payload,
+        mirror=True,
+    )
 
 
 def _verify_subchain(entries: list[AuditLogEntry]) -> tuple[list[str], str | None]:
