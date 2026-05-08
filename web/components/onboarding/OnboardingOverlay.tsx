@@ -9,6 +9,7 @@ import {
 } from "framer-motion";
 import {
   CheckCircle2,
+  MessageCircle,
   Newspaper,
   Sparkles,
   type LucideIcon,
@@ -16,20 +17,26 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * OnboardingOverlay — three-step intro shown the first time a signed-in
+ * OnboardingOverlay — four-step intro shown the first time a signed-in
  * user lands on /queue.
  *
  * Per COPY_GUIDE.md §"Onboarding overlay":
  *   1. "Quill is your project assistant."
  *   2. "Tap Approve, Reject, or Edit on any item."
  *   3. "Use Today for a daily summary."
+ *   4. (Phase E) "Chat with Quill on Telegram." — always shown; the
+ *      Telegram bot is universally useful and the card invites pairing
+ *      regardless of current status.
  *
  * Behaviour:
  *   - Dismissible with the top-right "Skip" button (sets the flag).
- *   - Final card has "Got it" instead of "Next" (also sets the flag).
+ *   - Final card has "Got it" instead of "Next"; tapping it plays a subtle
+ *     scale-from-0.95 fade celebration before unmounting (no confetti).
  *   - Sets `localStorage.quill.onboarded = "true"` on every dismiss path.
- *   - Swipe horizontally between cards (and dot indicator + Next button).
- *   - Reduced-motion: no slide animation, just instant card swap.
+ *   - Swipe horizontally between cards (drag-end threshold + arrow keys
+ *     + dot indicator). Spring uses the iOS curve from DESIGN_SYSTEM §6.
+ *   - Reduced-motion: no slide animation, instant card swap, no
+ *     celebration scale; just instant state changes.
  *   - Honours focus trap via fixed-position overlay; pressing Escape
  *     dismisses (treated as skip).
  */
@@ -58,14 +65,22 @@ const CARDS: Card[] = [
     title: "Use Today for a daily summary.",
     body: "At 7 AM, you'll get a brief of what needs your attention.",
   },
+  {
+    icon: MessageCircle,
+    title: "Chat with Quill on Telegram.",
+    body: "Plain English works too. Tap @DC_QuillBot to start a conversation.",
+  },
 ];
 
 const SWIPE_THRESHOLD_PX = 50;
+const IOS_EASE: [number, number, number, number] = [0.32, 0.72, 0, 1];
 
 export function OnboardingOverlay() {
   const reduceMotion = useReducedMotion();
   const [open, setOpen] = React.useState(false);
   const [index, setIndex] = React.useState(0);
+  const [direction, setDirection] = React.useState<1 | -1>(1);
+  const [closing, setClosing] = React.useState(false);
 
   // Run on mount; show iff the flag isn't set.
   React.useEffect(() => {
@@ -79,37 +94,56 @@ export function OnboardingOverlay() {
     }
   }, []);
 
-  const dismiss = React.useCallback(() => {
+  const persistFlag = React.useCallback(() => {
     try {
       window.localStorage.setItem(STORAGE_KEY, "true");
     } catch {
       // ignore
     }
-    setOpen(false);
   }, []);
 
-  const next = () => {
-    if (index >= CARDS.length - 1) {
-      dismiss();
+  const skip = React.useCallback(() => {
+    persistFlag();
+    setOpen(false);
+  }, [persistFlag]);
+
+  // Final-card "Got it" celebration: a brief scale-from-0.95 fade. We mark
+  // closing=true, let the exit animation play (~220 ms), then unmount.
+  const finishWithCelebration = React.useCallback(() => {
+    persistFlag();
+    if (reduceMotion) {
+      setOpen(false);
       return;
     }
+    setClosing(true);
+    window.setTimeout(() => setOpen(false), 240);
+  }, [persistFlag, reduceMotion]);
+
+  const next = React.useCallback(() => {
+    if (index >= CARDS.length - 1) {
+      finishWithCelebration();
+      return;
+    }
+    setDirection(1);
     setIndex((i) => Math.min(i + 1, CARDS.length - 1));
-  };
+  }, [index, finishWithCelebration]);
 
-  const prev = () => setIndex((i) => Math.max(i - 1, 0));
+  const prev = React.useCallback(() => {
+    setDirection(-1);
+    setIndex((i) => Math.max(i - 1, 0));
+  }, []);
 
-  // Escape → skip
+  // Escape → skip; arrow keys page between cards.
   React.useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") dismiss();
+      if (e.key === "Escape") skip();
       if (e.key === "ArrowRight") next();
       if (e.key === "ArrowLeft") prev();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, index]);
+  }, [open, next, prev, skip]);
 
   if (!open) return null;
 
@@ -125,19 +159,42 @@ export function OnboardingOverlay() {
     else if (info.offset.x > SWIPE_THRESHOLD_PX) prev();
   };
 
+  // Card slide variants — tuned for iOS-native feel: small offset, tween
+  // (not spring) so there's no overshoot, ~240 ms duration.
+  const cardVariants = reduceMotion
+    ? {
+        enter: { opacity: 1, x: 0 },
+        center: { opacity: 1, x: 0 },
+        exit: { opacity: 0, x: 0 },
+      }
+    : {
+        enter: (dir: 1 | -1) => ({ opacity: 0, x: dir * 32 }),
+        center: { opacity: 1, x: 0 },
+        exit: (dir: 1 | -1) => ({ opacity: 0, x: dir * -32 }),
+      };
+
   return (
-    <div
+    <motion.div
       role="dialog"
       aria-modal="true"
       aria-labelledby="onboarding-title"
       className="fixed inset-0 z-[60] flex flex-col bg-bg"
+      initial={reduceMotion ? false : { opacity: 0 }}
+      animate={
+        closing
+          ? { opacity: 0, scale: reduceMotion ? 1 : 0.97 }
+          : { opacity: 1, scale: 1 }
+      }
+      transition={{ duration: reduceMotion ? 0 : 0.22, ease: IOS_EASE }}
+      style={{ transformOrigin: "center" }}
     >
       {/* Top bar — Skip lives here; even Skip sets the flag. */}
-      <div className="flex h-12 items-center justify-end px-2 pt-[env(safe-area-inset-top)]">
+      <div className="flex h-12 items-center justify-end px-2 pt-safe">
         <button
           type="button"
-          onClick={dismiss}
+          onClick={skip}
           className="text-body text-accent active:opacity-60 no-tap-highlight min-h-[44px] px-3"
+          aria-label="Skip onboarding"
         >
           Skip
         </button>
@@ -145,18 +202,24 @@ export function OnboardingOverlay() {
 
       {/* Card area */}
       <div className="flex-1 flex items-center justify-center px-6">
-        <AnimatePresence mode="wait" initial={false}>
+        <AnimatePresence mode="wait" initial={false} custom={direction}>
           <motion.div
             key={index}
+            custom={direction}
+            variants={cardVariants}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            transition={{
+              duration: reduceMotion ? 0 : 0.24,
+              ease: IOS_EASE,
+            }}
             drag={reduceMotion ? false : "x"}
-            dragElastic={0.1}
+            dragElastic={0.18}
             dragConstraints={{ left: 0, right: 0 }}
+            dragMomentum={false}
             onDragEnd={onDragEnd}
-            initial={reduceMotion ? { opacity: 1 } : { opacity: 0, x: 24 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: -24 }}
-            transition={{ duration: reduceMotion ? 0 : 0.24 }}
-            className="flex max-w-md flex-col items-center text-center gap-5"
+            className="flex max-w-md flex-col items-center text-center gap-5 touch-pan-y"
           >
             <div className="flex h-20 w-20 items-center justify-center rounded-full bg-accent/10 text-accent">
               <Icon className="h-10 w-10" aria-hidden="true" />
@@ -175,16 +238,29 @@ export function OnboardingOverlay() {
       </div>
 
       {/* Dot indicator + primary action */}
-      <div className="flex flex-col items-center gap-5 px-6 pb-[max(env(safe-area-inset-bottom),24px)] pt-4">
-        <div className="flex items-center gap-2" aria-hidden="true">
+      <div className="flex flex-col items-center gap-5 px-6 pt-4 pb-[max(env(safe-area-inset-bottom),24px)]">
+        <div
+          className="flex items-center gap-2"
+          role="tablist"
+          aria-label="Onboarding progress"
+        >
           {CARDS.map((_, i) => (
-            <span
+            <button
               key={i}
+              type="button"
+              role="tab"
+              aria-selected={i === index}
+              aria-label={`Step ${i + 1} of ${CARDS.length}`}
+              tabIndex={-1}
+              onClick={() => {
+                setDirection(i > index ? 1 : -1);
+                setIndex(i);
+              }}
               className={cn(
                 "h-2 rounded-full transition-all",
                 i === index
                   ? "w-6 bg-accent"
-                  : "w-2 bg-label-quaternary/40",
+                  : "w-2 bg-label-quaternary/40 hover:bg-label-tertiary/60",
               )}
             />
           ))}
@@ -196,11 +272,12 @@ export function OnboardingOverlay() {
             "flex h-12 w-full max-w-md items-center justify-center rounded-lg",
             "bg-accent text-headline font-medium text-white",
             "active:opacity-80 no-tap-highlight",
+            "transition-transform duration-100 active:scale-[0.98]",
           )}
         >
           {isLast ? "Got it" : "Next"}
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 }
