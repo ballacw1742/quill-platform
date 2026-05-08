@@ -14,12 +14,34 @@ COMMAND_LIST = [
     ("escalate", "Escalate <id> to Lane 3"),
     ("health", "Quill fleet health summary"),
     ("brief", "Latest Daily Brief"),
+    ("reset", "Clear this chat's conversation memory"),
     ("help", "Show this help"),
 ]
 
 
 def help_text() -> str:
-    lines = ["*Quill Bot — Commands*"]
-    for name, desc in COMMAND_LIST:
-        lines.append(f"`/{name}` — {desc}")
-    return "\n".join(lines)
+    """Phase-B help text.
+
+    Natural language is the *primary* interface; slash commands are
+    shortcuts. Kept under 200 words so it fits on one Telegram screen.
+    """
+    return (
+        "*Quill Bot — How to use me*\n\n"
+        "💬 *Just message me in plain English.*\n"
+        "I can search the Approval Queue, summarize your day, draft updates, "
+        "explain why something is flagged, and pull live data from the runtime. "
+        "Examples:\n"
+        "• _what's pending?_\n"
+        "• _any chiller items?_\n"
+        "• _what did I sign yesterday?_\n"
+        "• _draft a status update for this week_\n\n"
+        "I'll never approve, sign, or send anything for you — for write "
+        "actions I produce a 60-second deep link to the web app where "
+        "Face ID does the ceremony.\n\n"
+        "*Slash-command shortcuts*\n"
+        "`/queue` — pending approvals\n"
+        "`/approve <id>` · `/reject <id> <reason>` · `/edit <id>` · `/escalate <id>`\n"
+        "`/health` — fleet status · `/brief` — latest Daily Brief\n"
+        "`/reset` — clear my memory of this chat\n"
+        "`/start <code>` — pair a new chat"
+    )
