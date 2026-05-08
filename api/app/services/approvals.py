@@ -250,12 +250,35 @@ async def decide_approval(
 
 
 # ---------------------------------------------------------------------------
-# Execute (Sprint 1 stub)
+# Execute (Sprint 1 stub + Phase D.1 publish hook)
 # ---------------------------------------------------------------------------
+def _is_publish_artifact(item: ApprovalItem) -> bool:
+    """True if this approval should produce a Document on execute.
+
+    Match on either:
+      - workflow ID in the publish-artifact set, or
+      - payload.proposed_action.kind == 'publish_artifact'.
+    """
+    # Lazy import to avoid a service<->service circular at module load.
+    from app.services.documents import ARTIFACT_PUBLISH_WORKFLOWS, PUBLISH_ACTION_KIND
+
+    if (item.workflow or "") in ARTIFACT_PUBLISH_WORKFLOWS:
+        return True
+    payload = item.payload or {}
+    proposed = payload.get("proposed_action") if isinstance(payload, dict) else None
+    if isinstance(proposed, dict) and proposed.get("kind") == PUBLISH_ACTION_KIND:
+        return True
+    return False
+
+
 async def execute_approval(
     session: AsyncSession, approval_id: str, *, actor: str
 ) -> ApprovalItem:
-    """Sprint 1 stub: marks executed and records audit event. Idempotent."""
+    """Mark an approval executed. Phase D.1 dispatches publish_artifact items
+    through the Documents service before sealing the audit chain.
+
+    Idempotent.
+    """
     item = await session.get(ApprovalItem, approval_id)
     if item is None:
         raise LookupError(f"approval {approval_id} not found")
@@ -264,21 +287,61 @@ async def execute_approval(
     if item.status not in (ApprovalStatus.APPROVED.value, ApprovalStatus.PENDING.value):
         raise ValueError(f"cannot execute from status={item.status}")
 
+    document_id: str | None = None
+
+    # ---- Phase D.1: artifact publication path ----
+    if _is_publish_artifact(item):
+        from app.services.documents import service as docs_service
+
+        try:
+            doc = await docs_service.create_from_approval(session, item, actor=actor)
+            document_id = doc.id
+        except Exception as exc:  # noqa: BLE001
+            # We deliberately mark execution_failed rather than burying the
+            # exception: the audit chain should reflect that we tried and
+            # couldn't, so an operator can re-run after fixing the cause.
+            item.status = ApprovalStatus.EXECUTION_FAILED.value
+            item.executed_at = _utcnow()
+            item.execution_result = ExecutionResult.FAILED.value
+            entry = await audit_svc.record_event(
+                session,
+                event_type="approval.execution_failed",
+                actor=actor,
+                approval_item_id=item.id,
+                payload={"error": str(exc), "workflow": item.workflow},
+            )
+            item.prev_audit_hash = item.audit_hash
+            item.audit_hash = entry.hash
+            await session.commit()
+            await broadcaster.publish(
+                {"type": "approval.execution_failed", "id": item.id, "status": item.status}
+            )
+            raise
+
     item.status = ApprovalStatus.EXECUTED.value
     item.executed_at = _utcnow()
-    item.execution_result = ExecutionResult.DRY_RUN.value  # Sprint 1 — no real side-effects
-    item.external_ref = f"sprint1-stub:{item.id}"
+    if document_id is not None:
+        item.execution_result = ExecutionResult.SUCCESS.value
+        item.external_ref = f"document:{document_id}"
+    else:
+        # Non-publish workflows still flow through the Sprint 1 stub.
+        item.execution_result = ExecutionResult.DRY_RUN.value
+        item.external_ref = f"sprint1-stub:{item.id}"
+
+    audit_payload: dict[str, Any] = {
+        "execution_result": item.execution_result,
+        "external_ref": item.external_ref,
+        "target_system": item.target_system,
+    }
+    if document_id is not None:
+        audit_payload["document_id"] = document_id
 
     entry = await audit_svc.record_event(
         session,
         event_type="approval.executed",
         actor=actor,
         approval_item_id=item.id,
-        payload={
-            "execution_result": item.execution_result,
-            "external_ref": item.external_ref,
-            "target_system": item.target_system,
-        },
+        payload=audit_payload,
     )
     item.prev_audit_hash = item.audit_hash
     item.audit_hash = entry.hash

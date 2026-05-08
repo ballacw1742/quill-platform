@@ -45,8 +45,10 @@ node_modules/
 quill_dev.db
 .alembic_env_local
 _local_audit_mirror/
+_local_documents/
 _audit_freeze.flag
 mock-data/_state/
+*.db.bak
 
 # Logs
 *.log

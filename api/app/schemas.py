@@ -298,6 +298,81 @@ class PasskeyCredentialOut(_Base):
     revoked_at: datetime | None = None
 
 
+# ---------------------------------------------------------------------------
+# Documents — Phase D.1
+# ---------------------------------------------------------------------------
+class DocumentOut(_Base):
+    id: str
+    artifact_id: str
+    artifact_type: str
+    title: str
+    summary: str
+    body_markdown: str
+    agent_id: str
+    agent_display_name: str
+    created_at: datetime
+    approved_at: datetime | None = None
+    approved_by: str | None = None
+    approval_id: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    drive_url: str | None = None
+    minio_path: str | None = None
+
+
+class DocumentSummary(_Base):
+    """Lightweight projection used in list/search responses."""
+
+    id: str
+    artifact_id: str
+    artifact_type: str
+    title: str
+    summary: str
+    agent_id: str
+    agent_display_name: str
+    created_at: datetime
+    approved_at: datetime | None = None
+    tags: list[str] = Field(default_factory=list)
+    drive_url: str | None = None
+
+
+class DocumentListPage(_Base):
+    items: list[DocumentSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class DocumentSearchHit(_Base):
+    id: str
+    artifact_id: str
+    artifact_type: str
+    title: str
+    summary: str
+    agent_id: str
+    agent_display_name: str
+    created_at: datetime
+    snippet: str | None = None
+    score: float | None = None
+    tags: list[str] = Field(default_factory=list)
+
+
+class DocumentSearchResult(_Base):
+    items: list[DocumentSearchHit]
+    total: int
+    q: str
+
+
+class DocumentDriveLinkOut(_Base):
+    url: str | None = None
+    pending: bool = False
+
+
+class DocumentReindexResult(_Base):
+    ok: bool
+    reindexed: int
+    backend: Literal["postgres-tsvector", "sqlite-like"]
+
+
 __all__ = [
     "ApprovalCreate",
     "ApprovalOut",
@@ -325,4 +400,11 @@ __all__ = [
     "ActionIntent",
     "ActionAssertionOut",
     "PasskeyCredentialOut",
+    "DocumentOut",
+    "DocumentSummary",
+    "DocumentListPage",
+    "DocumentSearchHit",
+    "DocumentSearchResult",
+    "DocumentDriveLinkOut",
+    "DocumentReindexResult",
 ]
