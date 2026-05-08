@@ -15,7 +15,7 @@ from app import __version__
 from app.config import get_settings
 from app.db import connect, disconnect
 from app.logging_setup import configure_logging
-from app.routes import admin, approvals, audit, auth, realtime
+from app.routes import admin, approvals, audit, auth, documents, realtime
 from app.services import sentry as sentry_svc
 from app.services.audit_mirror import get_mirror
 from app.services.sla import run_forever as sla_run_forever
@@ -102,4 +102,5 @@ app.include_router(approvals.router)
 app.include_router(audit.router)
 app.include_router(admin.router)
 app.include_router(auth.router)
+app.include_router(documents.router)
 app.include_router(realtime.router)

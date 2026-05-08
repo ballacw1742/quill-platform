@@ -53,6 +53,16 @@ class Settings(BaseSettings):
     # Notifications
     TELEGRAM_NOTIFY_CHAT_ID: str = Field(default="")
 
+    # Documents service (Phase D.1)
+    DOCUMENTS_BLOB_PATH: str = Field(
+        default="./_local_documents",
+        description="Local fallback dir for document markdown bodies (MinIO key prefix on prod).",
+    )
+    DOCUMENTS_DRIVE_ENABLED: bool = Field(
+        default=False,
+        description="When True, kick off async `gog drive upload` after publishing a document.",
+    )
+
     # Audit log resilience (Sprint 2.3)
     B2_KEY_ID: str = Field(default="", description="Backblaze B2 application key ID.")
     B2_APPLICATION_KEY: str = Field(default="", description="Backblaze B2 application key secret.")
