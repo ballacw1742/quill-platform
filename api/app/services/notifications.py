@@ -22,8 +22,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import random
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar
 
 import httpx
 
@@ -41,6 +43,85 @@ class NotifyResult:
     backend: str
     detail: str | None = None
     response: dict[str, Any] | None = None
+
+
+# ---------------------------------------------------------------------------
+# Sprint-4 fix #4: at-least-once delivery helper
+#
+# Used by callers that POST to ephemeral or flaky endpoints (e.g. the bot's
+# heartbeat to /v1/admin/scheduler/jobs/heartbeat). The helper retries up to
+# `max_attempts` times with exponential backoff (1s, 2s, 4s, 8s, 16s by
+# default), jitter applied, and on final failure logs a Sentry breadcrumb
+# without raising — the heartbeat is non-critical so a hard fail must not
+# block the scheduler loop.
+# ---------------------------------------------------------------------------
+T = TypeVar("T")
+
+# Anything that quacks like a transient failure. We treat httpx network errors
+# AND 5xx responses as retryable.
+_RETRYABLE_HTTPX = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadError,
+    httpx.ReadTimeout,
+    httpx.WriteError,
+    httpx.WriteTimeout,
+    httpx.RemoteProtocolError,
+    httpx.PoolTimeout,
+)
+
+
+async def with_retry(
+    func: Callable[[], Awaitable[T]],
+    *,
+    max_attempts: int = 5,
+    base_delay: float = 1.0,
+    max_delay: float = 16.0,
+    sentry_event: str | None = None,
+    label: str = "call",
+    extra_retry_predicate: Callable[[BaseException], bool] | None = None,
+) -> tuple[bool, T | None, BaseException | None]:
+    """Run an async no-arg callable with at-least-once retry semantics.
+
+    Returns ``(ok, value, last_exc)``. ``ok=True`` means a success on some
+    attempt; ``ok=False`` means all attempts failed and Sentry was notified.
+    Never raises.
+    """
+    delay = base_delay
+    last_exc: BaseException | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            value = await func()
+            return True, value, None
+        except BaseException as exc:  # noqa: BLE001
+            last_exc = exc
+            retryable = isinstance(exc, _RETRYABLE_HTTPX) or (
+                isinstance(exc, httpx.HTTPStatusError)
+                and 500 <= exc.response.status_code < 600
+            )
+            if extra_retry_predicate is not None:
+                retryable = retryable or extra_retry_predicate(exc)
+            log.warning(
+                "%s attempt %d/%d failed: %s%s",
+                label,
+                attempt,
+                max_attempts,
+                exc,
+                " (retryable)" if retryable else "",
+            )
+            if not retryable or attempt >= max_attempts:
+                break
+            jitter = random.uniform(0, delay * 0.25)
+            await asyncio.sleep(min(max_delay, delay) + jitter)
+            delay = min(max_delay, delay * 2)
+
+    sentry_svc.capture_message(
+        sentry_event or f"{label}_final_failure",
+        level="error",
+        attempts=max_attempts,
+        last_error=str(last_exc) if last_exc else "unknown",
+    )
+    return False, None, last_exc
 
 
 # ---------------------------------------------------------------------------
