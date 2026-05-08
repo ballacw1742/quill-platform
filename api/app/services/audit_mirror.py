@@ -23,6 +23,7 @@ import hashlib
 import json
 import logging
 import os
+import socket
 import threading
 import time
 from dataclasses import dataclass, field
@@ -30,9 +31,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
+
 from app.config import get_settings
 
 log = logging.getLogger("quill.audit_mirror")
+
+# Sprint-4 fix #8: stable per-process replica id used in audit_mirror_claims.
+REPLICA_ID = os.environ.get(
+    "QUILL_REPLICA_ID", f"{socket.gethostname()}:{os.getpid()}"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +251,13 @@ class AuditMirror:
     Tests reach in via `get_mirror()` to inspect status / drain manually.
     """
 
-    def __init__(self, backend: _MirrorBackend, *, max_retries: int = 5) -> None:
+    def __init__(
+        self,
+        backend: _MirrorBackend,
+        *,
+        max_retries: int = 5,
+        claim_in_postgres: bool | None = None,
+    ) -> None:
         self._backend = backend
         self._queue: asyncio.Queue[_PendingMirror] = asyncio.Queue()
         self._status = _MirrorStatus(mode=backend.mode)
@@ -257,6 +272,19 @@ class AuditMirror:
         self._seen_hashes: set[str] = set()
         self._seen_order: list[str] = []
         self._seen_max = 4096
+        # Sprint-4 fix #8: replica claim. Default off (env-overridable);
+        # tests pass False to keep the path single-process.
+        env_default = (
+            os.environ.get("AUDIT_MIRROR_CLAIM_ENABLED", "").lower()
+            in {"1", "true", "yes"}
+        )
+        self._claim_in_postgres = (
+            claim_in_postgres if claim_in_postgres is not None else env_default
+        )
+        self._local_claims: set[str] = set()
+        self._local_claims_lock = threading.Lock()
+        self._claim_total = 0
+        self._claim_skipped_already_owned_remotely = 0
 
     # ── Public API ────────────────────────────────────────────────────────
     @property
@@ -330,6 +358,10 @@ class AuditMirror:
                 "total_mirrored": self._status.total_mirrored,
                 "total_failed": self._status.total_failed,
                 "lag_seconds": lag_seconds,
+                "claim_total": self._claim_total,
+                "claim_skipped": self._claim_skipped_already_owned_remotely,
+                "claim_in_postgres": self._claim_in_postgres,
+                "replica_id": REPLICA_ID,
             }
 
     async def verify_entry(self, *, entry_hash: str, key: str) -> dict[str, Any]:
@@ -381,8 +413,77 @@ class AuditMirror:
             finally:
                 self._queue.task_done()
 
-    # ── Mirror execution ─────────────────────────────────────────────────
+    # -- Replica-claim helpers (Sprint 4 fix #8) --
+    async def _claim(self, pending: "_PendingMirror") -> bool:
+        """Claim the right to mirror this entry.
+
+        - When ``claim_in_postgres`` is True we run a single
+          ``INSERT ... ON CONFLICT DO NOTHING RETURNING hash`` and return
+          True iff this replica won the race.
+        - When False we fall back to an in-process set so single-process
+          deploys (and tests) don't pay for Postgres roundtrips.
+        """
+        self._claim_total += 1
+        if not self._claim_in_postgres:
+            with self._local_claims_lock:
+                if pending.entry_hash in self._local_claims:
+                    self._claim_skipped_already_owned_remotely += 1
+                    return False
+                self._local_claims.add(pending.entry_hash)
+                return True
+
+        try:
+            from app.db import SessionLocal
+        except Exception:
+            log.warning("audit_mirror claim: db import failed; falling open")
+            return True
+
+        sql = text(
+            "INSERT INTO audit_mirror_claims (hash, claimed_at, replica_id, seq) "
+            "VALUES (:h, :ts, :r, :s) "
+            "ON CONFLICT (hash) DO NOTHING "
+            "RETURNING hash"
+        )
+        try:
+            async with SessionLocal() as session:
+                result = await session.execute(
+                    sql,
+                    {
+                        "h": pending.entry_hash,
+                        "ts": datetime.now(UTC),
+                        "r": REPLICA_ID,
+                        "s": pending.seq,
+                    },
+                )
+                row = result.first()
+                await session.commit()
+        except IntegrityError:
+            self._claim_skipped_already_owned_remotely += 1
+            return False
+        except Exception as exc:
+            log.warning(
+                "audit_mirror claim: db error %s -- falling open and writing anyway",
+                exc,
+            )
+            return True
+        if row is None:
+            self._claim_skipped_already_owned_remotely += 1
+            return False
+        return True
+
+    # -- Mirror execution --
     async def _mirror_one(self, pending: _PendingMirror) -> bool:
+        # Sprint-4 fix #8: claim before writing. Lost claim = peer replica
+        # owns this entry; we drop the work without paying B2 PUT charges.
+        if not await self._claim(pending):
+            log.debug(
+                "audit_mirror skipped seq=%s hash=%s -- claim lost to peer",
+                pending.seq,
+                pending.entry_hash[:12],
+            )
+            with self._lock:
+                self._status.queue_depth = self._queue.qsize()
+            return True
         key = entry_object_key(
             approval_item_id=pending.approval_item_id,
             seq=pending.seq,
@@ -480,7 +581,13 @@ def get_mirror() -> AuditMirror:
         if _MIRROR is None:
             backend = build_backend()
             s = get_settings()
-            _MIRROR = AuditMirror(backend, max_retries=s.AUDIT_MIRROR_MAX_RETRIES)
+            _MIRROR = AuditMirror(
+                backend,
+                max_retries=s.AUDIT_MIRROR_MAX_RETRIES,
+                claim_in_postgres=getattr(
+                    s, "AUDIT_MIRROR_CLAIM_IN_POSTGRES", None
+                ),
+            )
         return _MIRROR
 
 

@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     )
     AUDIT_MIRROR_MAX_RETRIES: int = Field(default=5, description="Max retries before paging.")
     AUDIT_MIRROR_DRAIN_INTERVAL_SECONDS: float = Field(default=2.0)
+    # Sprint-4 fix #8: when True the audit-mirror worker tries to claim each
+    # entry hash in audit_mirror_claims before writing to B2. Default off so
+    # single-replica + sqlite dev keeps working with no migration churn.
+    AUDIT_MIRROR_CLAIM_IN_POSTGRES: bool = Field(default=False)
     AUDIT_VERIFY_SCHEDULE_CRON: str = Field(
         default="0 2 * * *",
         description="Nightly verify schedule (informational; OS cron drives the actual run).",

@@ -195,6 +195,22 @@ class AuditChainVerification(Base):
 
 
 # ---------------------------------------------------------------------------
+# AuditMirrorClaim — multi-replica claim table (Sprint 4 fix #8)
+# ---------------------------------------------------------------------------
+class AuditMirrorClaim(Base):
+    __tablename__ = "audit_mirror_claims"
+
+    hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    claimed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+    replica_id: Mapped[str] = mapped_column(
+        String(128), default="unknown", server_default="unknown"
+    )
+    seq: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+# ---------------------------------------------------------------------------
 # AgentRegistration — per-agent trust + budget
 # ---------------------------------------------------------------------------
 class AgentRegistration(Base):
@@ -270,6 +286,7 @@ __all__ = [
     "ApprovalRecord",
     "AuditLogEntry",
     "AuditChainVerification",
+    "AuditMirrorClaim",
     "AgentRegistration",
     "User",
     "WebAuthnCredential",
