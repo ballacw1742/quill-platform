@@ -12,18 +12,54 @@ import { Badge } from "@/components/ui/badge";
 import { PasskeyChallengeModal } from "./PasskeyChallengeModal";
 import { EditPayloadDialog } from "./EditPayloadDialog";
 import { useDecide } from "@/lib/api";
+import type { ActionIntent } from "@/lib/auth";
 import { toast } from "sonner";
 import type { ApprovalItem } from "@/lib/schemas";
 
 type Mode = "approve" | "edit-then-approve" | "reject" | "escalate" | null;
+
+const apiDecisionFor = (mode: Mode): ActionIntent["decision"] | null => {
+  switch (mode) {
+    case "approve":
+      return "approve";
+    case "edit-then-approve":
+      return "edit_then_approve";
+    case "reject":
+      return "reject";
+    case "escalate":
+      return "escalate";
+    default:
+      return null;
+  }
+};
+
+const wireDecisionFor = (
+  mode: Mode,
+): "approved" | "rejected" | "escalated" | null => {
+  switch (mode) {
+    case "approve":
+    case "edit-then-approve":
+      return "approved";
+    case "reject":
+      return "rejected";
+    case "escalate":
+      return "escalated";
+    default:
+      return null;
+  }
+};
 
 export function DecisionPane({ item }: { item: ApprovalItem }) {
   const router = useRouter();
   const decide = useDecide();
   const [mode, setMode] = React.useState<Mode>(null);
   const [editOpen, setEditOpen] = React.useState(false);
-  const [editedPayload, setEditedPayload] = React.useState<Record<string, unknown> | null>(null);
+  const [editedPayload, setEditedPayload] = React.useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [reason, setReason] = React.useState("");
+  const [passkeyOpen, setPasskeyOpen] = React.useState(false);
 
   const isPending = item.status === "pending";
 
@@ -32,21 +68,22 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
     router.push("/queue");
   };
 
-  const submit = (
-    decision: "approved" | "rejected" | "escalated",
-    payload?: Record<string, unknown>,
-  ) => {
-    return decide.mutateAsync(
-      {
-        id: item.approval_id,
-        decision,
-        reason: decision === "approved" ? undefined : reason || undefined,
-        edited_payload: payload,
-      },
-      {
-        onError: (e) => toast.error(e.message || "Decision failed"),
-      },
-    );
+  const buildIntent = React.useCallback((): ActionIntent | null => {
+    const decision = apiDecisionFor(mode);
+    if (!decision) return null;
+    return {
+      approval_id: item.approval_id,
+      decision,
+      edits: editedPayload,
+      rejection_reason:
+        mode === "reject" || mode === "escalate" ? reason || null : null,
+      escalate_to_lane: null,
+    };
+  }, [mode, item.approval_id, editedPayload, reason]);
+
+  const triggerPasskey = (m: Exclude<Mode, null>) => {
+    setMode(m);
+    setPasskeyOpen(true);
   };
 
   return (
@@ -66,7 +103,8 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
               This approval is no longer pending. Decision panel disabled.
               {item.decided_at && (
                 <div className="mt-1 text-[11px] text-muted-foreground">
-                  Decided {new Date(item.decided_at).toLocaleString()} by {item.decided_by ?? "—"}
+                  Decided {new Date(item.decided_at).toLocaleString()} by{" "}
+                  {item.decided_by ?? "—"}
                 </div>
               )}
             </AlertDescription>
@@ -76,7 +114,10 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
         {item.lane === "tier-0-mandatory" && (
           <Alert variant="warning">
             <AlertDescription className="text-xs">
-              Tier-0 mandatory review. {item.escalations?.length ? `Flags: ${item.escalations.join(", ")}.` : "Confidence < 0.70 or policy-flagged."}
+              Tier-0 mandatory review.{" "}
+              {item.escalations?.length
+                ? `Flags: ${item.escalations.join(", ")}.`
+                : "Confidence < 0.70 or policy-flagged."}
             </AlertDescription>
           </Alert>
         )}
@@ -85,7 +126,7 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
           <Button
             variant="success"
             disabled={!isPending || decide.isPending}
-            onClick={() => setMode("approve")}
+            onClick={() => triggerPasskey("approve")}
           >
             <Check className="h-4 w-4" /> Approve
           </Button>
@@ -112,17 +153,26 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
           </Button>
         </div>
 
-        {(mode === "reject" || mode === "escalate") && (
+        {(mode === "reject" || mode === "escalate") && !passkeyOpen && (
           <div className="space-y-1.5">
             <Label htmlFor="reason">
-              Reason {mode === "reject" ? <span className="text-destructive">*</span> : "(optional)"}
+              Reason{" "}
+              {mode === "reject" ? (
+                <span className="text-destructive">*</span>
+              ) : (
+                "(optional)"
+              )}
             </Label>
             <Textarea
               id="reason"
               rows={4}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder={mode === "reject" ? "Why are we rejecting?" : "Why escalate to dual approver?"}
+              placeholder={
+                mode === "reject"
+                  ? "Why are we rejecting?"
+                  : "Why escalate to dual approver?"
+              }
             />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" size="sm" onClick={() => setMode(null)}>
@@ -132,38 +182,62 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
                 size="sm"
                 variant={mode === "reject" ? "destructive" : "warning"}
                 disabled={mode === "reject" && !reason.trim()}
-                onClick={async () => {
-                  if (mode === "reject") {
-                    await submit("rejected");
-                    finish("Rejected");
-                  } else {
-                    await submit("escalated");
-                    finish("Escalated");
-                  }
-                }}
+                onClick={() => setPasskeyOpen(true)}
               >
-                Confirm {mode}
+                Continue → passkey
               </Button>
             </div>
           </div>
         )}
       </CardContent>
 
-      {/* Approve flow → passkey */}
-      <PasskeyChallengeModal
-        open={mode === "approve" || mode === "edit-then-approve"}
-        onOpenChange={(v) => !v && setMode(null)}
-        title={mode === "edit-then-approve" ? "Approve with edits" : "Approve action"}
-        description={
-          item.proposed_action.target_system
-            ? `This will execute against ${item.proposed_action.target_system} on confirmation.`
-            : "This will mark the action approved (draft-only, no external write)."
-        }
-        onConfirm={async () => {
-          await submit("approved", editedPayload ?? undefined);
-          finish("Approved");
-        }}
-      />
+      {/* Passkey challenge wraps every decision */}
+      {(() => {
+        const intent = buildIntent();
+        if (!intent) return null;
+        const wire = wireDecisionFor(mode)!;
+        const verb =
+          mode === "approve" || mode === "edit-then-approve"
+            ? "Approve"
+            : mode === "reject"
+              ? "Reject"
+              : "Escalate";
+        return (
+          <PasskeyChallengeModal
+            open={passkeyOpen}
+            onOpenChange={(v) => {
+              setPasskeyOpen(v);
+              if (!v) setMode(null);
+            }}
+            title={`${verb} action`}
+            description={
+              mode === "approve" || mode === "edit-then-approve"
+                ? item.proposed_action.target_system
+                  ? `This will execute against ${item.proposed_action.target_system} on confirmation.`
+                  : "This will mark the action approved (draft-only, no external write)."
+                : `Confirm ${verb.toLowerCase()} for this approval.`
+            }
+            actionIntent={intent}
+            destructive={mode === "reject"}
+            onConfirm={async (assertion) => {
+              await decide.mutateAsync(
+                {
+                  id: item.approval_id,
+                  decision: wire,
+                  reason:
+                    wire === "approved" ? undefined : reason || undefined,
+                  edited_payload: editedPayload ?? undefined,
+                  passkey_assertion: assertion?.auth_assertion,
+                },
+                {
+                  onError: (e) => toast.error(e.message || "Decision failed"),
+                },
+              );
+              finish(verb + "ed");
+            }}
+          />
+        );
+      })()}
 
       <EditPayloadDialog
         open={editOpen}
@@ -172,7 +246,7 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
         onConfirm={(edited) => {
           setEditedPayload(edited);
           setEditOpen(false);
-          setMode("edit-then-approve");
+          triggerPasskey("edit-then-approve");
         }}
       />
     </Card>

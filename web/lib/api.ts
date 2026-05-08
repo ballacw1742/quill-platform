@@ -104,13 +104,18 @@ export type DecideInput = {
   decision: "approved" | "rejected" | "escalated";
   reason?: string;
   edited_payload?: Record<string, unknown>;
-  passkey_assertion?: unknown;
+  /**
+   * The Sprint 2.2 action-assertion JWT minted by
+   * `/v1/auth/passkey/challenge/complete`. Required against the live API;
+   * the mock store ignores it.
+   */
+  passkey_assertion?: string;
 };
 
 export function useDecide(opts?: UseMutationOptions<ApprovalItem, Error, DecideInput>) {
   const qc = useQueryClient();
   return useMutation<ApprovalItem, Error, DecideInput>({
-    mutationFn: async ({ id, decision, reason, edited_payload }) => {
+    mutationFn: async ({ id, decision, reason, edited_payload, passkey_assertion }) => {
       if (USE_MOCK) {
         await sleep(180);
         return ApprovalItemSchema.parse(
@@ -119,7 +124,12 @@ export function useDecide(opts?: UseMutationOptions<ApprovalItem, Error, DecideI
       }
       return apiFetch(`/api/v1/approvals/${id}/decision`, {
         method: "POST",
-        body: JSON.stringify({ decision, reason, edited_payload }),
+        body: JSON.stringify({
+          decision,
+          reason,
+          edited_payload,
+          auth_assertion: passkey_assertion,
+        }),
         schema: ApprovalItemSchema,
       });
     },
