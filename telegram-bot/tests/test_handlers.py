@@ -31,6 +31,9 @@ async def test_start_with_valid_code_pairs(bot_config, fake_api):
         telegram_username="cmitchell",
     )
     assert "paired" in reply.lower() or "connected" in reply.lower()
+    # Phase B: welcome message advertises the natural-language interface.
+    assert "plain english" in reply.lower()
+    assert "/help" in reply.lower()
     assert len(fake_api.pair_calls) == 1
     call = fake_api.pair_calls[0]
     assert call["email"] == "charles@example.com"
@@ -237,3 +240,44 @@ def test_brief_returns_latest(tmp_path):
     reply = health.handle_brief(brief_root=tmp_path)
     assert "Today" in reply
     assert "2026-05-08" in reply
+
+
+# ---------------------------------------------------------------------------
+# Phase B: /help text + /reset
+# ---------------------------------------------------------------------------
+def test_help_text_leads_with_natural_language():
+    """Phase B: NL interface is the primary affordance; commands are shortcuts."""
+    from quill_bot.handlers import help_text
+
+    out = help_text()
+    assert "plain english" in out.lower()
+    # NL section appears BEFORE the slash-command block.
+    nl_idx = out.lower().find("plain english")
+    cmd_idx = out.lower().find("slash-command shortcuts")
+    assert nl_idx >= 0 and cmd_idx >= 0
+    assert nl_idx < cmd_idx
+    # /reset is advertised.
+    assert "/reset" in out
+    # Under 200 words.
+    assert len(out.split()) < 200, f"help_text is {len(out.split())} words; cap is 200"
+
+
+def test_help_text_advertises_existing_shortcuts():
+    from quill_bot.handlers import help_text
+
+    out = help_text()
+    for cmd in ("/queue", "/approve", "/reject", "/edit", "/escalate", "/health", "/brief", "/start"):
+        assert cmd in out, f"help_text missing {cmd}"
+
+
+async def test_conversation_store_reset_clears_history(tmp_path):
+    """The /reset command boils down to ConversationStore.reset(chat_id)."""
+    from quill_bot.conversation import ConversationStore
+
+    store = ConversationStore(tmp_path / "conv.db")
+    store.append(99, "user", content="hi")
+    store.append(99, "assistant", content="hello")
+    assert store.count(99) == 2
+    deleted = store.reset(99)
+    assert deleted == 2
+    assert store.count(99) == 0

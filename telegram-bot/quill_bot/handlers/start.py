@@ -21,7 +21,8 @@ log = logging.getLogger("quill.bot.start")
 WELCOME_PAIRED = (
     "🔗 *Telegram paired.*\n"
     "You're connected as `{email}`.\n\n"
-    "Use /queue to see what's pending. /help for the full list."
+    "Just message me in plain English. I can find approvals, summarize the "
+    "day, draft updates, and more. /help for shortcuts."
 )
 
 WELCOME_NEEDS_CODE = (

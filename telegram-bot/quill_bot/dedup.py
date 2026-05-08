@@ -142,6 +142,26 @@ class DedupStore:
             except sqlite3.IntegrityError:
                 return False
 
+    def is_chat_paired(self, chat_id: str | int) -> bool:
+        """True if any pairing has been redeemed for this chat_id."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT 1 FROM pairing_redeemed WHERE chat_id=? LIMIT 1",
+                (str(chat_id),),
+            )
+            return cur.fetchone() is not None
+
+    def get_paired_email(self, chat_id: str | int) -> str | None:
+        """Return the most-recently redeemed email for a chat_id, or None."""
+        with self._lock:
+            cur = self._conn.execute(
+                "SELECT email FROM pairing_redeemed WHERE chat_id=? "
+                "ORDER BY redeemed_at DESC LIMIT 1",
+                (str(chat_id),),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+
     def pairing_redeemed_at(self, code: str) -> datetime | None:
         with self._lock:
             cur = self._conn.execute(

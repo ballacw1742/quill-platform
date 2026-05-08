@@ -20,8 +20,11 @@ import structlog
 from quill_bot import __version__
 from quill_bot.api_client import QuillAPIClient
 from quill_bot.config import BotConfig
-from quill_bot.handlers import decisions, health, queue, start
+from quill_bot.conversation import get_store as get_conv_store
+from quill_bot.dedup import get_store as get_dedup_store
+from quill_bot.handlers import decisions, health, nl, queue, start
 from quill_bot.handlers import help_text
+from quill_bot.llm import ConversationalLLM
 from quill_bot.notifier import consume_websocket, poll_health
 from quill_bot.pairing import mint_code
 from quill_bot.scheduler import QuillScheduler
@@ -54,8 +57,11 @@ async def _run_bot(config: BotConfig) -> None:
     from telegram import BotCommand, Update  # type: ignore
     from telegram.ext import (  # type: ignore
         Application,
+        CallbackQueryHandler,
         CommandHandler,
         ContextTypes,
+        MessageHandler,
+        filters,
     )
 
     async def send_message(chat_id: str | int, text: str, silent: bool = False) -> None:
@@ -124,11 +130,37 @@ async def _run_bot(config: BotConfig) -> None:
     async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_markdown(help_text())
 
+    # Build the conversational LLM (lazy: only constructed in real-bot mode
+    # so test envs don't need ANTHROPIC_API_KEY).
+    try:
+        from anthropic import Anthropic  # type: ignore
+        anthropic_client = Anthropic()
+        llm = ConversationalLLM(anthropic_client)
+        log.info("bot.llm_initialised model=%s", llm.model)
+    except Exception as e:  # noqa: BLE001
+        log.warning("bot.llm_init_failed err=%s — NL handler will reply with errors", e)
+        llm = None  # type: ignore[assignment]
+
+    async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+        chat_id = int(update.effective_chat.id)
+        get_conv_store().reset(chat_id)
+        ctx.user_data.pop("nl_pending_dispatches", None)
+        await update.message.reply_markdown(
+            "🧹 Conversation cleared. What can I help with?"
+        )
+
     app: Any = (
         Application.builder()
         .token(config.telegram_bot_token)
         .build()
     )
+    # Inject deps for the NL handler (it reads from app.bot_data).
+    app.bot_data["api"] = api
+    app.bot_data["config"] = config
+    app.bot_data["llm"] = llm
+    app.bot_data["conv_store"] = get_conv_store()
+    app.bot_data["dedup_store"] = get_dedup_store()
+
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("queue", cmd_queue))
     app.add_handler(CommandHandler("approve", cmd_approve))
@@ -137,7 +169,20 @@ async def _run_bot(config: BotConfig) -> None:
     app.add_handler(CommandHandler("escalate", cmd_escalate))
     app.add_handler(CommandHandler("health", cmd_health))
     app.add_handler(CommandHandler("brief", cmd_brief))
+    app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("help", cmd_help))
+
+    # Confirmation buttons for proposed dispatches (registered before the
+    # NL fallthrough so callbacks aren't swallowed).
+    app.add_handler(
+        CallbackQueryHandler(nl.handle_nl_confirm, pattern=r"^nl:(confirm|cancel):")
+    )
+
+    # NL handler is the LAST text handler — catches any text message that
+    # didn't match a slash command.
+    app.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, nl.handle_nl_message)
+    )
 
     # Register slash commands with Telegram on startup
     async def _post_init(application: Any) -> None:
@@ -151,6 +196,7 @@ async def _run_bot(config: BotConfig) -> None:
                 ("escalate", "Escalate <id> to Lane 3"),
                 ("health", "Fleet health"),
                 ("brief", "Daily Brief"),
+                ("reset", "Clear conversation memory"),
                 ("help", "Show command list"),
             ]]
         )
