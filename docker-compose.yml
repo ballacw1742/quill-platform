@@ -42,5 +42,30 @@ services:
       sh -c "alembic -c api/alembic.ini upgrade head &&
              uvicorn app.main:app --app-dir api --host 0.0.0.0 --port 8000"
 
+  bot:
+    # Sprint 2.4 — Telegram bot service.
+    # Bring up with `docker-compose --profile bot up bot`.
+    profiles: ["bot"]
+    build:
+      context: .
+      dockerfile: telegram-bot/Dockerfile
+    container_name: quill-bot
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      QUILL_API_URL: http://api:8000
+      QUILL_WS_URL: ws://api:8000/ws/approvals
+      QUILL_WEB_BASE_URL: ${QUILL_WEB_BASE_URL:-http://localhost:3000}
+      AGENT_SHARED_SECRET: dev-agent-secret-change-me
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_PAIRING_SECRET: ${TELEGRAM_PAIRING_SECRET:-dev-pairing-secret-change-me}
+      DEEPLINK_SIGNING_SECRET: ${DEEPLINK_SIGNING_SECRET:-dev-deeplink-secret-change-me}
+      DAILY_BRIEF_CHAT_ID: ${DAILY_BRIEF_CHAT_ID:-}
+      SENTRY_DSN_BOT: ${SENTRY_DSN_BOT:-}
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    command: ["quill-bot", "run"]
+
 volumes:
   quill_pgdata:

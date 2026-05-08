@@ -1,4 +1,4 @@
-.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down audit-verify audit-replay
+.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay
 
 PY ?= python3
 VENV ?= .venv
@@ -50,3 +50,21 @@ audit-replay: install
 
 clean:
 	rm -rf $(VENV) .pytest_cache .mypy_cache .ruff_cache **/__pycache__ build dist *.egg-info quill_dev.db
+
+# ---------------------------------------------------------------------------
+# Telegram bot (Sprint 2.4)
+# ---------------------------------------------------------------------------
+bot-install: $(VENV)/bin/python
+	$(PIP) install -e telegram-bot[dev]
+
+bot-dev: bot-install
+	@echo "Starting Quill Telegram bot in dev mode (fake-token if TELEGRAM_BOT_TOKEN unset)..."
+	QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
+	$(VENV)/bin/quill-bot run
+
+bot-test: bot-install
+	cd telegram-bot && ../$(PYTEST) -q
+
+bot-mint-pair: bot-install
+	@if [ -z "$(EMAIL)" ]; then echo "Usage: make bot-mint-pair EMAIL=charles@x.com" >&2; exit 2; fi
+	$(VENV)/bin/quill-bot mint-pair --email $(EMAIL)

@@ -128,6 +128,52 @@ it tamper-evident across two storage tiers:
 In dev or when B2 creds are unset, the mirror falls back to a local directory
 (`./_local_audit_mirror/`) so the same code path is exercised end-to-end.
 
+## Telegram bot (Sprint 2.4)
+
+Mobile approval surface + 7am Daily Brief delivery. See
+`telegram-bot/README.md` for the full doc.
+
+Quick path:
+
+```bash
+make bot-install                                    # one-time
+export TELEGRAM_BOT_TOKEN=<from @BotFather>
+export TELEGRAM_PAIRING_SECRET=$(openssl rand -hex 32)
+
+# Mint a pairing code, then redeem from Telegram with /start <code>:
+make bot-mint-pair EMAIL=charles@example.com
+
+# Run the bot (long-polling). Without TELEGRAM_BOT_TOKEN the bot enters
+# fake-token mode — scheduler still runs and heartbeats to
+# /v1/admin/scheduler/jobs so the API can show what's queued.
+make bot-dev
+```
+
+Commands available in Telegram: `/start <code>`, `/queue`, `/approve <id>`,
+`/reject <id> <reason>`, `/edit <id>`, `/escalate <id>`, `/health`,
+`/brief`, `/help`.
+
+Decisions that need a passkey assertion (approve / reject / edit /
+escalate) deliver a **60-second** signed deep link to the web UI;
+Telegram cannot run a WebAuthn ceremony itself.
+
+Daily Brief lands at **07:00 ET** every morning, archived to Drive at
+`/Quill/briefs/YYYY-MM-DD-daily.md`. If the runtime is unreachable, the
+bot falls back to a deterministic Markdown brief so you still get the
+7am push.
+
+## Sentry (multi-service)
+
+- API:     `SENTRY_DSN_API`    (or legacy `SENTRY_DSN`)
+- Runtime: `SENTRY_DSN_RUNTIME`
+- Bot:     `SENTRY_DSN_BOT`
+
+Every captured event is tagged with `service`, `environment`, `release`,
+and (where applicable) `request_id`, `approval_id`, `agent_id`, `run_id`,
+`chat_id`. PII (payloads, prompts, completions, tokens, secrets) is
+scrubbed by per-service `before_send` hooks before transmission. Tests
+verify that init is idempotent and a no-op when no DSN is set.
+
 ## License
 
 Proprietary — internal use only.

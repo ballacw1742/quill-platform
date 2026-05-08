@@ -368,3 +368,94 @@ export function useTriggerAuditVerify() {
     },
   });
 }
+
+// ─── Sprint 2.4: Notifications + Scheduler admin hooks ────────────────────────
+
+export type NotificationTestResult = {
+  ok: boolean;
+  backend: string;
+  detail: string | null;
+};
+
+export type SentryTestResult = {
+  ok: boolean;
+  event_id: string;
+  exception_event_id: string;
+};
+
+export type SchedulerJob = {
+  id: string;
+  name: string;
+  trigger: string;
+  next_run_at: string | null;
+  source: "bot" | "canonical";
+  last_run_at?: string | null;
+  last_status?: string | null;
+};
+
+export type SchedulerSnapshot = {
+  last_heartbeat_at: string | null;
+  bot_connected: boolean;
+  jobs: SchedulerJob[];
+};
+
+export function useTestTelegram() {
+  return useMutation<NotificationTestResult, Error, { chat_id: string; text?: string }>({
+    mutationFn: async ({ chat_id, text }) => {
+      if (USE_MOCK) {
+        await sleep(80);
+        return { ok: true, backend: "telegram", detail: "mock" };
+      }
+      const params = new URLSearchParams({ chat_id });
+      if (text) params.set("text", text);
+      return apiFetch<NotificationTestResult>(
+        `/api/v1/admin/notifications/test_telegram?${params.toString()}`,
+      );
+    },
+  });
+}
+
+export function useSentryTest() {
+  return useMutation<SentryTestResult, Error, { level?: string; message?: string } | void>({
+    mutationFn: async (vars) => {
+      if (USE_MOCK) {
+        await sleep(60);
+        return { ok: true, event_id: "mock-evt-1", exception_event_id: "mock-evt-2" };
+      }
+      const params = new URLSearchParams();
+      if (vars && "level" in vars && vars.level) params.set("level", vars.level);
+      if (vars && "message" in vars && vars.message) params.set("message", vars.message);
+      const qs = params.toString();
+      return apiFetch<SentryTestResult>(
+        `/api/v1/admin/notifications/sentry_test${qs ? `?${qs}` : ""}`,
+      );
+    },
+  });
+}
+
+export function useSchedulerJobs(opts?: UseQueryOptions<SchedulerSnapshot>) {
+  return useQuery<SchedulerSnapshot>({
+    queryKey: ["scheduler", "jobs"],
+    queryFn: async () => {
+      if (USE_MOCK) {
+        await sleep(80);
+        return {
+          last_heartbeat_at: new Date().toISOString(),
+          bot_connected: true,
+          jobs: [
+            {
+              id: "daily-brief-deliver",
+              name: "Daily Brief — Telegram + Drive delivery",
+              trigger: "cron(hour=7, minute=0, tz=America/New_York)",
+              next_run_at: new Date(Date.now() + 3600_000).toISOString(),
+              source: "bot",
+            },
+          ],
+        };
+      }
+      return apiFetch<SchedulerSnapshot>("/api/v1/admin/scheduler/jobs");
+    },
+    refetchInterval: 30_000,
+    ...opts,
+  });
+}
