@@ -97,4 +97,10 @@ AGENT_FLEET = (
     "ccb-prep",
     "owner-reporting",
     "procurement-watch",
+    # PM agents — Phase C (artifact-style; produce documents for Documents tab)
+    "status-update-author",
+    "project-coordinator",
+    "project-manager",
+    "comms-drafter",
+    "knowledge-manager",
 )

@@ -24,6 +24,19 @@ FLEET_CONFIG = {
     "submittal-spec-validator": (TrustTier.TIER_0, Lane.SINGLE),
     "daily-brief": (TrustTier.TIER_2, Lane.AUTO),
     "procurement-watch": (TrustTier.TIER_1, Lane.SINGLE),
+    # PM agents — Phase C. Four artifact producers default to single-signer
+    # (Charles approves before publish to the Documents tab); the runtime
+    # bumps to dual-signer (Lane.DUAL) for owner-facing distribution per
+    # PM_AGENTS_SPEC. knowledge-manager is auto-archive (Lane.AUTO) per the
+    # PM_AGENTS_SPEC "auto-archive to Documents for searchability" rule;
+    # it carries TIER_1 (single-signer / spot-check) as its prompt-side
+    # trust tier so the runtime forces a tier-0 review on confidence < 0.70
+    # or controversial-decision flags.
+    "status-update-author": (TrustTier.TIER_1, Lane.SINGLE),
+    "project-coordinator": (TrustTier.TIER_1, Lane.SINGLE),
+    "project-manager": (TrustTier.TIER_1, Lane.SINGLE),
+    "comms-drafter": (TrustTier.TIER_1, Lane.SINGLE),
+    "knowledge-manager": (TrustTier.TIER_1, Lane.AUTO),
 }
 
 SAMPLE_APPROVALS = [

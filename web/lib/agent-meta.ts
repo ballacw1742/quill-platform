@@ -94,7 +94,7 @@ export const AGENT_DISPLAY: Record<string, AgentDisplay> = {
   },
   "status-update-author": {
     name: "Status Update Author",
-    description: "Writes weekly status updates.",
+    description: "Drafts weekly project status updates.",
   },
   "project-coordinator": {
     name: "Project Coordinator",
@@ -106,11 +106,11 @@ export const AGENT_DISPLAY: Record<string, AgentDisplay> = {
   },
   "comms-drafter": {
     name: "Comms Drafter",
-    description: "Drafts owner / partner / sub messages.",
+    description: "Drafts owner / partner / sub messages. Never sends.",
   },
   "knowledge-manager": {
     name: "Knowledge Manager",
-    description: "Captures decisions for institutional memory.",
+    description: "Captures decisions and lessons for institutional memory.",
   },
 };
 
