@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { cn, shortHash } from "@/lib/utils";
 import { AgentBadge } from "./AgentBadge";
 import { FlagChips } from "./FlagChips";
+import { HelpHint } from "@/components/ui/help-hint";
 import { LANE_META } from "./laneMeta";
 import {
   displayName,
@@ -474,11 +475,27 @@ function DetailContent({
           <div className="text-callout text-label-primary">
             {recommendation}
             {confidencePct && (
-              <span className="text-label-secondary"> ({confidencePct})</span>
+              <span className="text-label-secondary inline-flex items-center gap-1">
+                {" "}({confidencePct})
+                <HelpHint
+                  term="confidence"
+                  ariaLabel="What does the confidence percentage mean?"
+                />
+              </span>
             )}
           </div>
         </div>
-        <FlagChips item={item} />
+        {(item.escalations?.length ?? 0) > 0 ? (
+          <div className="flex items-center gap-2">
+            <FlagChips item={item} />
+            <HelpHint
+              term="escalations"
+              ariaLabel="Why is this flagged?"
+            />
+          </div>
+        ) : (
+          <FlagChips item={item} />
+        )}
       </section>
 
       {/* ── Why panel — collapsed by default ────────────────────── */}

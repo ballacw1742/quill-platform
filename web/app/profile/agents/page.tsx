@@ -22,6 +22,7 @@ import {
   displayName,
   displayTrustTier,
 } from "@/lib/agent-meta";
+import { HelpHint } from "@/components/ui/help-hint";
 import { toast } from "sonner";
 
 /**
@@ -84,7 +85,15 @@ export default function ProfileAgentsPage() {
           />
         ) : (
           <ListGroup
-            title={`${agents.length} helper${agents.length === 1 ? "" : "s"}`}
+            title={
+              <span className="inline-flex items-center gap-1">
+                {`${agents.length} helper${agents.length === 1 ? "" : "s"} · trust level`}
+                <HelpHint
+                  term="trust_level"
+                  ariaLabel="What is trust level?"
+                />
+              </span>
+            }
           >
             {agents.map((a, i) => {
               const human = displayName(a.agent_id);

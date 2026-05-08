@@ -21,6 +21,7 @@ import {
 import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { HelpHint } from "@/components/ui/help-hint";
 import { JsonBlock } from "@/components/approval/JsonBlock";
 import {
   useAudit,
@@ -382,8 +383,12 @@ function ChainIntegrityCard({
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-title-3 text-label-primary">
-            {ok ? "Chain verified" : "Drift detected"}
+          <div className="text-title-3 text-label-primary inline-flex items-center gap-1">
+            {ok ? "Activity log verified" : "Activity log drift"}
+            <HelpHint
+              term="activity_log"
+              ariaLabel="What is the activity log?"
+            />
           </div>
           <div className="text-callout text-label-secondary">
             {entries.toLocaleString()} entries
@@ -408,15 +413,19 @@ function ChainIntegrityCard({
           <Cloud className="h-4 w-4 text-success" />
         )}
         <div className="flex-1 min-w-0">
-          <div className="text-callout text-label-primary">
+          <div className="text-callout text-label-primary inline-flex items-center gap-1">
             {isLocal
-              ? "Offsite mirror — local mode"
-              : `Offsite mirror — b2://${mirrorStatus?.bucket ?? "quill-audit"}`}
+              ? "Backup status — local only"
+              : `Backup status — ${mirrorStatus?.bucket ?? "offsite"}`}
+            <HelpHint
+              term="backup_status"
+              ariaLabel="What is backup status?"
+            />
           </div>
           <div className="text-footnote text-label-tertiary">
             {mirrorStatus?.lag_seconds != null
               ? `${formatLag(mirrorStatus.lag_seconds)} · queue ${mirrorStatus.queue_depth}`
-              : "Mirror status pending"}
+              : "Backup status pending"}
           </div>
         </div>
         {!isLocal && <CloudOff className="hidden" />}

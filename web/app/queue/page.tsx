@@ -5,6 +5,7 @@ import { Inbox, Search, SlidersHorizontal, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { HelpHint } from "@/components/ui/help-hint";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { ApprovalRow } from "@/components/queue/ApprovalRow";
@@ -173,8 +174,9 @@ export default function QueuePage() {
 
         <div className="px-4 pt-2 pb-3 bg-bg">
           <div className="flex items-baseline justify-between mb-2">
-            <span className="text-footnote text-label-secondary">
+            <span className="text-footnote text-label-secondary inline-flex items-center gap-1">
               {totalPending} pending
+              <HelpHint term="lane" ariaLabel="What do these tabs mean?" />
             </span>
             <span className="text-footnote text-label-tertiary">
               {activeRows.length} in lane
