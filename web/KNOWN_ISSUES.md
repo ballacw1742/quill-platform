@@ -164,20 +164,18 @@ user-visible severity tag per CONTRIBUTING_AGENTS.md rule 6:
 
 ## Phase D.2 — Documents tab
 
-18. **`(visible-tolerable)` — filter icon in /documents top bar is a no-op
-    for now**
-    The right-side `SlidersHorizontal` button on the Documents top bar
-    scrolls the segmented control into view but does not yet open a
-    multi-axis filter sheet (agent / tags / date range). The segmented
-    control + search bar cover the common cases; richer filtering is a
-    Phase D.3 enhancement.
+18. **~~`(visible-tolerable)` — filter icon in /documents top bar is a no-op~~**
+    **RESOLVED in Phase E (commit 4).** The right-side `SlidersHorizontal`
+    button on the Documents top bar now opens a real multi-axis filter
+    sheet (artifact type, helper, date range, tags). Active-filter count
+    surfaces as a badge on the icon.
 
-19. **`(visible-tolerable)` — More (•••) menu on /documents/[id] is a
-    placeholder**
-    Tapping the menu icon currently shows a "coming soon" toast. The
-    DOCUMENTS_SPEC reserves it for "View raw JSON", "Open audit", etc.;
-    those are intentionally deferred so the bottom action bar (Drive /
-    Export / Share) remains the focused happy path for D.2.
+19. **~~`(visible-tolerable)` — More (•••) menu on /documents/[id] is a
+    placeholder~~**
+    **RESOLVED in Phase E (commit 4).** Tapping the menu icon now opens
+    a bottom-sheet action menu with: Copy link / Open in new tab / Print
+    / View raw JSON. Each closes the sheet on tap; the JSON viewer is a
+    separate full-height sheet with its own copy-to-clipboard action.
 
 20. **`(visible-tolerable)` — PDF / Word export rely on the API-side
     converter**
@@ -220,3 +218,58 @@ user-visible severity tag per CONTRIBUTING_AGENTS.md rule 6:
     && next start` recovers; the server simply needs a restart. The
     build itself is clean (verified by booting a parallel `next start`
     on :3099 — every Documents route returns 200).
+
+## Phase E — Final UX polish (feat/ux-polish)
+
+25. **`(visible-tolerable)` — onboarding 4th card always shows, regardless
+    of Telegram pairing status**
+    The new 4th card ("Chat with Quill on Telegram") is shown to every
+    user on first login, not just users already paired. Decision: the
+    bot is universally useful and the card invites pairing rather than
+    reporting state, so it works equally well in both situations. Future
+    iteration could branch the copy: "Tap @DC_QuillBot to start" for
+    unpaired users vs. "@DC_QuillBot is ready when you are" for paired.
+
+26. **`(invisible)` — onboarding overlay is still browser-local (LS flag)**
+    Carry-over from Phase A item 14: `localStorage.quill.onboarded` is
+    per-browser. Adding the 4th card doesn't change that. Server-side
+    onboarding completion remains a future-sprint concern.
+
+27. **`(visible-tolerable)` — DocumentsFilterSheet operates client-side**
+    The new filter sheet on /documents narrows the *current* result set
+    (the API list query and FTS results) rather than re-issuing a server
+    query with the new constraints. For the current dataset sizes
+    (`limit=100` on list; FTS returns top-K matches) this is
+    indistinguishable, but a power user filtering across thousands of
+    docs would want server-side filtering. Future: extend `useDocuments`
+    to accept the multi-axis params.
+
+28. **`(visible-tolerable)` — Print from the more-menu prints the entire
+    page including chrome**
+    `MoreMenuSheet` calls `window.print()` after the sheet animates out,
+    which uses the default browser print stylesheet. The bottom tab bar
+    + top app bar are still in the printout. A dedicated `@media print`
+    rule that hides chrome and prints just the document body is a polish
+    follow-up.
+
+29. **`(invisible)` — toast errors deliberately drop raw API messages**
+    Phase E commit 3 replaced raw `e.message` toasts with plain-English
+    copy across login, biometric prompt, passkey registration, approval
+    decisions, and trust-tier changes. Raw errors are still
+    `console.error`'d for developer triage; future work that wants the
+    raw message for a power-user/debug path should use the console
+    output, not the toast.
+
+30. **`(invisible)` — shared skeleton primitives in components/ui/skeletons.tsx**
+    Phase E commit 2 added shared `SkelBar` / `SkelListRow` / `SkelList`
+    / `SkelCard` / `SkelSectionCard` / `SkelHeroCard` primitives. The
+    pre-existing inline `SkeletonRows` in /audit and /documents pages
+    were left as-is to keep the diff small; they could be migrated to
+    the shared primitive in a future cleanup.
+
+31. **`(visible-tolerable)` — onboarding overlay does not deep-link to
+    Telegram**
+    The 4th onboarding card mentions @DC_QuillBot but doesn't render the
+    Telegram link as tappable text or a button. Showing it as static
+    copy keeps the card calm; future iteration could add a small
+    secondary button "Open Telegram" that fires `tg://resolve?domain=DC_QuillBot`.
