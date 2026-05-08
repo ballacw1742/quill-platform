@@ -1,0 +1,825 @@
+{
+  "owner": "Charles Mitchell",
+  "tz": "America/New_York",
+  "events": [
+    {
+      "date": "2026-05-08",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-08",
+      "time": "09:00",
+      "duration_min": 60,
+      "title": "Project review \u2014 QPB1 weekly",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-08",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-08",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-08",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-08",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-09",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-10",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-11",
+      "time": "18:30",
+      "duration_min": 90,
+      "title": "Family dinner",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-11",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-11",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-11",
+      "time": "14:00",
+      "duration_min": 60,
+      "title": "Owner cost meeting",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-11",
+      "time": "15:45",
+      "duration_min": 30,
+      "title": "Submittal log review",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-11",
+      "time": "09:00",
+      "duration_min": 60,
+      "title": "Project review \u2014 QPB1 weekly",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-12",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-12",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-12",
+      "time": "06:30",
+      "duration_min": 60,
+      "title": "Personal \u2014 gym",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-12",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-13",
+      "time": "09:00",
+      "duration_min": 60,
+      "title": "Project review \u2014 QPB1 weekly",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-13",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-13",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-13",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-13",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-13",
+      "time": "06:30",
+      "duration_min": 60,
+      "title": "Personal \u2014 gym",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-14",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-14",
+      "time": "16:30",
+      "duration_min": 30,
+      "title": "1:1 \u2014 Project Director",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-14",
+      "time": "14:00",
+      "duration_min": 60,
+      "title": "Owner cost meeting",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-14",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-14",
+      "time": "09:00",
+      "duration_min": 60,
+      "title": "Project review \u2014 QPB1 weekly",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-15",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-15",
+      "time": "15:45",
+      "duration_min": 30,
+      "title": "Submittal log review",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-15",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Procurement review \u2014 long-lead",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-15",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-16",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-17",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-17",
+      "time": "18:30",
+      "duration_min": 90,
+      "title": "Family dinner",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-18",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-18",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Procurement review \u2014 long-lead",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-18",
+      "time": "06:30",
+      "duration_min": 60,
+      "title": "Personal \u2014 gym",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-18",
+      "time": "14:00",
+      "duration_min": 60,
+      "title": "Owner cost meeting",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-18",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-19",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-19",
+      "time": "16:30",
+      "duration_min": 30,
+      "title": "1:1 \u2014 Project Director",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-19",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-19",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-20",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-20",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-20",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-20",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-20",
+      "time": "14:00",
+      "duration_min": 60,
+      "title": "Owner cost meeting",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-21",
+      "time": "14:00",
+      "duration_min": 60,
+      "title": "Owner cost meeting",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-21",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-21",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-21",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-21",
+      "time": "09:00",
+      "duration_min": 60,
+      "title": "Project review \u2014 QPB1 weekly",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-22",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-22",
+      "time": "17:00",
+      "duration_min": 30,
+      "title": "Quill weekly review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-22",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-22",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-22",
+      "time": "18:30",
+      "duration_min": 90,
+      "title": "Family dinner",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-22",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-23",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-23",
+      "time": "16:30",
+      "duration_min": 30,
+      "title": "1:1 \u2014 Project Director",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-24",
+      "time": "11:00",
+      "duration_min": 60,
+      "title": "Hyperscaler partner sync \u2014 Marcus Doyle",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-24",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Procurement review \u2014 long-lead",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-25",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-25",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-25",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-25",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-25",
+      "time": "06:30",
+      "duration_min": 60,
+      "title": "Personal \u2014 gym",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-26",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-26",
+      "time": "14:00",
+      "duration_min": 60,
+      "title": "Owner cost meeting",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-26",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-26",
+      "time": "11:00",
+      "duration_min": 60,
+      "title": "Hyperscaler partner sync \u2014 Marcus Doyle",
+      "kind": "partner"
+    },
+    {
+      "date": "2026-05-26",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-26",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-27",
+      "time": "16:30",
+      "duration_min": 30,
+      "title": "1:1 \u2014 Project Director",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-27",
+      "time": "15:45",
+      "duration_min": 30,
+      "title": "Submittal log review",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-27",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-27",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-28",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-28",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-28",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-28",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Procurement review \u2014 long-lead",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-28",
+      "time": "09:00",
+      "duration_min": 60,
+      "title": "Project review \u2014 QPB1 weekly",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-28",
+      "time": "06:30",
+      "duration_min": 60,
+      "title": "Personal \u2014 gym",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-05-29",
+      "time": "17:00",
+      "duration_min": 30,
+      "title": "Quill weekly review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-29",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Procurement review \u2014 long-lead",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-29",
+      "time": "15:45",
+      "duration_min": 30,
+      "title": "Submittal log review",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-29",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-05-30",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-31",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "work"
+    },
+    {
+      "date": "2026-05-31",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "work"
+    },
+    {
+      "date": "2026-06-01",
+      "time": "15:45",
+      "duration_min": 30,
+      "title": "Submittal log review",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-01",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-01",
+      "time": "16:30",
+      "duration_min": 30,
+      "title": "1:1 \u2014 Project Director",
+      "kind": "work"
+    },
+    {
+      "date": "2026-06-01",
+      "time": "11:00",
+      "duration_min": 60,
+      "title": "Hyperscaler partner sync \u2014 Marcus Doyle",
+      "kind": "partner"
+    },
+    {
+      "date": "2026-06-01",
+      "time": "13:30",
+      "duration_min": 90,
+      "title": "OAC walk on site",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-02",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-06-02",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-06-02",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-02",
+      "time": "17:00",
+      "duration_min": 30,
+      "title": "Quill weekly review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-06-03",
+      "time": "15:00",
+      "duration_min": 30,
+      "title": "Risk register review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-06-03",
+      "time": "14:00",
+      "duration_min": 60,
+      "title": "Owner cost meeting",
+      "kind": "work"
+    },
+    {
+      "date": "2026-06-03",
+      "time": "15:45",
+      "duration_min": 30,
+      "title": "Submittal log review",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-03",
+      "time": "06:30",
+      "duration_min": 60,
+      "title": "Personal \u2014 gym",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-06-03",
+      "time": "17:00",
+      "duration_min": 30,
+      "title": "Quill weekly review",
+      "kind": "work"
+    },
+    {
+      "date": "2026-06-04",
+      "time": "12:00",
+      "duration_min": 60,
+      "title": "Lunch \u2014 focus block",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-06-04",
+      "time": "11:00",
+      "duration_min": 60,
+      "title": "Hyperscaler partner sync \u2014 Marcus Doyle",
+      "kind": "partner"
+    },
+    {
+      "date": "2026-06-04",
+      "time": "08:00",
+      "duration_min": 45,
+      "title": "Subs all-hands (BLDG1)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-04",
+      "time": "16:30",
+      "duration_min": 30,
+      "title": "1:1 \u2014 Project Director",
+      "kind": "work"
+    },
+    {
+      "date": "2026-06-04",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-05",
+      "time": "06:30",
+      "duration_min": 60,
+      "title": "Personal \u2014 gym",
+      "kind": "personal"
+    },
+    {
+      "date": "2026-06-05",
+      "time": "10:00",
+      "duration_min": 45,
+      "title": "Design coordination call (MEP)",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-05",
+      "time": "11:00",
+      "duration_min": 60,
+      "title": "Hyperscaler partner sync \u2014 Marcus Doyle",
+      "kind": "partner"
+    },
+    {
+      "date": "2026-06-05",
+      "time": "16:00",
+      "duration_min": 45,
+      "title": "Schedule update \u2014 IMS",
+      "kind": "project"
+    },
+    {
+      "date": "2026-06-06",
+      "time": "17:00",
+      "duration_min": 30,
+      "title": "Quill weekly review",
+      "kind": "work"
+    }
+  ]
+}

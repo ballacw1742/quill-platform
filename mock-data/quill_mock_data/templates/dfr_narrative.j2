@@ -1,0 +1,39 @@
+DAILY FIELD REPORT — {{ date }} — {{ building }}
+Superintendent: {{ super_name }}
+Weather: {{ weather }} | High {{ high_f }}°F | Low {{ low_f }}°F | Wind {{ wind }} mph
+Crew on site: {{ headcount }} ({{ disciplines | join(", ") }})
+Hours worked: {{ hours_worked }}
+
+WORK COMPLETED TODAY
+{%- for w in work_done %}
+- {{ w }}
+{%- endfor %}
+
+PRODUCTION QUANTITIES
+{%- for q in quantities %}
+- {{ q.activity }} ({{ q.activity_id }}): {{ q.installed }} of {{ q.total }} {{ q.uom }} ({{ q.pct }}% complete)
+{%- endfor %}
+
+DELAYS / IMPEDIMENTS
+{%- if delays %}
+{%- for d in delays %}
+- {{ d }}
+{%- endfor %}
+{%- else %}
+- None reported.
+{%- endif %}
+
+SAFETY
+- Pre-task plans signed: {{ ptp_signed }}
+- Near-misses: {{ near_misses }}
+- Recordable incidents: {{ recordables }}
+
+VISITORS / DELIVERIES
+{%- for v in visitors %}
+- {{ v }}
+{%- endfor %}
+
+LOOK-AHEAD (next 3 days)
+{%- for la in lookahead %}
+- {{ la }}
+{%- endfor %}

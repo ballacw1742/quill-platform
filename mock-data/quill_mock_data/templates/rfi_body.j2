@@ -1,0 +1,25 @@
+RFI {{ rfi_id }} — {{ subject }}
+
+Building: {{ building }} (level {{ level }}, gridline {{ gridline }})
+Discipline: {{ discipline }}
+Drawing reference: {{ drawing_id }}
+Spec reference: {{ spec_section }} {{ spec_title }}
+Submitted by: {{ submitter_name }} ({{ submitter_role }}) — {{ subcontractor }}
+Priority: {{ priority }}
+
+QUESTION
+{{ question }}
+
+CONTEXT
+{{ context }}
+
+PROPOSED RESOLUTION
+{{ proposed_resolution }}
+
+ATTACHMENTS
+- {{ drawing_id }}.pdf (excerpt)
+{%- if extra_attachments %}
+{%- for a in extra_attachments %}
+- {{ a }}
+{%- endfor %}
+{%- endif %}

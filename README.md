@@ -128,6 +128,42 @@ it tamper-evident across two storage tiers:
 In dev or when B2 creds are unset, the mirror falls back to a local directory
 (`./_local_audit_mirror/`) so the same code path is exercised end-to-end.
 
+## Running with mock data (Sprint 3)
+
+Mock-data feeders simulate **QPB1** — a fictional $10B / 1.7 GW / 4-building
+hyperscale data center build, ground-up start 2026-06-23. Once running, the
+Approval Queue grows realistically (RFIs, submittals, DFRs, vendor updates,
+hyperscaler inbound), the audit chain extends, and the Daily Brief has
+something to say.
+
+```bash
+make docker-up                 # Postgres only (or use SQLite via .env)
+make migrate seed              # baseline
+make dev &                     # API on http://localhost:8000
+
+make mock-bootstrap            # write QPB1 spec corpus, subs, POs, IMS
+make mock-start                # background daemon — fast mode (events every 15-120s)
+sleep 300                      # ~5 minutes is enough to populate the queue
+
+make mock-status               # show pid + dispatch log line count
+curl -s -H "X-Admin: dev-agent-secret-change-me" \
+     http://localhost:8000/v1/admin/health | jq
+
+make daily-brief-now           # render the Daily Brief from real synthetic data
+
+make mock-stop                 # graceful shutdown
+```
+
+Finer-grained control is via the `quill-mock` CLI — see
+[`mock-data/README.md`](mock-data/README.md) for the full surface
+(`bootstrap`, `start --fast/--realistic`, `tick --feeder …`, `status`).
+
+For stress testing without APScheduler:
+
+```bash
+.venv/bin/python runtime/scripts/replay_week.py --days 7 --minutes 5
+```
+
 ## Telegram bot (Sprint 2.4)
 
 Mobile approval surface + 7am Daily Brief delivery. See
