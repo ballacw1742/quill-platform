@@ -7,7 +7,7 @@ const nextConfig = {
     remotePatterns: [{ protocol: "https", hostname: "**" }],
   },
   async rewrites() {
-    const apiBase = process.env.NEXT_PUBLIC_API_URL;
+    const apiBase = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL;
     if (!apiBase || process.env.NEXT_PUBLIC_USE_MOCK === "1") return [];
     return [
       { source: "/api/v1/:path*", destination: `${apiBase}/v1/:path*` },
