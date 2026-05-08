@@ -124,7 +124,7 @@ async def test_run_daily_brief_fallback_path(monkeypatch, bot_config, fake_api, 
     # Force runtime invocation to return None (so fallback is used).
     from quill_bot import scheduler as sch
 
-    async def no_runtime(inputs, *, command_template):
+    async def no_runtime(inputs, *, command_template, timeout=180):
         return None
 
     monkeypatch.setattr(sch, "render_brief_via_runtime", no_runtime)
@@ -143,7 +143,7 @@ async def test_run_daily_brief_fallback_path(monkeypatch, bot_config, fake_api, 
 async def test_run_daily_brief_no_chat_id_skips_send(monkeypatch, bot_config, fake_api, fake_send):
     from quill_bot import scheduler as sch
 
-    async def no_runtime(inputs, *, command_template):
+    async def no_runtime(inputs, *, command_template, timeout=180):
         return None
 
     monkeypatch.setattr(sch, "render_brief_via_runtime", no_runtime)

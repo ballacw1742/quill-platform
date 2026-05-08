@@ -21,6 +21,7 @@ import os
 import shlex
 import subprocess
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,12 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from quill_bot.api_client import QuillAPIClient, QuillAPIError
 from quill_bot.config import BotConfig
+from quill_bot.dedup import DedupStore, get_store
+
+try:  # Optional Sentry import — bot already initializes it elsewhere
+    import sentry_sdk
+except Exception:  # pragma: no cover
+    sentry_sdk = None  # type: ignore
 
 log = logging.getLogger("quill.bot.scheduler")
 
@@ -135,24 +142,51 @@ def render_brief_fallback(inputs: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# Default timeout for the runtime invocation. The fix-#3 job-queue pattern
+# treats anything beyond this as "runtime is wedged" and falls back.
+DAILY_BRIEF_RUNTIME_TIMEOUT_S = 180
+
+
 async def render_brief_via_runtime(
-    inputs: dict[str, Any], *, command_template: str
+    inputs: dict[str, Any],
+    *,
+    command_template: str,
+    timeout: float = DAILY_BRIEF_RUNTIME_TIMEOUT_S,
 ) -> str | None:
     """Try to invoke `quill-runtime run daily-brief --input <payload>`.
 
-    Returns the rendered Markdown on success, None on failure.
+    Returns the rendered Markdown on success, None on failure (including
+    timeout). Caller is expected to fall back to the deterministic brief.
     """
     payload = json.dumps(inputs, default=str)
     cmd = command_template.format(payload=shlex.quote(payload))
+    proc = None
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        out, err = await asyncio.wait_for(proc.communicate(), timeout=120)
-    except (FileNotFoundError, asyncio.TimeoutError) as e:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except FileNotFoundError as e:
         log.warning("daily-brief: runtime invocation failed: %s", e)
+        return None
+    except asyncio.TimeoutError:
+        log.warning(
+            "daily-brief: runtime exceeded %ss — falling back", timeout
+        )
+        if proc is not None:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+        if sentry_sdk is not None:
+            try:
+                sentry_sdk.capture_message(
+                    "daily_brief.runtime_timeout", level="warning"
+                )
+            except Exception:  # noqa: BLE001
+                pass
         return None
     if proc.returncode != 0:
         log.warning(
@@ -220,37 +254,15 @@ async def archive_brief_to_drive(
     return f"local:{fallback}"
 
 
-async def run_daily_brief(
-    config: BotConfig,
-    api: QuillAPIClient,
-    send: SendFn,
-) -> dict[str, Any]:
-    """The 07:00 ET job. Returns a small status dict for tests."""
-    date_str = datetime.now(ET).date().isoformat()
-    inputs = await fetch_daily_brief_inputs(api)
-    rendered = await render_brief_via_runtime(
-        inputs, command_template=config.daily_brief_command_template
-    )
-    if rendered is None:
-        rendered = render_brief_fallback(inputs)
-        used_fallback = True
-    else:
-        used_fallback = False
-
-    archive_status = await archive_brief_to_drive(config, date_str, rendered)
-
-    chat_id = config.daily_brief_chat_id
-    if not chat_id:
-        log.warning("daily-brief: no DAILY_BRIEF_CHAT_ID set; skipping Telegram send")
-        return {"ok": True, "delivered": False, "archive": archive_status}
-
-    body = rendered
+async def _send_brief_to_telegram(
+    send: SendFn, chat_id: str | int, body: str
+) -> bool:
+    """Helper used by `run_daily_brief` so it can run concurrently with Drive."""
     if len(body) > 3500:
         body = body[:3500] + "\n…\n_(truncated — full brief on Drive)_"
-
     try:
         await send(chat_id, body, False)
-        delivered = True
+        return True
     except Exception as e:  # noqa: BLE001
         log.exception("daily-brief: send failed: %s", e)
         try:
@@ -261,7 +273,65 @@ async def run_daily_brief(
             )
         except Exception:  # noqa: BLE001
             pass
+        return False
+
+
+async def run_daily_brief(
+    config: BotConfig,
+    api: QuillAPIClient,
+    send: SendFn,
+    *,
+    runtime_timeout: float = DAILY_BRIEF_RUNTIME_TIMEOUT_S,
+) -> dict[str, Any]:
+    """The 07:00 ET job. Returns a small status dict for tests.
+
+    Sprint-4 fix #3 + #5:
+      - The runtime invocation has a hard timeout (default 180s) and falls
+        back to the deterministic brief on timeout.
+      - Telegram send and Drive archive run concurrently via asyncio.gather
+        so a slow Drive upload never blocks the user from seeing the brief.
+    """
+    date_str = datetime.now(ET).date().isoformat()
+    inputs = await fetch_daily_brief_inputs(api)
+    rendered = await render_brief_via_runtime(
+        inputs,
+        command_template=config.daily_brief_command_template,
+        timeout=runtime_timeout,
+    )
+    if rendered is None:
+        rendered = render_brief_fallback(inputs)
+        used_fallback = True
+    else:
+        used_fallback = False
+
+    chat_id = config.daily_brief_chat_id
+
+    # Kick off Telegram send + Drive upload concurrently. Drive failures are
+    # best-effort; Telegram failures degrade to a fallback notice (already
+    # handled inside `_send_brief_to_telegram`).
+    drive_coro = archive_brief_to_drive(config, date_str, rendered)
+    if chat_id:
+        send_coro = _send_brief_to_telegram(send, chat_id, rendered)
+        results = await asyncio.gather(send_coro, drive_coro, return_exceptions=True)
+        send_result, drive_result = results
+    else:
+        log.warning("daily-brief: no DAILY_BRIEF_CHAT_ID set; skipping Telegram send")
+        send_result = None
+        drive_result = await drive_coro
+
+    if isinstance(drive_result, BaseException):
+        log.warning("daily-brief: drive archive failed: %s", drive_result)
+        archive_status = f"error:{type(drive_result).__name__}"
+    else:
+        archive_status = drive_result
+
+    if chat_id is None or chat_id == "":
         delivered = False
+    elif isinstance(send_result, BaseException):
+        log.warning("daily-brief: telegram send raised: %s", send_result)
+        delivered = False
+    else:
+        delivered = bool(send_result)
 
     return {
         "ok": True,
@@ -270,6 +340,91 @@ async def run_daily_brief(
         "archive": archive_status,
         "date": date_str,
     }
+
+
+# ---------------------------------------------------------------------------
+# Sprint-4 fix #3: Async DR job queue for the Daily Brief
+#
+# At 06:30 ET the scheduler enqueues a DailyBriefJob. A long-running worker
+# task drains the queue. The runtime invocation is bounded by a 180s timeout
+# so the scheduler loop never stalls on slow LLM calls.
+# ---------------------------------------------------------------------------
+@dataclass
+class DailyBriefJob:
+    enqueued_at: datetime
+    config: BotConfig
+    api: QuillAPIClient
+    send: SendFn
+    runtime_timeout: float = DAILY_BRIEF_RUNTIME_TIMEOUT_S
+
+
+class DailyBriefQueue:
+    """Bounded in-process queue. Dropping a duplicate is preferable to
+    piling up jobs if a previous run is still finishing."""
+
+    def __init__(self, *, maxsize: int = 4) -> None:
+        self._queue: asyncio.Queue[DailyBriefJob] = asyncio.Queue(maxsize=maxsize)
+        self._worker: asyncio.Task[None] | None = None
+        self._stop = asyncio.Event()
+        self.last_result: dict[str, Any] | None = None
+
+    @property
+    def qsize(self) -> int:
+        return self._queue.qsize()
+
+    @property
+    def is_running(self) -> bool:
+        return self._worker is not None and not self._worker.done()
+
+    async def enqueue(self, job: DailyBriefJob) -> bool:
+        try:
+            self._queue.put_nowait(job)
+            return True
+        except asyncio.QueueFull:
+            log.warning("daily-brief queue full — dropping job")
+            if sentry_sdk is not None:
+                try:
+                    sentry_sdk.capture_message(
+                        "daily_brief.queue_full", level="warning"
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            return False
+
+    async def start(self) -> None:
+        if self.is_running:
+            return
+        self._stop.clear()
+        self._worker = asyncio.create_task(self._run(), name="daily-brief-worker")
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self._worker is not None:
+            self._worker.cancel()
+            try:
+                await self._worker
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+            self._worker = None
+
+    async def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                job = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+            try:
+                self.last_result = await run_daily_brief(
+                    job.config,
+                    job.api,
+                    job.send,
+                    runtime_timeout=job.runtime_timeout,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.exception("daily-brief job failed: %s", exc)
+                self.last_result = {"ok": False, "error": str(exc)}
+            finally:
+                self._queue.task_done()
 
 
 # ---------------------------------------------------------------------------
@@ -288,18 +443,47 @@ def _age_hours(item: dict[str, Any]) -> float | None:
     return (datetime.now(UTC) - ts).total_seconds() / 3600
 
 
-async def remind_lane2_4h(api: QuillAPIClient, send: SendFn, chat_id: str | int) -> int:
-    """Find Lane 2 pending items aged 4-8h; send a single rollup message.
-
-    Returns the count of items reminded. Idempotency is best-effort: we
-    simply nudge once per scheduler tick. Sprint 4 should track sent state
-    per item so we don't spam if the scheduler tick interval shrinks.
+def _filter_unreminded(
+    items: list[dict[str, Any]],
+    *,
+    age_pred,
+    kind: str,
+    store: DedupStore,
+) -> list[dict[str, Any]]:
+    """Apply both an age predicate AND the dedup claim. Items that have
+    already had this kind of reminder fired are dropped silently.
     """
+    out: list[dict[str, Any]] = []
+    for it in items:
+        age = _age_hours(it)
+        if age is None or not age_pred(age):
+            continue
+        appr_id = it.get("id") or ""
+        if not appr_id:
+            continue
+        if not store.claim_reminder(appr_id, kind):
+            continue
+        out.append(it)
+    return out
+
+
+async def remind_lane2_4h(
+    api: QuillAPIClient,
+    send: SendFn,
+    chat_id: str | int,
+    *,
+    store: DedupStore | None = None,
+) -> int:
+    """Find Lane 2 pending items aged 4-8h that have NOT had a 4h reminder yet.
+
+    Idempotency: each `(approval_id, 'lane2_4h')` pair fires at most once,
+    persisted to the dedup store so bot restarts don't re-nudge.
+    """
+    s = store or get_store()
     items = await _safe_list(api, lane=2)
-    flagged = [
-        it for it in items
-        if (a := _age_hours(it)) is not None and 4 <= a < 8
-    ]
+    flagged = _filter_unreminded(
+        items, age_pred=lambda a: 4 <= a < 8, kind="lane2_4h", store=s
+    )
     if not flagged:
         return 0
     lines = [
@@ -313,9 +497,18 @@ async def remind_lane2_4h(api: QuillAPIClient, send: SendFn, chat_id: str | int)
     return len(flagged)
 
 
-async def escalate_lane2_8h(api: QuillAPIClient, send: SendFn, chat_id: str | int) -> int:
+async def escalate_lane2_8h(
+    api: QuillAPIClient,
+    send: SendFn,
+    chat_id: str | int,
+    *,
+    store: DedupStore | None = None,
+) -> int:
+    s = store or get_store()
     items = await _safe_list(api, lane=2)
-    flagged = [it for it in items if (a := _age_hours(it)) is not None and a >= 8]
+    flagged = _filter_unreminded(
+        items, age_pred=lambda a: a >= 8, kind="lane2_8h", store=s
+    )
     if not flagged:
         return 0
     lines = [
@@ -326,9 +519,18 @@ async def escalate_lane2_8h(api: QuillAPIClient, send: SendFn, chat_id: str | in
     return len(flagged)
 
 
-async def escalate_lane3_12h(api: QuillAPIClient, send: SendFn, chat_id: str | int) -> int:
+async def escalate_lane3_12h(
+    api: QuillAPIClient,
+    send: SendFn,
+    chat_id: str | int,
+    *,
+    store: DedupStore | None = None,
+) -> int:
+    s = store or get_store()
     items = await _safe_list(api, lane=3)
-    flagged = [it for it in items if (a := _age_hours(it)) is not None and a >= 12]
+    flagged = _filter_unreminded(
+        items, age_pred=lambda a: a >= 12, kind="lane3_12h", store=s
+    )
     if not flagged:
         return 0
     lines = [
@@ -362,6 +564,8 @@ class QuillScheduler:
         self.send = send
         self.scheduler: AsyncIOScheduler = AsyncIOScheduler(timezone=ET)
         self._heartbeat_task: asyncio.Task | None = None
+        # Sprint-4 fix #3: bounded queue + worker for the Daily Brief.
+        self.daily_brief_queue = DailyBriefQueue(maxsize=4)
 
     def schedule_all(self) -> None:
         s = self.scheduler
@@ -374,10 +578,10 @@ class QuillScheduler:
             replace_existing=True,
         )
         s.add_job(
-            self._run_daily_brief_fetch,
+            self._enqueue_daily_brief,
             CronTrigger(hour=6, minute=30, timezone=ET),
             id="daily-brief-fetch",
-            name="Daily Brief — fetch inputs",
+            name="Daily Brief — enqueue + fetch inputs",
             replace_existing=True,
         )
         if self.config.reminder_lane2_4h_enabled:
@@ -434,12 +638,57 @@ class QuillScheduler:
         return out
 
     async def push_heartbeat(self) -> None:
-        try:
-            await self.api.scheduler_heartbeat(self.jobs_snapshot())
-        except QuillAPIError as e:
-            log.warning("scheduler heartbeat failed: %s", e)
-        except Exception as e:  # noqa: BLE001
-            log.exception("scheduler heartbeat error: %s", e)
+        """Push the job snapshot to the API with at-least-once delivery.
+
+        Sprint-4 fix #4: retries up to 5 times with exponential backoff
+        (1s, 2s, 4s, 8s, 16s) on connection errors / 5xx. The heartbeat is
+        non-critical so a final failure logs a Sentry event but does NOT
+        block the scheduler loop.
+        """
+        delays = (1.0, 2.0, 4.0, 8.0, 16.0)
+        last_exc: BaseException | None = None
+        for attempt, delay in enumerate(delays, start=1):
+            try:
+                await self.api.scheduler_heartbeat(self.jobs_snapshot())
+                if attempt > 1:
+                    log.info("scheduler heartbeat recovered on attempt %d", attempt)
+                return
+            except QuillAPIError as e:
+                last_exc = e
+                retryable = e.status >= 500 or e.status == 0
+                log.warning(
+                    "scheduler heartbeat attempt %d/%d failed: %s",
+                    attempt,
+                    len(delays),
+                    e,
+                )
+                if not retryable or attempt == len(delays):
+                    break
+            except Exception as e:  # noqa: BLE001
+                last_exc = e
+                log.warning(
+                    "scheduler heartbeat attempt %d/%d errored: %s",
+                    attempt,
+                    len(delays),
+                    e,
+                )
+                if attempt == len(delays):
+                    break
+            await asyncio.sleep(delay)
+        # All retries exhausted — surface to Sentry but never block the loop.
+        log.error(
+            "scheduler heartbeat: gave up after %d attempts last_err=%s",
+            len(delays),
+            last_exc,
+        )
+        if sentry_sdk is not None:
+            try:
+                sentry_sdk.capture_message(
+                    "scheduler.heartbeat_final_failure",
+                    level="error",
+                )
+            except Exception:  # noqa: BLE001
+                pass
 
     async def _heartbeat_loop(self) -> None:
         while True:
@@ -454,6 +703,7 @@ class QuillScheduler:
         self.scheduler.start()
         loop = asyncio.get_event_loop()
         self._heartbeat_task = loop.create_task(self._heartbeat_loop())
+        loop.create_task(self.daily_brief_queue.start(), name="daily-brief-queue-start")
         log.info("scheduler started with %d jobs", len(self.scheduler.get_jobs()))
 
     async def stop(self) -> None:
@@ -463,17 +713,35 @@ class QuillScheduler:
                 await self._heartbeat_task
             except asyncio.CancelledError:
                 pass
+        await self.daily_brief_queue.stop()
         self.scheduler.shutdown(wait=False)
 
     # ------------------------------------------------------------------
     # Job wrappers (logged + Sentry-tagged)
     # ------------------------------------------------------------------
     async def _run_daily_brief_job(self) -> None:
-        log.info("daily-brief-deliver: starting")
-        result = await run_daily_brief(self.config, self.api, self.send)
-        log.info("daily-brief-deliver: result=%s", result)
+        """07:00 ET wake-up: enqueue the brief job. The worker (started in
+        :meth:`start`) drains the queue out-of-band so this scheduler tick
+        returns immediately.
+        """
+        log.info("daily-brief-deliver: enqueueing")
+        if not self.daily_brief_queue.is_running:
+            await self.daily_brief_queue.start()
+        ok = await self.daily_brief_queue.enqueue(
+            DailyBriefJob(
+                enqueued_at=datetime.now(UTC),
+                config=self.config,
+                api=self.api,
+                send=self.send,
+            )
+        )
+        log.info("daily-brief-deliver: enqueued=%s", ok)
 
-    async def _run_daily_brief_fetch(self) -> None:
+    async def _enqueue_daily_brief(self) -> None:
+        """06:30 ET fetch inputs (warms caches) AND enqueue an early brief
+        job, so the 07:00 delivery has a head start. Idempotent w.r.t. the
+        queue's bound — if a previous job is still draining we drop the dupe.
+        """
         log.info("daily-brief-fetch: starting")
         await fetch_daily_brief_inputs(self.api)
         log.info("daily-brief-fetch: done")
