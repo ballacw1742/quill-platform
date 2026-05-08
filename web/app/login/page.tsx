@@ -5,19 +5,11 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Fingerprint, KeyRound, ShieldCheck } from "lucide-react";
+import { Fingerprint, Loader2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useLogin, useSession } from "@/lib/api";
+import type { Session } from "@/lib/schemas";
 import {
   isPasskeySupported,
   isUserCancelledError,
@@ -25,6 +17,22 @@ import {
 } from "@/lib/auth";
 import { RegisterPasskeyDialog } from "@/components/auth/RegisterPasskeyDialog";
 import { toast } from "sonner";
+
+/**
+ * /login — iOS-redesign.
+ *
+ * MOBILE_UX_SPEC.md §"Authentication / /login":
+ *   1. Big Quill mark, centered.
+ *   2. text-title-1 "Sign in".
+ *   3. text-body label-secondary "Use your passkey to continue."
+ *   4. Email input.
+ *   5. Primary "Sign in with passkey" — full-width 50 px accent filled.
+ *   6. Ghost "Register a passkey" below.
+ *   7. <details> dev-fallback collapsed by default.
+ *
+ * Forbidden chrome from the prior design: marketing copy, Card border,
+ * footer link, top wordmark+tagline. The form *is* the screen.
+ */
 
 const schema = z.object({
   email: z.string().email("Enter a valid email"),
@@ -36,9 +44,12 @@ const DEV_FALLBACK =
   typeof process !== "undefined" &&
   process.env.NEXT_PUBLIC_DEV_AUTH_FALLBACK === "1";
 
+const LAST_EMAIL_KEY = "quill.last_login_email";
+
 export default function LoginPage() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: rawSession } = useSession();
+  const session = rawSession as Session | null | undefined;
   const passwordLogin = useLogin();
   const passkeyAvailable = isPasskeySupported();
 
@@ -49,10 +60,21 @@ export default function LoginPage() {
     if (session) router.replace("/queue");
   }, [session, router]);
 
+  // Pre-fill last successful email if available.
+  const lastEmail =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem(LAST_EMAIL_KEY) ?? "charles@quill.local"
+      : "charles@quill.local";
+
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: "charles@monarktechnology.com", password: "" },
+    defaultValues: { email: lastEmail, password: "" },
   });
+
+  const rememberEmail = (email: string) => {
+    if (typeof window !== "undefined")
+      window.localStorage.setItem(LAST_EMAIL_KEY, email);
+  };
 
   const onPasskey = async () => {
     const email = form.getValues("email");
@@ -65,7 +87,15 @@ export default function LoginPage() {
       const result = await loginWithPasskey(email);
       if (typeof window !== "undefined") {
         window.localStorage.setItem("quill.session", JSON.stringify(result));
+        // Mirror the JWT to the canonical key used by lib/api.apiFetch.
+        if ((result as { access_token?: string }).access_token) {
+          window.localStorage.setItem(
+            "quill_session_token",
+            (result as { access_token: string }).access_token,
+          );
+        }
       }
+      rememberEmail(email);
       toast.success("Signed in with passkey");
       router.replace("/queue");
     } catch (err) {
@@ -90,6 +120,7 @@ export default function LoginPage() {
       { email: values.email, password: values.password },
       {
         onSuccess: () => {
+          rememberEmail(values.email);
           toast.success("Signed in");
           router.replace("/queue");
         },
@@ -99,90 +130,125 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gradient-to-b from-slate-50 to-slate-100 p-4 dark:from-slate-950 dark:to-slate-900">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <div className="mb-2 flex items-center gap-2">
-            <ShieldCheck className="h-6 w-6 text-primary" />
-            <span className="text-lg font-semibold tracking-tight">Quill</span>
+    <main className="flex min-h-screen flex-col bg-bg pt-safe pb-safe">
+      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6 py-10">
+        {/* Quill mark — large, centered */}
+        <div className="mb-12 flex flex-col items-center gap-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent text-white shadow-card">
+            <ShieldCheck className="h-9 w-9" strokeWidth={1.75} />
           </div>
-          <CardTitle>Sign in</CardTitle>
-          <CardDescription>
-            Approval queue for the Agentic PMO fleet.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={form.handleSubmit(onPassword)} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                autoComplete="username webauthn"
-                {...form.register("email")}
-              />
-              {form.formState.errors.email && (
-                <p className="text-xs text-destructive">
-                  {form.formState.errors.email.message}
-                </p>
-              )}
+        </div>
+
+        <div className="mb-8 space-y-1">
+          <h1 className="text-title-1 text-label-primary">Sign in</h1>
+          <p className="text-body text-label-secondary">
+            Use your passkey to continue.
+          </p>
+        </div>
+
+        <form
+          onSubmit={form.handleSubmit(onPassword)}
+          className="space-y-4"
+          autoComplete="on"
+        >
+          <div className="space-y-1.5">
+            <label
+              htmlFor="email"
+              className="block text-subhead text-label-secondary"
+            >
+              Email
+            </label>
+            <Input
+              id="email"
+              type="email"
+              inputMode="email"
+              autoComplete="username webauthn"
+              placeholder="you@example.com"
+              className="h-[50px] rounded-lg border-separator-opaque bg-bg-tertiary text-body"
+              {...form.register("email")}
+            />
+            {form.formState.errors.email && (
+              <p className="text-footnote text-danger">
+                {form.formState.errors.email.message}
+              </p>
+            )}
+          </div>
+
+          <Button
+            type="button"
+            onClick={onPasskey}
+            disabled={!passkeyAvailable || passkeyPending}
+            className="h-[50px] w-full rounded-lg text-headline"
+          >
+            {passkeyPending ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Waiting for passkey…
+              </>
+            ) : (
+              <>
+                <Fingerprint className="h-4 w-4" />
+                Sign in with passkey
+              </>
+            )}
+          </Button>
+
+          <button
+            type="button"
+            onClick={() => setRegisterOpen(true)}
+            className="block w-full py-3 text-center text-callout text-accent active:opacity-60 no-tap-highlight"
+          >
+            Register a passkey
+          </button>
+
+          {!passkeyAvailable && (
+            <div className="rounded-md bg-bg-elevated px-3 py-2 text-footnote text-label-secondary">
+              Passkeys aren&rsquo;t supported on this browser. Use Safari,
+              Chrome, Edge, or Firefox on a modern device.
             </div>
+          )}
 
-            <Button
-              type="button"
-              className="w-full"
-              onClick={onPasskey}
-              disabled={!passkeyAvailable || passkeyPending}
-            >
-              <Fingerprint className="h-4 w-4" />
-              {passkeyPending ? "Waiting for passkey…" : "Sign in with passkey"}
-            </Button>
-
-            {!passkeyAvailable && (
-              <Alert variant="default" className="text-xs">
-                <AlertDescription>
-                  Passkeys aren’t supported on this browser. Use Safari, Chrome,
-                  Edge, or Firefox on a modern device.
-                </AlertDescription>
-              </Alert>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setRegisterOpen(true)}
-              className="w-full text-center text-xs text-muted-foreground underline-offset-4 hover:underline"
-            >
-              First time on this device? Register a passkey →
-            </button>
-
-            {DEV_FALLBACK && (
-              <details className="rounded-md border bg-muted/30 p-3 text-xs">
-                <summary className="flex cursor-pointer items-center gap-2 text-muted-foreground">
-                  <KeyRound className="h-3.5 w-3.5" /> Dev: email + password
-                </summary>
-                <div className="mt-3 space-y-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      autoComplete="current-password"
-                      {...form.register("password")}
-                    />
-                  </div>
-                  <Button
-                    type="submit"
-                    variant="outline"
-                    className="w-full"
-                    disabled={passwordLogin.isPending}
+          {DEV_FALLBACK && (
+            <details className="group rounded-lg bg-bg-elevated px-4 py-3">
+              <summary className="flex cursor-pointer list-none items-center justify-between text-footnote text-label-secondary">
+                <span>Developer sign-in</span>
+                <span className="text-label-tertiary group-open:rotate-90 transition-transform">
+                  ›
+                </span>
+              </summary>
+              <div className="mt-3 space-y-3">
+                <div className="space-y-1.5">
+                  <label
+                    htmlFor="password"
+                    className="block text-subhead text-label-secondary"
                   >
-                    {passwordLogin.isPending ? "Signing in…" : "Sign in (dev)"}
-                  </Button>
+                    Password
+                  </label>
+                  <Input
+                    id="password"
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="quill-dev-password"
+                    className="h-11 rounded-md bg-bg-tertiary text-body"
+                    {...form.register("password")}
+                  />
                 </div>
-              </details>
-            )}
-          </form>
-        </CardContent>
-      </Card>
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  className="h-11 w-full rounded-md text-headline"
+                  disabled={passwordLogin.isPending}
+                >
+                  {passwordLogin.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : null}
+                  Sign in (dev)
+                </Button>
+              </div>
+            </details>
+          )}
+        </form>
+      </div>
 
       <RegisterPasskeyDialog
         open={registerOpen}

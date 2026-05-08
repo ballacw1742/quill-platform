@@ -3,10 +3,12 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/lib/api";
+import type { Session } from "@/lib/schemas";
 
 export default function RootPage() {
   const router = useRouter();
-  const { data, isLoading } = useSession();
+  const { data: rawData, isLoading } = useSession();
+  const data = rawData as Session | null | undefined;
 
   useEffect(() => {
     if (isLoading) return;
@@ -14,8 +16,6 @@ export default function RootPage() {
   }, [data, isLoading, router]);
 
   return (
-    <main className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
-      Loading…
-    </main>
+    <main className="flex min-h-screen items-center justify-center bg-bg text-callout text-label-secondary" />
   );
 }

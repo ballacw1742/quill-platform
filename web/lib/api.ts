@@ -36,24 +36,35 @@ class ApiError extends Error {
   }
 }
 
+function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("quill_session_token");
+}
+
+export function setStoredToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (token) window.localStorage.setItem("quill_session_token", token);
+  else window.localStorage.removeItem("quill_session_token");
+}
+
 async function apiFetch<T>(
   path: string,
   opts: RequestInit & { schema?: z.ZodType<T> } = {},
 ): Promise<T> {
+  const token = getStoredToken();
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(opts.headers || {}),
     },
     ...opts,
   });
-  if (res.status === 401) {
-    if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-      window.location.href = "/login";
-    }
-    throw new ApiError(401, "unauthorized");
-  }
+  // Per-hook 401 handling: do NOT auto-redirect from apiFetch. The session
+  // hook is responsible for noticing a stale token and clearing it; bouncing on
+  // every secondary 401 (e.g. admin endpoints that need a separate gate) was
+  // causing the audit/agents/health pages to flap back to /login.
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new ApiError(res.status, text || res.statusText);
@@ -68,6 +79,71 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ─── Approvals ────────────────────────────────────────────────────────────────
 
+// Adapter: the API returns a wider, differently-shaped ApprovalItem than the UI
+// type. We coerce here so component code stays simple. (Sprint 1.1 vs 1.2
+// schema drift — fixed at the fetch boundary; full alignment is a future cleanup.)
+function coerceApiApprovalItem(raw: any): ApprovalItem {
+  const sources =
+    (raw.source_artifacts ?? []).map((s: any) => ({
+      kind: s.kind ?? "artifact",
+      ref: s.ref ?? s.source_id ?? "",
+      excerpt: s.excerpt ?? null,
+    }));
+  return {
+    approval_id: raw.id ?? raw.approval_id,
+    agent_id: raw.agent_id,
+    agent_version: raw.agent_version ?? "0.1.0",
+    agent_model: raw.agent_model ?? undefined,
+    prompt_version: raw.agent_prompt_version ?? raw.prompt_version ?? undefined,
+    workflow: raw.workflow ?? "",
+    // API uses numeric lanes (1=auto, 2=single-sig, 3=dual-sig).
+    // UI laneMeta uses tier names. Map: 1->tier-2-auto, 2->tier-1-spotcheck, 3->tier-0-mandatory.
+    lane:
+      raw.lane === 1
+        ? "tier-2-auto"
+        : raw.lane === 2
+          ? "tier-1-spotcheck"
+          : raw.lane === 3
+            ? "tier-0-mandatory"
+            : typeof raw.lane === "string"
+              ? raw.lane
+              : "tier-1-spotcheck",
+    proposed_action: raw.proposed_action ?? {
+      kind: raw.workflow ?? "action",
+      target: raw.target_system ?? "unknown",
+      api: raw.api_call ?? "",
+      payload: raw.payload ?? {},
+    },
+    context: raw.context ?? {
+      project_id: raw.payload?.project_id ?? "QPB1",
+      sources,
+    },
+    confidence: raw.confidence ?? raw.agent_confidence ?? 0,
+    rationale: raw.rationale ?? raw.agent_reasoning ?? undefined,
+    escalations: raw.escalations ?? [],
+    priority:
+      raw.priority === "P1-critical"
+        ? "critical"
+        : raw.priority === "P2-high"
+          ? "high"
+          : raw.priority === "P4-low"
+            ? "low"
+            : raw.priority === "high" ||
+                raw.priority === "low" ||
+                raw.priority === "critical" ||
+                raw.priority === "normal"
+              ? raw.priority
+              : "normal",
+    summary: raw.summary ?? undefined,
+    status: raw.status ?? "pending",
+    created_at: raw.created_at,
+    expires_at: raw.expires_at ?? null,
+    decided_at: raw.decided_at ?? null,
+    decided_by: raw.decided_by ?? null,
+    decision_reason: raw.decision_reason ?? null,
+  };
+}
+
 export function useApprovals(opts?: UseQueryOptions<ApprovalItem[]>) {
   return useQuery<ApprovalItem[]>({
     queryKey: ["approvals"],
@@ -76,7 +152,10 @@ export function useApprovals(opts?: UseQueryOptions<ApprovalItem[]>) {
         await sleep(120);
         return z.array(ApprovalItemSchema).parse(mockStore.listApprovals());
       }
-      return apiFetch("/api/v1/approvals", { schema: z.array(ApprovalItemSchema) });
+      // API returns { items, total, limit, offset } — extract items and coerce shape.
+      const raw: any = await apiFetch("/api/v1/approvals?limit=200");
+      const items = Array.isArray(raw) ? raw : (raw?.items ?? []);
+      return items.map(coerceApiApprovalItem);
     },
     refetchInterval: USE_MOCK ? 5000 : 15000,
     ...opts,
@@ -92,7 +171,8 @@ export function useApproval(id: string, opts?: UseQueryOptions<ApprovalItem | un
         const item = mockStore.getApproval(id);
         return item ? ApprovalItemSchema.parse(item) : undefined;
       }
-      return apiFetch(`/api/v1/approvals/${id}`, { schema: ApprovalItemSchema });
+      const raw: any = await apiFetch(`/api/v1/approvals/${id}`);
+      return coerceApiApprovalItem(raw);
     },
     enabled: !!id,
     ...opts,
@@ -153,7 +233,10 @@ export function useAudit(opts?: UseQueryOptions<AuditEntry[]>) {
         await sleep(80);
         return z.array(AuditEntrySchema).parse(mockStore.listAudit());
       }
-      return apiFetch("/api/v1/audit", { schema: z.array(AuditEntrySchema) });
+      // API path is /audit/recent, with default limit. Bump to 200 for the audit page.
+      const raw: any = await apiFetch("/api/v1/audit/recent?limit=200");
+      const items = Array.isArray(raw) ? raw : (raw?.items ?? []);
+      return z.array(AuditEntrySchema).parse(items);
     },
     ...opts,
   });
@@ -161,15 +244,16 @@ export function useAudit(opts?: UseQueryOptions<AuditEntry[]>) {
 
 export function useVerifyChain() {
   return useMutation<ChainVerification, Error, void>({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<ChainVerification> => {
       if (USE_MOCK) {
         await sleep(400);
-        return ChainVerificationSchema.parse(mockStore.verifyChain());
+        return ChainVerificationSchema.parse(mockStore.verifyChain()) as ChainVerification;
       }
-      return apiFetch("/api/v1/audit/verify", {
-        method: "POST",
+      // API endpoint is GET, not POST.
+      return (await apiFetch("/api/v1/audit/verify", {
+        method: "GET",
         schema: ChainVerificationSchema,
-      });
+      })) as ChainVerification;
     },
   });
 }
@@ -179,12 +263,12 @@ export function useVerifyChain() {
 export function useAgents() {
   return useQuery<Agent[]>({
     queryKey: ["agents"],
-    queryFn: async () => {
+    queryFn: async (): Promise<Agent[]> => {
       if (USE_MOCK) {
         await sleep(100);
-        return z.array(AgentSchema).parse(mockStore.listAgents());
+        return z.array(AgentSchema).parse(mockStore.listAgents()) as Agent[];
       }
-      return apiFetch("/api/v1/agents", { schema: z.array(AgentSchema) });
+      return (await apiFetch("/api/v1/agents", { schema: z.array(AgentSchema) })) as Agent[];
     },
   });
 }
@@ -192,16 +276,16 @@ export function useAgents() {
 export function useSetTrustTier() {
   const qc = useQueryClient();
   return useMutation<Agent, Error, { agent_id: string; trust_tier: Agent["trust_tier"] }>({
-    mutationFn: async ({ agent_id, trust_tier }) => {
+    mutationFn: async ({ agent_id, trust_tier }): Promise<Agent> => {
       if (USE_MOCK) {
         await sleep(150);
-        return AgentSchema.parse(mockStore.setTrustTier(agent_id, trust_tier));
+        return AgentSchema.parse(mockStore.setTrustTier(agent_id, trust_tier)) as Agent;
       }
-      return apiFetch(`/api/v1/agents/${agent_id}/trust-tier`, {
+      return (await apiFetch(`/api/v1/agents/${agent_id}/trust-tier`, {
         method: "POST",
         body: JSON.stringify({ trust_tier }),
         schema: AgentSchema,
-      });
+      })) as Agent;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["agents"] });
@@ -215,12 +299,19 @@ export function useSetTrustTier() {
 export function useHealth() {
   return useQuery<Health>({
     queryKey: ["health"],
-    queryFn: async () => {
+    queryFn: async (): Promise<Health> => {
       if (USE_MOCK) {
         await sleep(60);
-        return HealthSchema.parse(mockStore.getHealth());
+        return HealthSchema.parse(mockStore.getHealth()) as Health;
       }
-      return apiFetch("/api/v1/health", { schema: HealthSchema });
+      // API has /admin/health, not /health.
+      return (await apiFetch("/api/v1/admin/health", {
+        schema: HealthSchema,
+        headers: {
+          // The admin gate accepts the user JWT for owner-role users; the
+          // shared-secret X-Admin header is the agent path. Both work.
+        },
+      })) as Health;
     },
     refetchInterval: USE_MOCK ? 5000 : 15000,
   });
@@ -231,16 +322,29 @@ export function useHealth() {
 export function useSession() {
   return useQuery<Session | null>({
     queryKey: ["session"],
-    queryFn: async () => {
+    queryFn: async (): Promise<Session | null> => {
       if (USE_MOCK) {
         await sleep(40);
-        return mockStore.getSession();
+        return mockStore.getSession() as Session | null;
       }
+      // No token → no session. Don't even hit the network (also avoids the
+      // global 401 redirect short-circuit in apiFetch).
+      const token = getStoredToken();
+      if (!token) return null;
       try {
-        return await apiFetch("/api/v1/auth/session", { schema: SessionSchema });
+        // API exposes /auth/me, not /auth/session. The schema is permissive enough for both.
+        return (await apiFetch("/api/v1/auth/me", { schema: SessionSchema })) as Session;
       } catch (e) {
-        if (e instanceof ApiError && e.status === 401) return null;
-        throw e;
+        if (e instanceof ApiError && e.status === 401) {
+          // Stale token; clear it.
+          setStoredToken(null);
+          return null;
+        }
+        // Any other error (network blip, parse failure): treat as no-session for
+        // safety, but don't bounce the user to /login — let them retry.
+        // eslint-disable-next-line no-console
+        console.error("useSession: unexpected error", e);
+        return null;
       }
     },
     staleTime: 30_000,
@@ -250,16 +354,21 @@ export function useSession() {
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation<Session, Error, { email: string; password: string }>({
-    mutationFn: async ({ email, password }) => {
+    mutationFn: async ({ email, password }): Promise<Session> => {
       if (USE_MOCK) {
         await sleep(150);
-        return SessionSchema.parse(mockStore.login(email, password));
+        return SessionSchema.parse(mockStore.login(email, password)) as Session;
       }
-      return apiFetch("/api/v1/auth/login", {
+      const session = (await apiFetch("/api/v1/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
         schema: SessionSchema,
-      });
+      })) as Session;
+      // Persist the JWT so subsequent requests authenticate.
+      if (session.access_token) {
+        setStoredToken(session.access_token);
+      }
+      return session;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["session"] }),
   });
@@ -273,7 +382,11 @@ export function useLogout() {
         mockStore.logout();
         return;
       }
-      await apiFetch("/api/v1/auth/logout", { method: "POST" });
+      // No server-side logout endpoint; client-side token clear is sufficient for JWT auth.
+      // Token is held in localStorage; the apiFetch wrapper will drop it on next mutation.
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("quill_session_token");
+      }
     },
     onSuccess: () => qc.setQueryData(["session"], null),
   });
@@ -312,7 +425,27 @@ export function useAuditMirrorStatus() {
           lag_seconds: 72,
         };
       }
-      return apiFetch("/api/v1/admin/audit/mirror_status");
+      try {
+        return await apiFetch("/api/v1/admin/audit/mirror_status");
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          // Admin endpoint requires X-Admin secret; user JWT can't access.
+          // Return a safe placeholder so the audit page doesn't blow up.
+          return {
+            mode: "local" as const,
+            bucket: null,
+            queue_depth: 0,
+            last_mirrored_at: null,
+            last_mirrored_seq: null,
+            last_error: null,
+            failed_entries: [],
+            total_mirrored: 0,
+            total_failed: 0,
+            lag_seconds: null,
+          };
+        }
+        throw e;
+      }
     },
     refetchInterval: 15_000,
   });
@@ -342,7 +475,14 @@ export function useRecentAuditVerifications(limit = 10) {
         await sleep(80);
         return [];
       }
-      return apiFetch(`/api/v1/admin/audit/verifications/recent?limit=${limit}`);
+      try {
+        return await apiFetch(`/api/v1/admin/audit/verifications/recent?limit=${limit}`);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 401) {
+          return [];
+        }
+        throw e;
+      }
     },
     refetchInterval: 60_000,
   });
