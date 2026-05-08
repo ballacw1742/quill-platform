@@ -17,6 +17,13 @@ import { BiometricPrompt } from "@/components/ui/biometric-prompt";
 import { useAgents, useSetTrustTier } from "@/lib/api";
 import type { Agent } from "@/lib/schemas";
 import { formatCurrency, formatPercent } from "@/lib/utils";
+import {
+  description as agentDescription,
+  displayName,
+  displayTrustTier,
+} from "@/lib/agent-meta";
+import { HelpHint } from "@/components/ui/help-hint";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { toast } from "sonner";
 
 /**
@@ -41,7 +48,7 @@ const TIER_TONE: Record<Agent["trust_tier"], "danger" | "warning" | "success"> =
 };
 
 export default function ProfileAgentsPage() {
-  const { data, isLoading } = useAgents();
+  const { data, isLoading, error, refetch } = useAgents();
   const agents = (data ?? []) as Agent[];
   const setTier = useSetTrustTier();
 
@@ -65,34 +72,60 @@ export default function ProfileAgentsPage() {
       />
 
       <GroupedList>
+        {error && !isLoading && (
+          <ErrorBanner
+            message="Couldn't load your helpers. Try again."
+            onRetry={() => refetch()}
+          />
+        )}
         {isLoading ? (
           <ListGroup>
-            <div className="px-4 py-6 text-center text-callout text-label-secondary">
-              Loading…
+            <div className="px-4 py-3 space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="block h-4 w-2/3 rounded-sm bg-bg-elevated animate-shimmer"
+                  aria-hidden="true"
+                />
+              ))}
+              <span className="sr-only">Loading helpers</span>
             </div>
           </ListGroup>
         ) : agents.length === 0 ? (
           <EmptyState
             icon={<Bot />}
-            title="No agents registered"
-            subtitle="Agents appear here once the runtime registers them."
+            title="No helpers yet."
+            subtitle="Helpers appear here once they're registered for your projects."
           />
         ) : (
           <ListGroup
-            title={`${agents.length} agent${agents.length === 1 ? "" : "s"}`}
+            title={
+              <span className="inline-flex items-center gap-1">
+                {`${agents.length} helper${agents.length === 1 ? "" : "s"} · trust level`}
+                <HelpHint
+                  term="trust_level"
+                  ariaLabel="What is trust level?"
+                />
+              </span>
+            }
           >
-            {agents.map((a, i) => (
-              <ListRow
-                key={a.agent_id}
-                icon={<Bot className="h-4 w-4" />}
-                iconTone={TIER_TONE[a.trust_tier as Agent["trust_tier"]] ?? "neutral"}
-                title={a.agent_id}
-                subtitle={`v${a.version} · ${a.trust_tier}`}
-                chip={`${formatPercent(a.error_rate ?? 0, 1)} err`}
-                onClick={() => setOpenAgent(a)}
-                hideDivider={i === agents.length - 1}
-              />
-            ))}
+            {agents.map((a, i) => {
+              const human = displayName(a.agent_id);
+              const desc = agentDescription(a.agent_id);
+              const subtitle = desc || `v${a.version} · ${displayTrustTier(a.trust_tier)}`;
+              return (
+                <ListRow
+                  key={a.agent_id}
+                  icon={<Bot className="h-4 w-4" />}
+                  iconTone={TIER_TONE[a.trust_tier as Agent["trust_tier"]] ?? "neutral"}
+                  title={human}
+                  subtitle={subtitle}
+                  chip={displayTrustTier(a.trust_tier)}
+                  onClick={() => setOpenAgent(a)}
+                  hideDivider={i === agents.length - 1}
+                />
+              );
+            })}
           </ListGroup>
         )}
       </GroupedList>
@@ -105,7 +138,7 @@ export default function ProfileAgentsPage() {
         fullHeight
       >
         <BottomSheetTopBar
-          title={openAgent?.agent_id ?? "Agent"}
+          title={openAgent ? displayName(openAgent.agent_id) : "Helper"}
           left={
             <button
               type="button"
@@ -163,10 +196,10 @@ export default function ProfileAgentsPage() {
         }}
         title={
           pendingTier
-            ? `Move ${pendingTier.agent.agent_id} → ${pendingTier.next}`
+            ? `Move ${displayName(pendingTier.agent.agent_id)} → ${displayTrustTier(pendingTier.next)}`
             : "Confirm"
         }
-        description="Trust tier changes are recorded in the audit log."
+        description="Trust level changes are recorded in the activity log."
         // No actionIntent on this admin-side action — the existing hook
         // doesn't bind a passkey assertion to it. The prompt acts as a
         // soft confirmation gate.
@@ -178,10 +211,10 @@ export default function ProfileAgentsPage() {
               trust_tier: pendingTier.next,
             });
             toast.success(
-              `${pendingTier.agent.agent_id} → ${pendingTier.next}`,
+              `${displayName(pendingTier.agent.agent_id)} → ${displayTrustTier(pendingTier.next)}`,
             );
           } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Failed");
+            toast.error(e instanceof Error ? e.message : "Couldn't update trust level. Try again.");
           }
         }}
       />
@@ -196,13 +229,21 @@ function AgentDetail({ agent }: { agent: Agent }) {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-xl bg-bg-elevated p-4 space-y-2">
+      <section className="rounded-xl bg-bg-elevated p-4 space-y-3">
         <div className="text-caption-1 uppercase tracking-wider text-label-secondary">
-          Identity
+          About
         </div>
-        <DetailRow k="Agent" v={agent.agent_id} mono />
+        <div className="text-headline text-label-primary">
+          {displayName(agent.agent_id)}
+        </div>
+        {agentDescription(agent.agent_id) && (
+          <p className="text-callout text-label-secondary">
+            {agentDescription(agent.agent_id)}
+          </p>
+        )}
+        <DetailRow k="ID" v={agent.agent_id} mono />
         <DetailRow k="Version" v={`v${agent.version}`} mono />
-        <DetailRow k="Trust tier" v={String(agent.trust_tier)} />
+        <DetailRow k="Trust level" v={displayTrustTier(agent.trust_tier)} />
         <DetailRow
           k="Default lane"
           v={agent.default_lane != null ? String(agent.default_lane) : "—"}

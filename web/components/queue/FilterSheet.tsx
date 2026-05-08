@@ -10,6 +10,7 @@ import {
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { displayName, displayWorkflow } from "@/lib/agent-meta";
 
 /**
  * Bottom-sheet filter controls for /queue, per MOBILE_UX_SPEC §"Filter sheet".
@@ -88,19 +89,19 @@ export function FilterSheet({
           </section>
 
           <section className="space-y-2">
-            <SectionHeader>Agent</SectionHeader>
+            <SectionHeader>Helper</SectionHeader>
             <ChipGroup
               value={value.agent}
               onChange={(v) => set("agent", v)}
               options={[
                 { value: "all", label: "All" },
-                ...agents.map((a) => ({ value: a, label: a })),
+                ...agents.map((a) => ({ value: a, label: displayName(a) })),
               ]}
             />
           </section>
 
           <section className="space-y-2">
-            <SectionHeader>Workflow</SectionHeader>
+            <SectionHeader>Action type</SectionHeader>
             <ChipGroup
               value={value.workflow}
               onChange={(v) => set("workflow", v)}
@@ -108,7 +109,7 @@ export function FilterSheet({
                 { value: "all", label: "All" },
                 ...workflows.map((w) => ({
                   value: w,
-                  label: w.replace(/[_-]+/g, " "),
+                  label: displayWorkflow(w),
                 })),
               ]}
             />

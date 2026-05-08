@@ -61,11 +61,16 @@ export default function ProfileHealthPage() {
                 {status.headline}
               </div>
               <div className="text-callout text-label-secondary">
-                {data?.checked_at
-                  ? `Updated ${new Date(data.checked_at).toLocaleTimeString()}`
-                  : isLoading
-                    ? "Loading…"
-                    : "—"}
+                {data?.checked_at ? (
+                  `Updated ${new Date(data.checked_at).toLocaleTimeString()}`
+                ) : isLoading ? (
+                  <span
+                    className="inline-block h-3 w-24 rounded-sm bg-bg-elevated animate-shimmer align-middle"
+                    aria-label="Loading"
+                  />
+                ) : (
+                  "—"
+                )}
               </div>
             </div>
           </div>
@@ -85,7 +90,7 @@ export default function ProfileHealthPage() {
               <ListRow
                 icon={<ShieldCheck className="h-4 w-4" />}
                 iconTone={data.audit_chain.ok ? "success" : "danger"}
-                title="Audit chain"
+                title="Activity log"
                 subtitle={
                   data.audit_chain.ok
                     ? `Verified · ${data.audit_chain.verified} / ${data.audit_chain.total} entries`
@@ -210,7 +215,7 @@ function computeStatus(data: Health | undefined): {
 } {
   if (!data) return { tone: "warning", headline: "Loading status…" };
   if (!data.audit_chain?.ok) {
-    return { tone: "danger", headline: "Audit chain drift" };
+    return { tone: "danger", headline: "Activity log drift" };
   }
   if ((data.errors_24h ?? 0) > 5) {
     return { tone: "danger", headline: "Issues detected" };

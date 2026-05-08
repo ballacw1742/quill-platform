@@ -14,6 +14,7 @@ import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell
 import { GroupedList, ListGroup } from "@/components/ui/grouped-list";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { RegisterPasskeyDialog } from "@/components/auth/RegisterPasskeyDialog";
 import {
   isPasskeySupported,
@@ -47,7 +48,11 @@ export default function ProfilePasskeysPage() {
       const list = await listPasskeys();
       setCredentials(list);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load passkeys");
+      setError(
+        err instanceof Error
+          ? "Couldn't load your passkeys. Try again."
+          : "Couldn't load your passkeys. Try again.",
+      );
     }
   }, []);
 
@@ -62,8 +67,8 @@ export default function ProfilePasskeysPage() {
       await revokePasskey(cred.id);
       toast.success("Passkey revoked");
       await refresh();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed");
+    } catch {
+      toast.error("Couldn't revoke that passkey. Try again.");
     } finally {
       setBusyId(null);
     }
@@ -89,15 +94,20 @@ export default function ProfilePasskeysPage() {
         )}
 
         {error && (
-          <ListGroup>
-            <div className="px-4 py-3 text-callout text-danger">{error}</div>
-          </ListGroup>
+          <ErrorBanner message={error} onRetry={() => refresh()} />
         )}
 
-        {credentials === null && supported && (
+        {credentials === null && !error && supported && (
           <ListGroup>
-            <div className="flex items-center gap-2 px-4 py-3 text-callout text-label-secondary">
-              <Loader2 className="h-4 w-4 animate-spin" /> Loading…
+            <div className="px-4 py-3 space-y-2">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="block h-4 w-2/3 rounded-sm bg-bg-elevated animate-shimmer"
+                  aria-hidden="true"
+                />
+              ))}
+              <span className="sr-only">Loading passkeys</span>
             </div>
           </ListGroup>
         )}
@@ -105,8 +115,8 @@ export default function ProfilePasskeysPage() {
         {credentials !== null && active.length === 0 && supported && (
           <EmptyState
             icon={<Fingerprint />}
-            title="No passkeys yet"
-            subtitle="Register one to sign in and approve actions on this device."
+            title="No passkeys yet."
+            subtitle="Add a passkey to sign in with Face ID or Touch ID."
             action={
               <Button onClick={() => setRegisterOpen(true)} className="rounded-md">
                 <Plus className="h-4 w-4" /> Register a passkey

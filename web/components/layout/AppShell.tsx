@@ -30,7 +30,7 @@ import {
 
 const NAV = [
   { href: "/queue", label: "Queue", icon: ClipboardCheck },
-  { href: "/audit", label: "Audit", icon: ScrollText },
+  { href: "/audit", label: "Activity", icon: ScrollText },
   { href: "/agents", label: "Agents", icon: Bot },
   { href: "/health", label: "Health", icon: Activity },
 ];

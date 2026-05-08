@@ -5,6 +5,7 @@ import { Inbox, Search, SlidersHorizontal, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { SegmentedControl } from "@/components/ui/segmented-control";
+import { HelpHint } from "@/components/ui/help-hint";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { ApprovalRow } from "@/components/queue/ApprovalRow";
@@ -12,7 +13,10 @@ import { FilterSheet, DEFAULT_FILTERS, type QueueFilterValue } from "@/component
 import { ApprovalDetailSheet } from "@/components/queue/ApprovalDetailSheet";
 import { useApprovals } from "@/lib/api";
 import type { ApprovalItem, Lane } from "@/lib/schemas";
-import { sortItemsForLane } from "@/components/queue/laneMeta";
+import { sortItemsForLane, LANE_META } from "@/components/queue/laneMeta";
+import { laneTabLabel } from "@/lib/agent-meta";
+import { OnboardingOverlay } from "@/components/onboarding/OnboardingOverlay";
+import { ErrorBanner } from "@/components/ui/error-banner";
 
 /**
  * /queue — iOS-redesign main screen, per MOBILE_UX_SPEC §"Tab 1 — Queue".
@@ -31,16 +35,19 @@ import { sortItemsForLane } from "@/components/queue/laneMeta";
  * the decision.
  */
 
+// Tab order matches the way Charles thinks about the queue:
+//   Yours → Two-signer → Auto.
+// Per COPY_GUIDE the lane segmented control uses these single-word labels.
 const LANE_TABS: { value: Lane; label: string }[] = [
-  { value: "tier-0-mandatory", label: "Mandatory" },
-  { value: "tier-1-spotcheck", label: "Spot-check" },
-  { value: "tier-2-auto", label: "Auto" },
+  { value: "tier-1-spotcheck", label: laneTabLabel("tier-1-spotcheck") }, // "Yours"
+  { value: "tier-0-mandatory", label: laneTabLabel("tier-0-mandatory") }, // "Two-signer"
+  { value: "tier-2-auto", label: laneTabLabel("tier-2-auto") }, // "Auto"
 ];
 
 const DEFAULT_LANE: Lane = "tier-1-spotcheck";
 
 export default function QueuePage() {
-  const { data, isLoading } = useApprovals();
+  const { data, isLoading, error, refetch } = useApprovals();
   const qc = useQueryClient();
   const items = React.useMemo<ApprovalItem[]>(() => data ?? [], [data]);
 
@@ -121,6 +128,7 @@ export default function QueuePage() {
 
   return (
     <MobileShell>
+      <OnboardingOverlay />
       <TopBar
         title="Queue"
         right={
@@ -169,8 +177,9 @@ export default function QueuePage() {
 
         <div className="px-4 pt-2 pb-3 bg-bg">
           <div className="flex items-baseline justify-between mb-2">
-            <span className="text-footnote text-label-secondary">
+            <span className="text-footnote text-label-secondary inline-flex items-center gap-1">
               {totalPending} pending
+              <HelpHint term="lane" ariaLabel="What do these tabs mean?" />
             </span>
             <span className="text-footnote text-label-tertiary">
               {activeRows.length} in lane
@@ -189,6 +198,12 @@ export default function QueuePage() {
         </div>
 
         <div className="flex-1 bg-bg-elevated">
+          {error && (
+            <ErrorBanner
+              message="Couldn't load your queue. Try again."
+              onRetry={() => refetch()}
+            />
+          )}
           {isLoading ? (
             <SkeletonRows />
           ) : activeRows.length === 0 ? (
@@ -253,25 +268,24 @@ function SkeletonRows() {
 }
 
 function EmptyLaneState({ lane }: { lane: Lane }) {
+  // Per COPY_GUIDE §"Empty states / Queue tab".
   const copy: Record<Lane, { title: string; subtitle: string }> = {
     "tier-0-mandatory": {
-      title: "No mandatory items",
+      title: "No two-signer items.",
       subtitle:
-        "When agents flag work as critical-path, safety, or low-confidence, it lands here.",
+        "These are big-impact items that need both you and a partner.",
     },
     "tier-1-spotcheck": {
-      title: "Queue clear",
+      title: "Nothing to sign off.",
       subtitle:
-        "When agents drop spot-check work, it lands here. Swipe to approve or reject.",
+        "When the helpers find something needing your eyes, it'll show up here.",
     },
     "tier-2-auto": {
-      title: "No auto items",
+      title: "Nothing handled automatically yet.",
       subtitle:
-        "Tier-2 items are visible for awareness; agents handle them automatically.",
+        "Auto-handled items will show up here so you can spot-check anytime.",
     },
   };
   const c = copy[lane];
-  return (
-    <EmptyState icon={<Inbox />} title={c.title} subtitle={c.subtitle} />
-  );
+  return <EmptyState icon={<Inbox />} title={c.title} subtitle={c.subtitle} />;
 }

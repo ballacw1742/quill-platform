@@ -115,3 +115,49 @@ user-visible severity tag per CONTRIBUTING_AGENTS.md rule 6:
     on `summary` / `rationale` / `escalations` / `priority`. If any of
     those go missing the queue still renders (degraded subtitles,
     no flag chips) — no crash.
+
+## Phase A — plain-English copy pass (feat/ui-plain-english)
+
+13. **`(invisible)` — `/audit` route preserved, only the visible label moved**
+    Per COPY_GUIDE we renamed the bottom-tab label from "Audit" to
+    "Activity" but kept the URL `/audit` so deep links and the existing
+    API path (which still uses `audit_chain`, `useAudit`, `useAuditMirrorStatus`,
+    etc.) don't break. If we ever want the URL to also become `/activity`,
+    plan a redirect first.
+
+14. **`(visible-tolerable)` — onboarding overlay is browser-local, not server-side**
+    The "first login" flag (`localStorage.quill.onboarded`) is per-browser
+    and per-device. A user who signs in on a second device will see the
+    overlay again. That matches the COPY_GUIDE spec ("stored as
+    quill.onboarded=true in localStorage") but Charles may eventually want
+    to track onboarding completion server-side so it's a property of the
+    user, not the browser.
+
+15. **`(invisible)` — recommended-action sentence is heuristic**
+    `buildRecommendedAction` in `ApprovalDetailSheet` synthesises a
+    one-liner from `proposed_action.kind` + `target_system`. The output
+    reads naturally for the common cases we know about ("route", "draft",
+    "escalate", "flag") and falls back to a pretty-cased
+    "<Kind> in <target system>." for anything else. If new action kinds
+    arrive whose names don't end in those verbs, we'll fall back to the
+    pretty-case path — still readable, but a touch generic. Future work:
+    accept an optional `recommended_action` string from the agent and
+    prefer it when present.
+
+16. **`(visible-tolerable)` — Why-panel payload table is a flat label/value
+    list**
+    Nested objects in `proposed_action.payload` are stringified to
+    compact JSON in the value cell. That keeps the panel out of "raw
+    JSON dump" territory while still surfacing the data, but for deeply
+    nested objects the value will read like `{"foo":"bar","baz":1}`.
+    Acceptable for a v3 polish pass; consider expanding into nested
+    label/value rows in a later iteration.
+
+17. **`(invisible)` — dev server webpack cache mismatch after running
+    `next build`**
+    Running `next build` in the same checkout where `next dev` is alive
+    leaves a transient cache mismatch (`Can't resolve
+    './vendor-chunks/use-sidecar'`) that surfaces as a stray 404 from
+    `/today` until the dev server is restarted. The production build is
+    clean and `tsc --noEmit` is clean. Only affects the live dev server
+    process — restart it to recover.

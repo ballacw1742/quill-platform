@@ -11,6 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { displayName } from "@/lib/agent-meta";
 
 /**
  * Compact 28 × 28 agent badge — matches MOBILE_UX_SPEC §1 row layout.
@@ -66,6 +67,7 @@ export function AgentBadge({
 }) {
   const Icon = pickIcon(agentId);
   const tone = pickTone(agentId);
+  const human = displayName(agentId);
   return (
     <span
       className={cn(
@@ -73,8 +75,8 @@ export function AgentBadge({
         tone,
         className,
       )}
-      aria-label={`agent ${agentId}`}
-      title={agentId}
+      aria-label={human}
+      title={human}
     >
       <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden="true" />
     </span>

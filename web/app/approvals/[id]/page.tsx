@@ -32,7 +32,13 @@ export default function ApprovalDeepLinkPage() {
       />
       <div className="bg-bg-elevated min-h-[60vh] flex flex-col items-center justify-center px-6">
         {isLoading ? (
-          <div className="text-callout text-label-secondary">Loading…</div>
+          <div
+            className="flex flex-col items-center gap-2"
+            aria-label="Loading item"
+          >
+            <span className="block h-4 w-40 rounded-sm bg-bg-elevated animate-shimmer" />
+            <span className="block h-3 w-56 rounded-sm bg-bg-elevated animate-shimmer" />
+          </div>
         ) : item ? (
           <div className="text-center space-y-2 py-12">
             <div className="text-title-3 text-label-primary">
@@ -45,8 +51,8 @@ export default function ApprovalDeepLinkPage() {
         ) : (
           <EmptyState
             icon={<Inbox />}
-            title="Not found"
-            subtitle="This approval may have been resolved or expired."
+            title="Item not found."
+            subtitle="This item may already be resolved or expired."
           />
         )}
       </div>

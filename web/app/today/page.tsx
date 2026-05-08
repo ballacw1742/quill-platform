@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { useApprovals } from "@/lib/api";
 import type { ApprovalItem, Lane } from "@/lib/schemas";
 import { detectFlags } from "@/components/queue/FlagChips";
@@ -31,7 +32,7 @@ import { detectFlags } from "@/components/queue/FlagChips";
  */
 
 export default function TodayPage() {
-  const { data, isLoading, dataUpdatedAt } = useApprovals();
+  const { data, isLoading, dataUpdatedAt, error, refetch } = useApprovals();
   const qc = useQueryClient();
   const items = (data ?? []) as ApprovalItem[];
 
@@ -48,11 +49,18 @@ export default function TodayPage() {
 
       <div className="bg-bg-elevated min-h-full">
         <div className="flex flex-col gap-4 px-4 pt-4 pb-8">
+          {error && (
+            <ErrorBanner
+              message="Couldn't load today's brief. Try again."
+              onRetry={() => refetch()}
+              className="mx-0"
+            />
+          )}
           {isEmpty ? (
             <EmptyState
               icon={<Sparkles />}
-              title="No brief yet"
-              subtitle="Quill builds your daily brief from agent activity. Check back tomorrow morning."
+              title="Quill is still learning your project."
+              subtitle="Once the helpers have processed a day's work, you'll see your morning brief here."
             />
           ) : (
             <>
@@ -65,7 +73,7 @@ export default function TodayPage() {
                 title="Approvals waiting"
                 href="/queue"
                 value={`${stats.pending} pending`}
-                subtitle={`Mandatory ${stats.byLane["tier-0-mandatory"]} · Spot-check ${stats.byLane["tier-1-spotcheck"]} · Auto ${stats.byLane["tier-2-auto"]}`}
+                subtitle={`Yours ${stats.byLane["tier-1-spotcheck"]} · Two-signer ${stats.byLane["tier-0-mandatory"]} · Auto ${stats.byLane["tier-2-auto"]}`}
               />
 
               <SectionCard

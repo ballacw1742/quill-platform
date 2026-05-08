@@ -21,6 +21,8 @@ import {
 import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { HelpHint } from "@/components/ui/help-hint";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { JsonBlock } from "@/components/approval/JsonBlock";
 import {
   useAudit,
@@ -31,7 +33,54 @@ import {
 } from "@/lib/api";
 import type { AuditEntry } from "@/lib/schemas";
 import { cn, shortHash } from "@/lib/utils";
+import { displayName, prettyCase } from "@/lib/agent-meta";
 import { toast } from "sonner";
+
+/**
+ * Translate an actor token like `agent:rfi-triage` or `user:charles@quill.local`
+ * into a human-readable label. Agent actors get the helper display name;
+ * everything else passes through pretty-cased so we never leak raw tokens.
+ */
+function displayActor(actor: string | undefined | null): string {
+  if (!actor) return "";
+  const colon = actor.indexOf(":");
+  if (colon === -1) return actor;
+  const kind = actor.slice(0, colon);
+  const rest = actor.slice(colon + 1);
+  if (kind === "agent") return displayName(rest);
+  if (kind === "user" || kind === "owner" || kind === "partner") return rest;
+  if (kind === "system") return "System";
+  return actor;
+}
+
+/**
+ * Translate event_type strings (e.g. `approval.created`) to plain English.
+ */
+function displayEvent(action: string | undefined | null): string {
+  if (!action) return "Event";
+  switch (action) {
+    case "approval.created":
+      return "Item created";
+    case "approval.approved":
+      return "Approved";
+    case "approval.rejected":
+      return "Sent back";
+    case "approval.escalated":
+      return "Escalated";
+    case "approval.executed":
+      return "Executed";
+    case "approval.expired":
+      return "Expired";
+    case "agent.trust_tier_changed":
+      return "Trust level changed";
+    case "audit.genesis":
+      return "Activity log started";
+    case "audit.verify":
+      return "Activity log verified";
+    default:
+      return prettyCase(action.replace(/\./g, " "));
+  }
+}
 
 /**
  * /audit — iOS-redesign chain log + verifier.
@@ -70,7 +119,7 @@ function eventIcon(action: string) {
 }
 
 export default function AuditPage() {
-  const { data, isLoading } = useAudit();
+  const { data, isLoading, error, refetch } = useAudit();
   const entries = (data ?? []) as AuditEntry[];
 
   const verify = useVerifyChain();
@@ -99,10 +148,8 @@ export default function AuditPage() {
     try {
       await verify.mutateAsync();
       setVerifyResultOpen(true);
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Verification failed",
-      );
+    } catch {
+      toast.error("Couldn't verify the activity log. Try again.");
     }
   };
 
@@ -112,7 +159,7 @@ export default function AuditPage() {
   return (
     <MobileShell>
       <TopBar
-        title="Audit"
+        title="Activity"
         right={
           <button
             type="button"
@@ -155,6 +202,16 @@ export default function AuditPage() {
           </div>
         )}
 
+        {error && (
+          <div className="px-4 pt-3">
+            <ErrorBanner
+              message="Couldn't load activity. Try again."
+              onRetry={() => refetch()}
+              className="mx-0"
+            />
+          </div>
+        )}
+
         {/* Section header */}
         <div className="px-4 pt-5 pb-2 flex items-center justify-between">
           <h2 className="text-caption-1 uppercase tracking-wider text-label-secondary">
@@ -170,32 +227,35 @@ export default function AuditPage() {
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<HistoryIcon />}
-            title={search ? "No matches" : "No entries yet"}
+            title={search ? "No matches" : "No activity yet"}
             subtitle={
               search
                 ? "Try a different search."
-                : "Audit entries appear here as approvals flow through the system."
+                : "Every action Quill takes will be recorded here."
             }
           />
         ) : (
           <ul className="divide-y divide-separator/40 bg-bg-tertiary mx-4 rounded-lg overflow-hidden">
-            {filtered.slice(0, 200).map((e) => (
-              <li key={e.seq}>
-                <ListRow
-                  icon={eventIcon(e.action)}
-                  iconTone={eventTone(e.action)}
-                  title={e.action || "event"}
-                  subtitle={
-                    e.approval_id
-                      ? `${e.actor} · ${shortHash(e.approval_id, 14)}…`
-                      : e.actor
-                  }
-                  chip={shortHash(e.hash, 8)}
-                  onClick={() => setOpenEntry(e)}
-                  hideDivider
-                />
-              </li>
-            ))}
+            {filtered.slice(0, 200).map((e) => {
+              const human = displayActor(e.actor);
+              return (
+                <li key={e.seq}>
+                  <ListRow
+                    icon={eventIcon(e.action)}
+                    iconTone={eventTone(e.action)}
+                    title={displayEvent(e.action)}
+                    subtitle={
+                      e.approval_id
+                        ? `${human} · ${shortHash(e.approval_id, 14)}…`
+                        : human
+                    }
+                    chip={shortHash(e.hash, 8)}
+                    onClick={() => setOpenEntry(e)}
+                    hideDivider
+                  />
+                </li>
+              );
+            })}
           </ul>
         )}
         <div className="h-8" />
@@ -205,11 +265,11 @@ export default function AuditPage() {
       <BottomSheet
         open={!!openEntry}
         onOpenChange={(v) => !v && setOpenEntry(null)}
-        ariaLabel="Audit entry"
+        ariaLabel="Activity entry"
         fullHeight
       >
         <BottomSheetTopBar
-          title={openEntry?.action ?? "Entry"}
+          title={openEntry ? displayEvent(openEntry.action) : "Entry"}
           left={
             <button
               type="button"
@@ -332,8 +392,12 @@ function ChainIntegrityCard({
           )}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-title-3 text-label-primary">
-            {ok ? "Chain verified" : "Drift detected"}
+          <div className="text-title-3 text-label-primary inline-flex items-center gap-1">
+            {ok ? "Activity log verified" : "Activity log drift"}
+            <HelpHint
+              term="activity_log"
+              ariaLabel="What is the activity log?"
+            />
           </div>
           <div className="text-callout text-label-secondary">
             {entries.toLocaleString()} entries
@@ -358,15 +422,19 @@ function ChainIntegrityCard({
           <Cloud className="h-4 w-4 text-success" />
         )}
         <div className="flex-1 min-w-0">
-          <div className="text-callout text-label-primary">
+          <div className="text-callout text-label-primary inline-flex items-center gap-1">
             {isLocal
-              ? "Offsite mirror — local mode"
-              : `Offsite mirror — b2://${mirrorStatus?.bucket ?? "quill-audit"}`}
+              ? "Backup status — local only"
+              : `Backup status — ${mirrorStatus?.bucket ?? "offsite"}`}
+            <HelpHint
+              term="backup_status"
+              ariaLabel="What is backup status?"
+            />
           </div>
           <div className="text-footnote text-label-tertiary">
             {mirrorStatus?.lag_seconds != null
               ? `${formatLag(mirrorStatus.lag_seconds)} · queue ${mirrorStatus.queue_depth}`
-              : "Mirror status pending"}
+              : "Backup status pending"}
           </div>
         </div>
         {!isLocal && <CloudOff className="hidden" />}
@@ -391,8 +459,8 @@ function EntryDetail({ entry }: { entry: AuditEntry }) {
           Event
         </div>
         <dl className="grid grid-cols-1 gap-y-1">
-          <Row k="Type" v={entry.action} />
-          <Row k="Actor" v={entry.actor} />
+          <Row k="Type" v={displayEvent(entry.action)} />
+          <Row k="Actor" v={displayActor(entry.actor)} />
           <Row
             k="Time"
             v={entry.ts ? new Date(entry.ts).toLocaleString() : "—"}

@@ -37,7 +37,7 @@ import type { Session } from "@/lib/schemas";
 const TABS = [
   { href: "/queue", label: "Queue", icon: Inbox },
   { href: "/today", label: "Today", icon: Sparkles },
-  { href: "/audit", label: "Audit", icon: History },
+  { href: "/audit", label: "Activity", icon: History },
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
 

@@ -1,13 +1,6 @@
 "use client";
 
 import * as React from "react";
-import {
-  AlertTriangle,
-  Clock,
-  DollarSign,
-  ShieldAlert,
-  type LucideIcon,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ApprovalItem } from "@/lib/schemas";
 
@@ -23,9 +16,12 @@ import type { ApprovalItem } from "@/lib/schemas";
 
 type Flag = {
   key: string;
+  /** Plain-English label per COPY_GUIDE §"Detail screen rewrites". */
   label: string;
+  /** Visual tone tier. */
   tone: "danger" | "warning" | "info";
-  icon: LucideIcon;
+  /** Single emoji per COPY_GUIDE: 💲 ⏱ ⚠ ⏳ */
+  emoji: string;
 };
 
 function detectFlags(item: ApprovalItem): Flag[] {
@@ -36,21 +32,22 @@ function detectFlags(item: ApprovalItem): Flag[] {
   if (
     escSet.has("safety") ||
     escSet.has("safety-impact") ||
+    escSet.has("safety_impact") ||
     item.priority === "critical"
   ) {
     flags.push({
       key: "safety",
-      label: "safety",
+      label: "Safety flag",
       tone: "danger",
-      icon: ShieldAlert,
+      emoji: "⚠",
     });
   }
   if (escSet.has("critical-path") || escSet.has("critical_path")) {
     flags.push({
       key: "cp",
-      label: "critical path",
+      label: "Critical path risk",
       tone: "danger",
-      icon: AlertTriangle,
+      emoji: "⚠",
     });
   }
   if (
@@ -60,21 +57,29 @@ function detectFlags(item: ApprovalItem): Flag[] {
   ) {
     flags.push({
       key: "cost",
-      label: "cost",
+      label: "Cost impact",
       tone: "warning",
-      icon: DollarSign,
+      emoji: "💲",
     });
   }
   if (
     escSet.has("schedule") ||
     escSet.has("schedule-impact") ||
-    escSet.has("long-lead")
+    escSet.has("schedule_impact")
   ) {
     flags.push({
       key: "sched",
-      label: "schedule",
+      label: "Schedule impact",
       tone: "warning",
-      icon: Clock,
+      emoji: "⏱",
+    });
+  }
+  if (escSet.has("long-lead") || escSet.has("long_lead")) {
+    flags.push({
+      key: "long-lead",
+      label: "Long-lead equipment",
+      tone: "warning",
+      emoji: "⏳",
     });
   }
   return flags;
@@ -97,21 +102,18 @@ export function FlagChips({
   if (flags.length === 0) return null;
   return (
     <div className={cn("flex flex-wrap items-center gap-1", className)}>
-      {flags.map((f) => {
-        const Icon = f.icon;
-        return (
-          <span
-            key={f.key}
-            className={cn(
-              "inline-flex items-center gap-1 rounded-sm px-1.5 py-[2px] text-caption-1 uppercase tracking-wider",
-              TONE_CLASS[f.tone],
-            )}
-          >
-            <Icon className="h-3 w-3" aria-hidden="true" />
-            {f.label}
-          </span>
-        );
-      })}
+      {flags.map((f) => (
+        <span
+          key={f.key}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-sm px-1.5 py-[2px] text-caption-1",
+            TONE_CLASS[f.tone],
+          )}
+        >
+          <span aria-hidden="true">{f.emoji}</span>
+          <span>{f.label}</span>
+        </span>
+      ))}
     </div>
   );
 }
