@@ -1,4 +1,4 @@
-.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now
+.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay
 
 PY ?= python3
 VENV ?= .venv
@@ -107,3 +107,22 @@ daily-brief-now: mock-install
 	QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
 	AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
 	$(VENV)/bin/python runtime/scripts/daily_brief_pipeline.py
+
+# ---------------------------------------------------------------------------
+# Continuous triage dispatcher (Phase F.1)
+# ---------------------------------------------------------------------------
+# Runs the TriageDispatcher in the foreground. Reads .env so
+# QUEUE_API_URL / AGENT_SHARED_SECRET / TRIAGE_* vars are honored.
+triage-dispatcher:
+	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
+		QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
+		AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
+		TRIAGE_EVENT_SOURCE=$${TRIAGE_EVENT_SOURCE:-mock} \
+		TRIAGE_POLL_INTERVAL_SECONDS=$${TRIAGE_POLL_INTERVAL_SECONDS:-5} \
+		exec $(VENV)/bin/quill-runtime triage start'
+
+triage-replay:
+	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
+		QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
+		AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
+		exec $(VENV)/bin/quill-runtime triage replay $${LOG:-mock-data/_state/dispatch.log}'
