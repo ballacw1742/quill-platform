@@ -24,8 +24,38 @@ export const SourceSchema = z.object({
   url: z.string().url().optional().nullable(),
 });
 
+// Phase F.1: chained agent run output, surfaced inside
+// proposed_action.payload.chain_outputs. Optional because not every
+// queue item is the result of a chain.
+export const ChainStepOutputSchema = z
+  .object({
+    agent_id: z.string(),
+    agent_version: z.string().optional(),
+    ok: z.boolean(),
+    confidence: z.number().nullable().optional(),
+    output: z.record(z.any()).nullable().optional(),
+    model: z.string().optional(),
+    latency_ms: z.number().optional(),
+    tokens_used: z.record(z.any()).optional(),
+    error: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type ChainStepOutput = z.infer<typeof ChainStepOutputSchema>;
+
+export const ChainOutputsSchema = z
+  .object({
+    chain_id: z.string(),
+    steps: z.array(ChainStepOutputSchema),
+    skipped: z.array(z.string()).optional(),
+    errors: z.array(z.string()).optional(),
+  })
+  .passthrough();
+export type ChainOutputs = z.infer<typeof ChainOutputsSchema>;
+
 export const ProposedActionSchema = z.object({
   kind: z.string(),
+  // payload is a free-form bag; chain_outputs (when present) is structured
+  // and rendered specially by ApprovalDetailSheet.
   payload: z.record(z.any()),
   target_system: z.string().nullable().optional(),
   api_call: z
@@ -36,6 +66,17 @@ export const ProposedActionSchema = z.object({
     })
     .optional(),
 });
+
+/** Helper: pull chain_outputs out of a payload safely. */
+export function getChainOutputs(
+  payload: Record<string, unknown> | undefined,
+): ChainOutputs | null {
+  if (!payload) return null;
+  const raw = (payload as { chain_outputs?: unknown }).chain_outputs;
+  if (!raw || typeof raw !== "object") return null;
+  const parsed = ChainOutputsSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
 
 export const ApprovalItemSchema = z.object({
   approval_id: z.string(),
