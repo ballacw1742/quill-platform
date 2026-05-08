@@ -1,0 +1,24 @@
+From: {{ from_name }} <{{ from_email }}>
+To: procurement@quill-mock.com
+Subject: {{ subject }}
+Date: {{ date }}
+
+{{ greeting }},
+
+This is an update on {{ po_id }} ({{ item }}, qty {{ quantity }}).
+
+{{ body }}
+
+{%- if revised_ship_date %}
+Revised ship date: {{ revised_ship_date }} (was {{ agreed_ship_date }}).
+{%- else %}
+Ship date remains {{ agreed_ship_date }}.
+{%- endif %}
+
+{%- if action_required %}
+Action required: {{ action_required }}
+{%- endif %}
+
+Best regards,
+{{ from_name }}
+{{ vendor }}
