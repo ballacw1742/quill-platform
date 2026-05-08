@@ -16,6 +16,7 @@ import type { ApprovalItem, Lane } from "@/lib/schemas";
 import { sortItemsForLane, LANE_META } from "@/components/queue/laneMeta";
 import { laneTabLabel } from "@/lib/agent-meta";
 import { OnboardingOverlay } from "@/components/onboarding/OnboardingOverlay";
+import { ErrorBanner } from "@/components/ui/error-banner";
 
 /**
  * /queue — iOS-redesign main screen, per MOBILE_UX_SPEC §"Tab 1 — Queue".
@@ -46,7 +47,7 @@ const LANE_TABS: { value: Lane; label: string }[] = [
 const DEFAULT_LANE: Lane = "tier-1-spotcheck";
 
 export default function QueuePage() {
-  const { data, isLoading } = useApprovals();
+  const { data, isLoading, error, refetch } = useApprovals();
   const qc = useQueryClient();
   const items = React.useMemo<ApprovalItem[]>(() => data ?? [], [data]);
 
@@ -197,6 +198,12 @@ export default function QueuePage() {
         </div>
 
         <div className="flex-1 bg-bg-elevated">
+          {error && (
+            <ErrorBanner
+              message="Couldn't load your queue. Try again."
+              onRetry={() => refetch()}
+            />
+          )}
           {isLoading ? (
             <SkeletonRows />
           ) : activeRows.length === 0 ? (

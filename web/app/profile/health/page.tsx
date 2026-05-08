@@ -61,11 +61,16 @@ export default function ProfileHealthPage() {
                 {status.headline}
               </div>
               <div className="text-callout text-label-secondary">
-                {data?.checked_at
-                  ? `Updated ${new Date(data.checked_at).toLocaleTimeString()}`
-                  : isLoading
-                    ? "Loading…"
-                    : "—"}
+                {data?.checked_at ? (
+                  `Updated ${new Date(data.checked_at).toLocaleTimeString()}`
+                ) : isLoading ? (
+                  <span
+                    className="inline-block h-3 w-24 rounded-sm bg-bg-elevated animate-shimmer align-middle"
+                    aria-label="Loading"
+                  />
+                ) : (
+                  "—"
+                )}
               </div>
             </div>
           </div>

@@ -17,6 +17,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { useApprovals } from "@/lib/api";
 import type { ApprovalItem, Lane } from "@/lib/schemas";
 import { detectFlags } from "@/components/queue/FlagChips";
@@ -31,7 +32,7 @@ import { detectFlags } from "@/components/queue/FlagChips";
  */
 
 export default function TodayPage() {
-  const { data, isLoading, dataUpdatedAt } = useApprovals();
+  const { data, isLoading, dataUpdatedAt, error, refetch } = useApprovals();
   const qc = useQueryClient();
   const items = (data ?? []) as ApprovalItem[];
 
@@ -48,6 +49,13 @@ export default function TodayPage() {
 
       <div className="bg-bg-elevated min-h-full">
         <div className="flex flex-col gap-4 px-4 pt-4 pb-8">
+          {error && (
+            <ErrorBanner
+              message="Couldn't load today's brief. Try again."
+              onRetry={() => refetch()}
+              className="mx-0"
+            />
+          )}
           {isEmpty ? (
             <EmptyState
               icon={<Sparkles />}

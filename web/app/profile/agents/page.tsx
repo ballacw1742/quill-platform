@@ -23,6 +23,7 @@ import {
   displayTrustTier,
 } from "@/lib/agent-meta";
 import { HelpHint } from "@/components/ui/help-hint";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { toast } from "sonner";
 
 /**
@@ -47,7 +48,7 @@ const TIER_TONE: Record<Agent["trust_tier"], "danger" | "warning" | "success"> =
 };
 
 export default function ProfileAgentsPage() {
-  const { data, isLoading } = useAgents();
+  const { data, isLoading, error, refetch } = useAgents();
   const agents = (data ?? []) as Agent[];
   const setTier = useSetTrustTier();
 
@@ -71,10 +72,23 @@ export default function ProfileAgentsPage() {
       />
 
       <GroupedList>
+        {error && !isLoading && (
+          <ErrorBanner
+            message="Couldn't load your helpers. Try again."
+            onRetry={() => refetch()}
+          />
+        )}
         {isLoading ? (
           <ListGroup>
-            <div className="px-4 py-6 text-center text-callout text-label-secondary">
-              Loading…
+            <div className="px-4 py-3 space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <span
+                  key={i}
+                  className="block h-4 w-2/3 rounded-sm bg-bg-elevated animate-shimmer"
+                  aria-hidden="true"
+                />
+              ))}
+              <span className="sr-only">Loading helpers</span>
             </div>
           </ListGroup>
         ) : agents.length === 0 ? (

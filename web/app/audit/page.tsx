@@ -22,6 +22,7 @@ import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { HelpHint } from "@/components/ui/help-hint";
+import { ErrorBanner } from "@/components/ui/error-banner";
 import { JsonBlock } from "@/components/approval/JsonBlock";
 import {
   useAudit,
@@ -118,7 +119,7 @@ function eventIcon(action: string) {
 }
 
 export default function AuditPage() {
-  const { data, isLoading } = useAudit();
+  const { data, isLoading, error, refetch } = useAudit();
   const entries = (data ?? []) as AuditEntry[];
 
   const verify = useVerifyChain();
@@ -147,10 +148,8 @@ export default function AuditPage() {
     try {
       await verify.mutateAsync();
       setVerifyResultOpen(true);
-    } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Verification failed",
-      );
+    } catch {
+      toast.error("Couldn't verify the activity log. Try again.");
     }
   };
 
@@ -199,6 +198,16 @@ export default function AuditPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-11 rounded-md bg-bg-tertiary border-transparent text-body"
+            />
+          </div>
+        )}
+
+        {error && (
+          <div className="px-4 pt-3">
+            <ErrorBanner
+              message="Couldn't load activity. Try again."
+              onRetry={() => refetch()}
+              className="mx-0"
             />
           </div>
         )}
