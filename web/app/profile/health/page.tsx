@@ -85,7 +85,7 @@ export default function ProfileHealthPage() {
               <ListRow
                 icon={<ShieldCheck className="h-4 w-4" />}
                 iconTone={data.audit_chain.ok ? "success" : "danger"}
-                title="Audit chain"
+                title="Activity log"
                 subtitle={
                   data.audit_chain.ok
                     ? `Verified · ${data.audit_chain.verified} / ${data.audit_chain.total} entries`
@@ -210,7 +210,7 @@ function computeStatus(data: Health | undefined): {
 } {
   if (!data) return { tone: "warning", headline: "Loading status…" };
   if (!data.audit_chain?.ok) {
-    return { tone: "danger", headline: "Audit chain drift" };
+    return { tone: "danger", headline: "Activity log drift" };
   }
   if ((data.errors_24h ?? 0) > 5) {
     return { tone: "danger", headline: "Issues detected" };

@@ -159,7 +159,7 @@ export default function AuditPage() {
   return (
     <MobileShell>
       <TopBar
-        title="Audit"
+        title="Activity"
         right={
           <button
             type="button"
@@ -217,11 +217,11 @@ export default function AuditPage() {
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<HistoryIcon />}
-            title={search ? "No matches" : "No entries yet"}
+            title={search ? "No matches" : "No activity yet"}
             subtitle={
               search
                 ? "Try a different search."
-                : "Audit entries appear here as approvals flow through the system."
+                : "Every action Quill takes will be recorded here."
             }
           />
         ) : (
@@ -255,7 +255,7 @@ export default function AuditPage() {
       <BottomSheet
         open={!!openEntry}
         onOpenChange={(v) => !v && setOpenEntry(null)}
-        ariaLabel="Audit entry"
+        ariaLabel="Activity entry"
         fullHeight
       >
         <BottomSheetTopBar
