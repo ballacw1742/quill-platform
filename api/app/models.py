@@ -163,6 +163,38 @@ class AuditLogEntry(Base):
 
 
 # ---------------------------------------------------------------------------
+# AuditChainVerification — nightly + ad-hoc chain verification results
+# ---------------------------------------------------------------------------
+class AuditChainVerification(Base):
+    __tablename__ = "audit_chain_verifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # "global" | "per_approval" | "range"
+    scope: Mapped[str] = mapped_column(String(32), index=True, default="global")
+    scope_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # ok | postgres_drift | b2_drift | mismatch | missing | running | error
+    result: Mapped[str] = mapped_column(String(32), index=True, default="running")
+    chain_length_postgres: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    chain_length_mirror: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_hash_postgres: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_hash_mirror: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    details: Mapped[dict[str, Any]] = mapped_column(JSONType, default=dict)
+    triggered_by: Mapped[str] = mapped_column(String(64), default="cron")
+
+    __table_args__ = (
+        Index("ix_audit_verifications_started", "started_at"),
+        Index("ix_audit_verifications_result", "result"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # AgentRegistration — per-agent trust + budget
 # ---------------------------------------------------------------------------
 class AgentRegistration(Base):
@@ -237,6 +269,7 @@ __all__ = [
     "ApprovalItem",
     "ApprovalRecord",
     "AuditLogEntry",
+    "AuditChainVerification",
     "AgentRegistration",
     "User",
     "WebAuthnCredential",

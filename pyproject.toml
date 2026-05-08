@@ -28,6 +28,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "sentry-sdk[fastapi]>=1.40",
     "aiosqlite>=0.19",
+    "b2sdk>=2.0",
 ]
 
 [project.optional-dependencies]

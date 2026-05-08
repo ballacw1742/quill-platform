@@ -53,6 +53,26 @@ class Settings(BaseSettings):
     # Notifications
     TELEGRAM_NOTIFY_CHAT_ID: str = Field(default="")
 
+    # Audit log resilience (Sprint 2.3)
+    B2_KEY_ID: str = Field(default="", description="Backblaze B2 application key ID.")
+    B2_APPLICATION_KEY: str = Field(default="", description="Backblaze B2 application key secret.")
+    B2_BUCKET: str = Field(default="quill-audit", description="B2 bucket holding the audit mirror.")
+    B2_OBJECT_LOCK_YEARS: int = Field(default=7, description="Object Lock compliance retention (years).")
+    AUDIT_MIRROR_LOCAL_PATH: str = Field(
+        default="./_local_audit_mirror",
+        description="Local fallback dir when B2 creds are absent.",
+    )
+    AUDIT_MIRROR_MAX_RETRIES: int = Field(default=5, description="Max retries before paging.")
+    AUDIT_MIRROR_DRAIN_INTERVAL_SECONDS: float = Field(default=2.0)
+    AUDIT_VERIFY_SCHEDULE_CRON: str = Field(
+        default="0 2 * * *",
+        description="Nightly verify schedule (informational; OS cron drives the actual run).",
+    )
+    AUDIT_FREEZE_FLAG_PATH: str = Field(
+        default="./_audit_freeze.flag",
+        description="Touch-file feature flag: presence freezes audit writes.",
+    )
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
