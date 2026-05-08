@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import __version__
 from app.db import get_db
 from app.enums import ApprovalStatus
-from app.models import AgentRegistration, ApprovalItem, AuditLogEntry
+from app.models import AgentRegistration, ApprovalItem, AuditLogEntry, User
 from app.schemas import (
     AgentOut,
     AgentUpdate,
@@ -22,8 +22,8 @@ from app.schemas import (
 from app.security import require_admin_header
 from app.services import approvals as svc
 from app.services import audit as audit_svc
-from app.services import sentry as sentry_svc
 from app.services import scheduler_registry
+from app.services import sentry as sentry_svc
 from app.services.notifications import notifier
 
 router = APIRouter(prefix="/v1", tags=["admin"])
@@ -166,6 +166,104 @@ async def audit_verify(
 
 
 # ---------------------------------------------------------------------------
+# Sprint 2.3 — Offsite mirror + nightly chain verification admin endpoints
+# ---------------------------------------------------------------------------
+_VERIFY_JOBS: dict[str, dict] = {}
+
+
+@router.get("/admin/audit/mirror_status")
+async def audit_mirror_status(_: str = Depends(require_admin_header)) -> dict:
+    """Return live mirror lag, queue depth, mode, and last-mirror metadata."""
+    from app.services.audit_mirror import get_mirror
+
+    return get_mirror().get_status()
+
+
+@router.get("/admin/audit/verifications/recent")
+async def audit_verifications_recent(
+    limit: int = 25,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin_header),
+) -> list[dict]:
+    from app.models import AuditChainVerification
+    from app.services import audit_verify as verify_svc
+
+    rows = await verify_svc.list_recent_verifications(db, limit=limit)
+
+    def _row_dict(r: AuditChainVerification) -> dict:
+        return {
+            "id": r.id,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            "duration_ms": r.duration_ms,
+            "scope": r.scope,
+            "scope_ref": r.scope_ref,
+            "result": r.result,
+            "chain_length_postgres": r.chain_length_postgres,
+            "chain_length_mirror": r.chain_length_mirror,
+            "last_hash_postgres": r.last_hash_postgres,
+            "last_hash_mirror": r.last_hash_mirror,
+            "triggered_by": r.triggered_by,
+            "details": r.details,
+        }
+
+    return [_row_dict(r) for r in rows]
+
+
+@router.post("/admin/audit/verify_now")
+async def audit_verify_now(
+    body: dict | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin_header),
+) -> dict:
+    """Kick off an ad-hoc verification. Runs synchronously here (the chain is
+    small in Sprint 2.3); returns a job_id you can poll for parity with the
+    async API contract."""
+    import uuid as _uuid
+
+    from app.services import audit_verify as verify_svc
+
+    body = body or {}
+    approval_id = body.get("approval_id")
+    job_id = str(_uuid.uuid4())
+    _VERIFY_JOBS[job_id] = {"status": "running", "result": None}
+    try:
+        if approval_id:
+            result = await verify_svc.verify_per_approval(
+                db, approval_id, triggered_by="admin_api"
+            )
+        else:
+            result = await verify_svc.verify_full_chain(db, triggered_by="admin_api")
+        _VERIFY_JOBS[job_id] = {"status": "done", "result": result}
+    except Exception as exc:  # noqa: BLE001
+        _VERIFY_JOBS[job_id] = {
+            "status": "error",
+            "result": {"error": f"{type(exc).__name__}: {exc}"},
+        }
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(exc)) from exc
+    return {"job_id": job_id, "status": "done"}
+
+
+@router.get("/admin/audit/verify_job/{job_id}")
+async def audit_verify_job_status(
+    job_id: str, _: str = Depends(require_admin_header)
+) -> dict:
+    job = _VERIFY_JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "job not found")
+    return {"job_id": job_id, **job}
+
+
+@router.post("/admin/audit/clear_freeze")
+async def audit_clear_freeze(_: str = Depends(require_admin_header)) -> dict:
+    """Operator override: remove the audit-freeze touch-file after triage."""
+    from app.services import audit_verify as verify_svc
+
+    cleared = verify_svc.clear_freeze_flag()
+    return {"ok": True, "cleared": cleared}
+
+
+# ---------------------------------------------------------------------------
 # Sprint 2.4 — Notifications + Scheduler admin endpoints
 # ---------------------------------------------------------------------------
 @router.get("/admin/notifications/test_telegram")
@@ -226,3 +324,37 @@ async def scheduler_heartbeat(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "jobs must be a list")
     scheduler_registry.heartbeat(jobs)
     return {"ok": True, "received": len(jobs)}
+
+
+@router.post("/admin/users/telegram_pair")
+async def telegram_pair(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin_header),
+) -> dict:
+    """Pair a Telegram chat to a Quill user account.
+
+    The bot validates the `/start <code>` code itself (HMAC of email +
+    timestamp using TELEGRAM_PAIRING_SECRET). On success it calls this
+    endpoint with the resolved email + chat_id so the User row is updated.
+
+    Body: `{"email": "...", "chat_id": "...", "telegram_username": "..."}`.
+    Backwards-compat: if `code` is provided instead of `email`, we treat it
+    as the email (legacy clients).
+    """
+    email = body.get("email") or body.get("code")
+    chat_id = body.get("chat_id")
+    if not email or not chat_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "email + chat_id required")
+    res = await db.execute(select(User).where(User.email == email))
+    user = res.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"user {email!r} not found")
+    user.telegram_chat_id = str(chat_id)
+    await db.commit()
+    return {
+        "ok": True,
+        "user_id": user.id,
+        "email": user.email,
+        "telegram_chat_id": user.telegram_chat_id,
+    }
