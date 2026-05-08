@@ -1,4 +1,4 @@
-.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down
+.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down audit-verify audit-replay
 
 PY ?= python3
 VENV ?= .venv
@@ -41,6 +41,12 @@ lint: install
 
 smoke:
 	$(VENV)/bin/python api/scripts/post_test_approval.py
+
+audit-verify: install
+	$(VENV)/bin/python api/scripts/audit_verify_run.py --drain --triggered-by=make
+
+audit-replay: install
+	$(VENV)/bin/python api/scripts/audit_mirror_replay.py --since $${SINCE:-2026-05-01} --until $${UNTIL:-$$(date +%Y-%m-%d)}
 
 clean:
 	rm -rf $(VENV) .pytest_cache .mypy_cache .ruff_cache **/__pycache__ build dist *.egg-info quill_dev.db

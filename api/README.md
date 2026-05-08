@@ -70,6 +70,71 @@ The chain is scoped per `approval_item_id`, so any item's history is independent
 without scanning the global log. `GET /v1/audit/verify/{id}` walks and recomputes; tampering
 returns `failures: ["hash_mismatch:entry_id=…"]`.
 
+## Audit log resilience (Sprint 2.3)
+
+The audit chain lives in two stores:
+
+1. **Postgres** — the primary, scanned on every approval state change.
+2. **Backblaze B2** — an immutable mirror under `b2://$B2_BUCKET/{YYYY}/{MM}/{DD}/{approval_id|global}/{seq}-{hash12}.json`,
+   with bucket-level Object Lock (compliance mode, 7-year retention by default).
+
+Every successful `record_event` write enqueues the entry to a background worker
+(`AuditMirror`, started in app lifespan) which uploads to B2. When `B2_KEY_ID` /
+`B2_APPLICATION_KEY` are absent (dev / CI), the worker falls back to the local
+filesystem at `AUDIT_MIRROR_LOCAL_PATH` (default `./_local_audit_mirror/`).
+
+Mirror failures retry with exponential backoff up to `AUDIT_MIRROR_MAX_RETRIES`
+(default 5). After exhaustion the entry surfaces in `GET /v1/admin/audit/mirror_status`
+as a `failed_entries` row and a Sentry message is emitted.
+
+### Nightly verification
+
+`api/scripts/audit_verify_run.py` runs at 02:00 ET (set `AUDIT_VERIFY_SCHEDULE_CRON`
+in the OS crontab; the env var is informational). It:
+
+* Walks every Postgres entry, recomputes its hash, and checks linkage.
+* Pulls every mirror object, recomputes, and confirms the `hash` field matches
+  Postgres' value byte-for-byte.
+* Cross-checks set membership: every Postgres seq in B2 and vice versa.
+* Persists a row to `audit_chain_verifications` with `result ∈ {ok, postgres_drift,
+  b2_drift, mismatch, missing, error}`.
+* On any non-OK result: writes `AUDIT_FREEZE_FLAG_PATH` (default
+  `./_audit_freeze.flag`). While that file exists, every `record_event` raises
+  `AuditFrozenError` — writes are paused until ops triages and clears the flag
+  (`POST /v1/admin/audit/clear_freeze`).
+
+The admin UI surfaces this through `GET /v1/admin/audit/mirror_status`,
+`GET /v1/admin/audit/verifications/recent`, `POST /v1/admin/audit/verify_now`,
+and `GET /v1/admin/audit/verify_job/{id}`.
+
+### DR replay tool
+
+`api/scripts/audit_mirror_replay.py --since YYYY-MM-DD --until YYYY-MM-DD`
+pulls every mirror object in a date range, walks the chain in isolation, and
+reports any drift. With `--restore drill.jsonl` it also writes the entries to
+a JSONL file you can sideload into a fresh Postgres for restore drills.
+
+### Make targets
+
+```
+make audit-verify     # one-shot full-chain verify (with --drain to seed mirror)
+make audit-replay     # DR replay; defaults to SINCE=2026-05-01 UNTIL=$(today)
+```
+
+### Test path with B2 creds
+
+If you have a B2 application key with write+read on a test bucket:
+
+```
+export B2_KEY_ID=...
+export B2_APPLICATION_KEY=...
+export B2_BUCKET=quill-audit-test
+make audit-verify
+```
+
+If creds are unset (default in dev/CI), the suite falls back to local-disk mode
+automatically and the same code path is exercised, just against the filesystem.
+
 ## SLA watcher
 
 A background asyncio task wakes every 60s, finds pending items past `sla_due_at`,
@@ -82,3 +147,5 @@ broadcasts to subscribers; Sprint 1.2 will wire Telegram delivery.
   `execution_result=dry_run`. Real Procore / P6 / ACC writes land in Sprint 4.
 - WebAuthn endpoints raise `NotImplementedError` — placeholders for Sprint 2.
 - Single-process broadcaster — multi-replica needs Redis pub/sub (Sprint 4).
+- Audit mirror is single-process; multi-replica deploys need a shared queue
+  (Redis or SQS) so every replica's writes are mirrored exactly once.

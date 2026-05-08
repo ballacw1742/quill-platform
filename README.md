@@ -99,11 +99,34 @@ See `.env.example`. The big knobs:
 
 ## Roadmap
 
-- **Sprint 1.1 (this)** — Approval Queue API end-to-end, audit chain, lanes, SLA, seed
+- **Sprint 1.1** — Approval Queue API end-to-end, audit chain, lanes, SLA, seed
 - **Sprint 1.2** — Approval UI (Next.js) + Telegram notifier
-- **Sprint 2** — WebAuthn passkeys, partner role provisioning
+- **Sprint 2.1** — Quill Agent Runtime (LLM-driven classifiers/drafters)
+- **Sprint 2.2** — WebAuthn passkeys, partner role provisioning
+- **Sprint 2.3 (this)** — Audit log offsite mirror (Backblaze B2) + nightly chain verification + DR replay
 - **Sprint 3** — Trust-tier autopilot, monthly token budgeting, escalation routing
 - **Sprint 4** — Real Procore / P6 / ACC executors replace the Sprint 1 stub
+
+## Audit log resilience
+
+The audit chain is the most important data asset in Quill — it's what protects
+Charles in disputes with the hyperscaler three years from now. Sprint 2.3 makes
+it tamper-evident across two storage tiers:
+
+* **Postgres** is the primary, scanned on every approval state change.
+* **Backblaze B2** is an immutable offsite mirror with Object Lock (compliance,
+  7-year retention). Every successful `record_event` write enqueues to a
+  background worker that uploads within ~seconds.
+* A nightly job (`make audit-verify`) walks both stores, recomputes every hash,
+  cross-checks set membership, and persists a result row. On any drift /
+  mismatch / missing entry, audit writes are paused via a freeze flag and
+  Charles is paged via Sentry + Telegram.
+* `make audit-replay` is a disaster-recovery tool that pulls a date range from
+  B2 and verifies the chain in isolation; with `--restore` it can sideload to
+  a fresh Postgres for restore drills.
+
+In dev or when B2 creds are unset, the mirror falls back to a local directory
+(`./_local_audit_mirror/`) so the same code path is exercised end-to-end.
 
 ## License
 

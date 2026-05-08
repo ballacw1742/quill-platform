@@ -44,6 +44,8 @@ node_modules/
 *.db
 quill_dev.db
 .alembic_env_local
+_local_audit_mirror/
+_audit_freeze.flag
 
 # Logs
 *.log
