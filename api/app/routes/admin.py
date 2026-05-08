@@ -32,6 +32,35 @@ async def list_agents(db: AsyncSession = Depends(get_db)) -> list[AgentOut]:
     return [AgentOut.model_validate(a) for a in res.scalars().all()]
 
 
+@router.post(
+    "/agents/{agent_id}",
+    response_model=AgentOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register an agent (idempotent upsert)",
+)
+async def register_agent(
+    agent_id: str,
+    body: AgentUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_admin_header),
+) -> AgentOut:
+    """Idempotent agent registration. If a row exists, it is patched; otherwise created.
+
+    The runtime calls this once per agent on bootstrap so the AgentRegistration
+    table is populated before any approvals flow.
+    """
+    data = body.model_dump(exclude_none=True)
+    agent = await db.get(AgentRegistration, agent_id)
+    if agent is None:
+        agent = AgentRegistration(agent_id=agent_id)
+        db.add(agent)
+    for k, v in data.items():
+        setattr(agent, k, v.value if hasattr(v, "value") else v)
+    await db.commit()
+    await db.refresh(agent)
+    return AgentOut.model_validate(agent)
+
+
 @router.patch("/agents/{agent_id}", response_model=AgentOut)
 async def update_agent(
     agent_id: str,
