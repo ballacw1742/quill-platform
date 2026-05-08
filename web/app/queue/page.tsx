@@ -36,9 +36,15 @@ export default function QueuePage() {
   const [workflowFilter, setWorkflowFilter] = React.useState<string>("all");
   const [ageFilter, setAgeFilter] = React.useState<string>("any");
 
-  const items = data ?? [];
-  const agents = Array.from(new Set(items.map((i) => i.agent_id))).sort();
-  const workflows = Array.from(new Set(items.map((i) => i.workflow))).sort();
+  const items = React.useMemo<ApprovalItem[]>(() => data ?? [], [data]);
+  const agents = React.useMemo(
+    () => Array.from(new Set(items.map((i) => i.agent_id))).sort(),
+    [items],
+  );
+  const workflows = React.useMemo(
+    () => Array.from(new Set(items.map((i) => i.workflow))).sort(),
+    [items],
+  );
 
   const filtered = React.useMemo<ApprovalItem[]>(() => {
     const q = search.trim().toLowerCase();
