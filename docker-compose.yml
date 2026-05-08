@@ -1,0 +1,46 @@
+version: "3.9"
+
+# Local-only stack. No production secrets here.
+# `docker-compose up -d` brings up Postgres+pgvector and the API.
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: quill-db
+    environment:
+      POSTGRES_USER: quill
+      POSTGRES_PASSWORD: quill
+      POSTGRES_DB: quill
+    ports:
+      - "5432:5432"
+    volumes:
+      - quill_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quill -d quill"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: quill-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://quill:quill@db:5432/quill
+      DATABASE_URL_SYNC: postgresql+psycopg2://quill:quill@db:5432/quill
+      SECRET_KEY: dev-secret-change-me
+      AGENT_SHARED_SECRET: dev-agent-secret-change-me
+      CORS_ORIGINS: "http://localhost:3000,http://localhost:5173"
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    command: >
+      sh -c "alembic -c api/alembic.ini upgrade head &&
+             uvicorn app.main:app --app-dir api --host 0.0.0.0 --port 8000"
+
+volumes:
+  quill_pgdata:

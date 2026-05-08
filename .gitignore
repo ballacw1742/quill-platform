@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+.next/
+.turbo/
+.parcel-cache/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Local
+*.sqlite
+*.sqlite3
+*.db
+quill_dev.db
+.alembic_env_local
+
+# Logs
+*.log
+logs/
