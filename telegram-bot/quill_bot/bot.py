@@ -22,13 +22,14 @@ from quill_bot.api_client import QuillAPIClient
 from quill_bot.config import BotConfig
 from quill_bot.conversation import get_store as get_conv_store
 from quill_bot.dedup import get_store as get_dedup_store
-from quill_bot.handlers import decisions, health, nl, queue, start
+from quill_bot.handlers import decisions, health, nl, queue, start, voice
 from quill_bot.handlers import help_text
 from quill_bot.llm import ConversationalLLM
 from quill_bot.notifier import consume_websocket, poll_health
 from quill_bot.pairing import mint_code
 from quill_bot.scheduler import QuillScheduler
 from quill_bot.sentry import init as sentry_init
+from quill_bot.transcription import WhisperClient
 
 log = structlog.get_logger("quill.bot")
 
@@ -141,6 +142,16 @@ async def _run_bot(config: BotConfig) -> None:
         log.warning("bot.llm_init_failed err=%s — NL handler will reply with errors", e)
         llm = None  # type: ignore[assignment]
 
+    # Whisper client for voice notes (Phase F.2). Initialised even when
+    # OPENAI_API_KEY is unset so the voice handler can give a graceful
+    # "voice notes need an API key" reply instead of crashing.
+    import os as _os
+    whisper = WhisperClient(api_key=_os.environ.get("OPENAI_API_KEY"))
+    if whisper.is_available:
+        log.info("bot.whisper_initialised model=%s", whisper.model)
+    else:
+        log.warning("bot.whisper_unconfigured — voice notes will reply with refusal")
+
     async def cmd_reset(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id = int(update.effective_chat.id)
         get_conv_store().reset(chat_id)
@@ -160,6 +171,7 @@ async def _run_bot(config: BotConfig) -> None:
     app.bot_data["llm"] = llm
     app.bot_data["conv_store"] = get_conv_store()
     app.bot_data["dedup_store"] = get_dedup_store()
+    app.bot_data["whisper"] = whisper
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("queue", cmd_queue))
@@ -183,6 +195,11 @@ async def _run_bot(config: BotConfig) -> None:
     app.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, nl.handle_nl_message)
     )
+
+    # Voice-note handler (Phase F.2). Registered AFTER text/command handlers
+    # so command and text routes win whenever they apply; filters.VOICE is
+    # disjoint from filters.TEXT in practice but ordering keeps it tidy.
+    app.add_handler(MessageHandler(filters.VOICE, voice.handle_voice_message))
 
     # Register slash commands with Telegram on startup
     async def _post_init(application: Any) -> None:
