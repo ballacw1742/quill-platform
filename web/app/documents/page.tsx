@@ -15,6 +15,16 @@ import {
   filterToArtifactType,
   type DocumentFilterValue,
 } from "@/lib/document-meta";
+import {
+  DocumentsFilterSheet,
+  DEFAULT_DOCS_FILTERS,
+  activeCount,
+  parseTagsRaw,
+  type DocumentsFilterValue,
+} from "@/components/documents/DocumentsFilterSheet";
+import type { DocumentSummary, DocumentSearchHit } from "@/lib/schemas";
+
+type DocumentLike = DocumentSummary | DocumentSearchHit;
 
 /**
  * /documents — Phase D.2 main screen.
@@ -43,6 +53,10 @@ export default function DocumentsPage() {
   const [filter, setFilter] = React.useState<DocumentFilterValue>("all");
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
+  const [filterSheetOpen, setFilterSheetOpen] = React.useState(false);
+  const [extraFilters, setExtraFilters] =
+    React.useState<DocumentsFilterValue>(DEFAULT_DOCS_FILTERS);
+  const extraActiveCount = activeCount(extraFilters);
 
   // Debounce the search input so we don't hammer the FTS endpoint on every
   // keystroke. 200ms is fast enough to feel live, slow enough to coalesce.
@@ -57,7 +71,7 @@ export default function DocumentsPage() {
   const activeMode: "list" | "search" =
     debouncedSearch.trim().length > 0 ? "search" : "list";
 
-  const rows = React.useMemo(() => {
+  const baseRows = React.useMemo(() => {
     if (activeMode === "search") {
       const items = searchQuery.data?.items ?? [];
       // Apply the segmented filter client-side on top of FTS results so the
@@ -67,6 +81,20 @@ export default function DocumentsPage() {
     }
     return listQuery.data?.items ?? [];
   }, [activeMode, searchQuery.data, listQuery.data, filter]);
+
+  // Apply the filter-sheet's multi-axis filters on top of base rows so the
+  // segmented control + sheet compose. Date math is computed at render time.
+  const rows = React.useMemo(() => {
+    return applyDocumentsExtraFilters(baseRows, extraFilters);
+  }, [baseRows, extraFilters]);
+
+  // Distinct agents in the current dataset (before extra-filter narrowing)
+  // for the chip multi-select inside the filter sheet.
+  const agentsInDataset = React.useMemo(() => {
+    const seen = new Set<string>();
+    for (const d of baseRows) seen.add(d.agent_id);
+    return Array.from(seen).sort();
+  }, [baseRows]);
 
   const isLoading =
     activeMode === "search" ? searchQuery.isLoading : listQuery.isLoading;
@@ -118,18 +146,23 @@ export default function DocumentsPage() {
             </button>
             <button
               type="button"
-              aria-label="Filter"
-              // Filter sheet is a future enhancement (Phase D.3). For now,
-              // tapping focuses the segmented control area for parity.
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  const el = document.getElementById("documents-segmented");
-                  el?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }
-              }}
-              className="flex h-11 w-11 items-center justify-center text-accent active:opacity-60 no-tap-highlight"
+              aria-label={
+                extraActiveCount > 0
+                  ? `Filter (${extraActiveCount} active)`
+                  : "Filter"
+              }
+              onClick={() => setFilterSheetOpen(true)}
+              className="relative flex h-11 w-11 items-center justify-center text-accent active:opacity-60 no-tap-highlight"
             >
               <SlidersHorizontal className="h-5 w-5" />
+              {extraActiveCount > 0 && (
+                <span
+                  className="absolute right-1.5 top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-caption-2 font-medium text-white"
+                  aria-hidden="true"
+                >
+                  {extraActiveCount}
+                </span>
+              )}
             </button>
           </div>
         }
@@ -196,8 +229,73 @@ export default function DocumentsPage() {
           )}
         </div>
       </div>
+
+      <DocumentsFilterSheet
+        open={filterSheetOpen}
+        onOpenChange={setFilterSheetOpen}
+        value={extraFilters}
+        onChange={setExtraFilters}
+        agents={agentsInDataset}
+      />
     </MobileShell>
   );
+}
+
+/* ── Filter math ─────────────────────────────────────────────────────────── */
+
+function applyDocumentsExtraFilters(
+  rows: DocumentLike[],
+  f: DocumentsFilterValue,
+): DocumentLike[] {
+  if (
+    f.artifactTypes.length === 0 &&
+    f.agents.length === 0 &&
+    f.dateRange === "any" &&
+    f.tagsRaw.trim().length === 0
+  ) {
+    return rows;
+  }
+  const wantedTags = parseTagsRaw(f.tagsRaw).map((t) => t.toLowerCase());
+  const sinceMs = sinceMsFor(f);
+  return rows.filter((d) => {
+    if (
+      f.artifactTypes.length > 0 &&
+      !f.artifactTypes.includes(d.artifact_type as DocumentFilterValue)
+    )
+      return false;
+    if (f.agents.length > 0 && !f.agents.includes(d.agent_id)) return false;
+    if (sinceMs != null) {
+      const ts = d.created_at ? +new Date(d.created_at) : 0;
+      if (!ts || ts < sinceMs) return false;
+    }
+    if (wantedTags.length > 0) {
+      const docTags = (d.tags ?? []).map((t) => String(t).toLowerCase());
+      if (!wantedTags.some((t) => docTags.includes(t))) return false;
+    }
+    return true;
+  });
+}
+
+function sinceMsFor(f: DocumentsFilterValue): number | null {
+  const now = new Date();
+  if (f.dateRange === "any") return null;
+  if (f.dateRange === "today") {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    return +start;
+  }
+  if (f.dateRange === "week") {
+    return Date.now() - 7 * 86_400_000;
+  }
+  if (f.dateRange === "month") {
+    return Date.now() - 30 * 86_400_000;
+  }
+  if (f.dateRange === "custom") {
+    if (!f.customSince) return null;
+    const ms = +new Date(f.customSince + "T00:00:00");
+    return Number.isFinite(ms) ? ms : null;
+  }
+  return null;
 }
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */

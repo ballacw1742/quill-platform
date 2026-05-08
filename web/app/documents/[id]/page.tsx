@@ -17,6 +17,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { MarkdownBody } from "@/components/documents/MarkdownBody";
 import { ExportSheet } from "@/components/documents/ExportSheet";
+import { MoreMenuSheet } from "@/components/documents/MoreMenuSheet";
 import { useDocument, useDocumentDriveLink } from "@/lib/api";
 import {
   artifactTypeLabel,
@@ -50,6 +51,7 @@ export default function DocumentDetailPage() {
   const { data: driveLink } = useDocumentDriveLink(id);
 
   const [exportOpen, setExportOpen] = React.useState(false);
+  const [moreOpen, setMoreOpen] = React.useState(false);
 
   const handleShare = React.useCallback(async () => {
     if (!doc) return;
@@ -97,13 +99,10 @@ export default function DocumentDetailPage() {
         right={
           <button
             type="button"
-            aria-label="More"
-            onClick={() => {
-              // Phase D.2 ships only the bottom action bar; the menu is a
-              // forward hook for "View raw JSON", "Open audit", etc.
-              toast.message("More options coming soon");
-            }}
+            aria-label="More options"
+            onClick={() => setMoreOpen(true)}
             className="flex h-11 w-11 items-center justify-center text-accent active:opacity-60 no-tap-highlight"
+            disabled={!doc}
           >
             <MoreHorizontal className="h-5 w-5" />
           </button>
@@ -173,6 +172,12 @@ export default function DocumentDetailPage() {
         documentId={doc?.id ?? null}
         open={exportOpen}
         onOpenChange={setExportOpen}
+      />
+
+      <MoreMenuSheet
+        open={moreOpen}
+        onOpenChange={setMoreOpen}
+        doc={doc ?? null}
       />
     </MobileShell>
   );
