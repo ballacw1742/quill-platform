@@ -278,3 +278,93 @@ export function useLogout() {
     onSuccess: () => qc.setQueryData(["session"], null),
   });
 }
+
+// ─── Sprint 2.3 — Audit log resilience (offsite mirror + verification) ────────
+export type AuditMirrorStatus = {
+  mode: "b2" | "local";
+  bucket: string | null;
+  queue_depth: number;
+  last_mirrored_at: string | null;
+  last_mirrored_seq: number | null;
+  last_error: string | null;
+  failed_entries: Array<Record<string, unknown>>;
+  total_mirrored: number;
+  total_failed: number;
+  lag_seconds: number | null;
+};
+
+export function useAuditMirrorStatus() {
+  return useQuery<AuditMirrorStatus>({
+    queryKey: ["audit", "mirror_status"],
+    queryFn: async () => {
+      if (USE_MOCK) {
+        await sleep(60);
+        return {
+          mode: "local" as const,
+          bucket: null,
+          queue_depth: 0,
+          last_mirrored_at: new Date(Date.now() - 72_000).toISOString(),
+          last_mirrored_seq: 142,
+          last_error: null,
+          failed_entries: [],
+          total_mirrored: 142,
+          total_failed: 0,
+          lag_seconds: 72,
+        };
+      }
+      return apiFetch("/api/v1/admin/audit/mirror_status");
+    },
+    refetchInterval: 15_000,
+  });
+}
+
+export type AuditVerificationRow = {
+  id: string;
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  scope: string;
+  scope_ref: string | null;
+  result: string;
+  chain_length_postgres: number | null;
+  chain_length_mirror: number | null;
+  last_hash_postgres: string | null;
+  last_hash_mirror: string | null;
+  triggered_by: string;
+  details: Record<string, unknown>;
+};
+
+export function useRecentAuditVerifications(limit = 10) {
+  return useQuery<AuditVerificationRow[]>({
+    queryKey: ["audit", "verifications", limit],
+    queryFn: async () => {
+      if (USE_MOCK) {
+        await sleep(80);
+        return [];
+      }
+      return apiFetch(`/api/v1/admin/audit/verifications/recent?limit=${limit}`);
+    },
+    refetchInterval: 60_000,
+  });
+}
+
+export function useTriggerAuditVerify() {
+  const qc = useQueryClient();
+  return useMutation<{ job_id: string; status: string }, Error, { approval_id?: string } | void>({
+    mutationFn: async (vars) => {
+      const body = vars && "approval_id" in vars && vars.approval_id ? vars : {};
+      if (USE_MOCK) {
+        await sleep(120);
+        return { job_id: "mock-job", status: "done" };
+      }
+      return apiFetch("/api/v1/admin/audit/verify_now", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["audit", "verifications"] });
+      qc.invalidateQueries({ queryKey: ["audit", "mirror_status"] });
+    },
+  });
+}

@@ -2,9 +2,11 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Search } from "lucide-react";
+import { CloudOff, Database, RefreshCw, Search, ShieldCheck, ShieldAlert } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { HashChainVerifier } from "@/components/audit/HashChainVerifier";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -23,8 +25,104 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { useAudit } from "@/lib/api";
+import {
+  useAudit,
+  useAuditMirrorStatus,
+  useRecentAuditVerifications,
+  useTriggerAuditVerify,
+} from "@/lib/api";
 import { shortHash } from "@/lib/utils";
+
+function formatLag(seconds: number | null): string {
+  if (seconds == null) return "—";
+  if (seconds < 60) return `${seconds.toFixed(0)}s behind`;
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)} min behind`;
+  return `${(seconds / 3600).toFixed(1)} h behind`;
+}
+
+function OffsiteMirrorCard() {
+  const { data: status, isLoading } = useAuditMirrorStatus();
+  const { data: verifications } = useRecentAuditVerifications(5);
+  const trigger = useTriggerAuditVerify();
+
+  if (isLoading || !status) {
+    return <Skeleton className="h-28 w-full" />;
+  }
+
+  const lastVerify = verifications?.[0];
+  const verifyOk = lastVerify?.result === "ok";
+  const isLocal = status.mode === "local";
+  const queueWarn = status.queue_depth > 5;
+  const lagWarn = (status.lag_seconds ?? 0) > 15 * 60;
+
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3 p-3 md:p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            {isLocal ? (
+              <Database className="h-4 w-4 text-amber-500" aria-label="local mode" />
+            ) : (
+              <CloudOff className="h-4 w-4 text-emerald-600" aria-label="b2 mode" />
+            )}
+            <span className="text-sm font-medium">Offsite mirror</span>
+            <Badge variant={isLocal ? "secondary" : "default"} className="text-[10px]">
+              {isLocal ? "local-disk dev mode" : `b2://${status.bucket ?? "quill-audit"}`}
+            </Badge>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            <span className={lagWarn ? "text-destructive font-medium" : ""}>
+              {formatLag(status.lag_seconds)}
+            </span>
+            {" • "}
+            <span className={queueWarn ? "text-destructive font-medium" : ""}>
+              queue depth {status.queue_depth}
+            </span>
+            {" • "}
+            mirrored {status.total_mirrored.toLocaleString()}
+            {status.total_failed > 0 && (
+              <span className="text-destructive">
+                {" • "}failed {status.total_failed}
+              </span>
+            )}
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            {lastVerify ? (
+              <Badge
+                variant={verifyOk ? "secondary" : "destructive"}
+                className="flex items-center gap-1 text-[10px]"
+              >
+                {verifyOk ? (
+                  <ShieldCheck className="h-3 w-3" />
+                ) : (
+                  <ShieldAlert className="h-3 w-3" />
+                )}
+                last verify: {lastVerify.result}
+              </Badge>
+            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => trigger.mutate()}
+              disabled={trigger.isPending}
+            >
+              <RefreshCw className={`mr-1 h-3.5 w-3.5 ${trigger.isPending ? "animate-spin" : ""}`} />
+              Verify now
+            </Button>
+          </div>
+        </div>
+        <div className="text-[11px] text-muted-foreground">
+          {status.last_mirrored_at
+            ? `Last successful mirror: ${new Date(status.last_mirrored_at).toLocaleString()} (seq ${status.last_mirrored_seq ?? "—"})`
+            : "No mirror writes yet this process."}
+          {status.last_error ? (
+            <span className="ml-2 text-destructive">last error: {status.last_error}</span>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function AuditPage() {
   const { data, isLoading } = useAudit();
@@ -64,6 +162,8 @@ export default function AuditPage() {
               : undefined
           }
         />
+
+        <OffsiteMirrorCard />
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative flex-1 min-w-[12rem] max-w-md">
