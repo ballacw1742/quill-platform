@@ -26,6 +26,7 @@ from runtime.hashing import hash_input, hash_output, hash_prompt
 from runtime.json_extractor import JSONExtractionError, extract_json
 from runtime.lane_router import LaneDecision, route_lane
 from runtime.llm_client import LLMClient, LLMError, LLMResponse
+from runtime.notifications import sentry as sentry_svc
 from runtime.queue_client import QueueClient
 from runtime.validator import validate_output
 
@@ -122,6 +123,7 @@ class Agent:
     ) -> AgentRun:
         cfg = self.config
         spec = self.spec
+        sentry_svc.tag_agent(spec.agent_id)
         prompt_hash = hash_prompt(spec.system_prompt)
         in_hash = hash_input(input_payload if context is None else {"input": input_payload, "context": context})
         model = self._select_model(model_override)

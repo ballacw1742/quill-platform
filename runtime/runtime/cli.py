@@ -13,7 +13,11 @@ import click
 
 from runtime.agent import Agent, AgentRun
 from runtime.config import get_config
+from runtime.notifications import sentry as sentry_svc
 from runtime.queue_client import QueueClient
+
+# Initialize Sentry as early as possible — safe even with no DSN.
+sentry_svc.init()
 
 
 def _read_input(path: str) -> dict[str, Any]:
