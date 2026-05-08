@@ -161,3 +161,62 @@ user-visible severity tag per CONTRIBUTING_AGENTS.md rule 6:
     `/today` until the dev server is restarted. The production build is
     clean and `tsc --noEmit` is clean. Only affects the live dev server
     process — restart it to recover.
+
+## Phase D.2 — Documents tab
+
+18. **`(visible-tolerable)` — filter icon in /documents top bar is a no-op
+    for now**
+    The right-side `SlidersHorizontal` button on the Documents top bar
+    scrolls the segmented control into view but does not yet open a
+    multi-axis filter sheet (agent / tags / date range). The segmented
+    control + search bar cover the common cases; richer filtering is a
+    Phase D.3 enhancement.
+
+19. **`(visible-tolerable)` — More (•••) menu on /documents/[id] is a
+    placeholder**
+    Tapping the menu icon currently shows a "coming soon" toast. The
+    DOCUMENTS_SPEC reserves it for "View raw JSON", "Open audit", etc.;
+    those are intentionally deferred so the bottom action bar (Drive /
+    Export / Share) remains the focused happy path for D.2.
+
+20. **`(visible-tolerable)` — PDF / Word export rely on the API-side
+    converter**
+    `useDocumentExport(id, format)` simply streams whatever the
+    `/v1/documents/{id}/export?format=…` endpoint returns. In MOCK mode
+    we synthesize a tiny placeholder file so the download flow is
+    exercised end-to-end. Real .pdf / .docx output quality is owned by
+    the API service (Phase D.1) and is out of scope here.
+
+21. **`(visible-tolerable)` — Drive link "uploading…" disabled state can
+    persist if the API never returns a URL**
+    `useDocumentDriveLink` polls every 30s while `url` is null; in the
+    mock it stays null for documents that ship without a `drive_url`.
+    The button copy ("Drive link still uploading…") is honest about
+    that, but a doc that genuinely has no Drive copy will read the same
+    way as one whose upload is mid-flight. Future: distinguish via a
+    `status: "skipped" | "pending" | "ready"` enum from the API.
+
+22. **`(visible-tolerable)` — Activity (audit) tab no longer in the
+    bottom bar**
+    Per DOCUMENTS_SPEC §"Tab bar update" the bottom bar is now Queue /
+    Today / Documents / Profile. Activity is reachable from Profile →
+    Activity (linking the existing /audit route). Users who had muscle
+    memory for the old 4th tab will need to re-learn one click; the
+    Profile row is highlighted in info-tone to make the relocation
+    discoverable.
+
+23. **`(invisible)` — react-markdown brings ~50 KB to the detail page**
+    /documents/[id] First Load JS = 258 KB (vs 142 KB for /today).
+    Acceptable for an artifact viewer, but worth a code-split if other
+    pages start rendering markdown. The renderer is also gated by
+    rehype-sanitize default schema so agent output is never trusted
+    with raw HTML.
+
+24. **`(invisible)` — running `next build` while `next start` is alive
+    leaves stale vendor chunks in the running process**
+    The currently-running production server on port :3000 referenced
+    `./vendor-chunks/zod.js` and started 500ing on dynamic routes after
+    I ran `next build` mid-session. A clean `rm -rf .next && next build
+    && next start` recovers; the server simply needs a restart. The
+    build itself is clean (verified by booting a parallel `next start`
+    on :3099 — every Documents route returns 200).

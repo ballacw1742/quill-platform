@@ -140,6 +140,13 @@ export default function ProfilePage() {
             href="/profile/health"
           />
           <ListRow
+            icon={<Activity className="h-4 w-4" />}
+            iconTone="info"
+            title="Activity"
+            subtitle="Tamper-proof record of every action"
+            href="/audit"
+          />
+          <ListRow
             icon={<SettingsIcon className="h-4 w-4" />}
             iconTone="neutral"
             title="Settings"
