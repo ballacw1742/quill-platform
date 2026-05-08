@@ -67,5 +67,31 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     command: ["quill-bot", "run"]
 
+  mock-data:
+    # Sprint 3 — synthetic data feeders + dispatcher.
+    # Bring up with `docker-compose --profile mock up mock-data`.
+    profiles: ["mock"]
+    image: python:3.12-slim
+    container_name: quill-mock-data
+    depends_on:
+      api:
+        condition: service_started
+    environment:
+      QUILL_API_URL: http://api:8000
+      AGENT_SHARED_SECRET: dev-agent-secret-change-me
+      MOCK_DRY_RUN: ${MOCK_DRY_RUN:-0}
+      MOCK_RFI_PER_HOUR: ${MOCK_RFI_PER_HOUR:-1.0}
+      MOCK_SUBMITTAL_PER_HOUR: ${MOCK_SUBMITTAL_PER_HOUR:-0.5}
+      MOCK_PROCUREMENT_PER_HOUR: ${MOCK_PROCUREMENT_PER_HOUR:-1.0}
+      MOCK_HYPERSCALER_PER_HOUR: ${MOCK_HYPERSCALER_PER_HOUR:-0.2}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    working_dir: /app
+    volumes:
+      - ./mock-data:/app
+    command: >
+      sh -c "pip install --no-cache-dir -e . &&
+             quill-mock bootstrap &&
+             quill-mock start --fast"
+
 volumes:
   quill_pgdata:
