@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { RegisterPasskeyDialog } from "@/components/auth/RegisterPasskeyDialog";
+import { SkelList } from "@/components/ui/skeletons";
 import {
   isPasskeySupported,
   listPasskeys,
@@ -99,16 +100,11 @@ export default function ProfilePasskeysPage() {
 
         {credentials === null && !error && supported && (
           <ListGroup>
-            <div className="px-4 py-3 space-y-2">
-              {Array.from({ length: 2 }).map((_, i) => (
-                <span
-                  key={i}
-                  className="block h-4 w-2/3 rounded-sm bg-bg-elevated animate-shimmer"
-                  aria-hidden="true"
-                />
-              ))}
-              <span className="sr-only">Loading passkeys</span>
-            </div>
+            <SkelList
+              ariaLabel="Loading passkeys"
+              count={2}
+              className="rounded-lg overflow-hidden"
+            />
           </ListGroup>
         )}
 

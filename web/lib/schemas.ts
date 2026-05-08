@@ -252,3 +252,109 @@ export type Session = z.infer<typeof SessionSchema>;
 
 export const MeSchema = SessionSchema;
 export type Me = Session;
+
+// ─── Documents (Phase D) ──────────────────────────────────────────────────────
+//
+// Mirrors web/DOCUMENTS_SPEC.md §"Document schema" / §"API surface".
+// The API returns ISO timestamp strings; we keep them as strings here and let
+// the UI render them via date-fns. `tags` always defaults to `[]`. `summary`
+// and `body_markdown` are required on full reads but the list endpoint omits
+// the body — we reuse the same nullable shape via DocumentSummarySchema.
+
+export const ArtifactTypeSchema = z.enum([
+  "status_update",
+  "coordinator_artifact",
+  "pm_analysis",
+  "comms_draft",
+  "knowledge_entry",
+]);
+export type ArtifactType = z.infer<typeof ArtifactTypeSchema>;
+
+/**
+ * Permissive artifact type — accepts the canonical values above plus any
+ * unknown string the server might add later. We render unknown types with a
+ * default icon + pretty-cased label.
+ */
+export const ArtifactTypeLooseSchema = z.union([ArtifactTypeSchema, z.string()]);
+export type ArtifactTypeLoose = z.infer<typeof ArtifactTypeLooseSchema>;
+
+export const DocumentExportFormatSchema = z.enum(["md", "pdf", "docx"]);
+export type DocumentExportFormat = z.infer<typeof DocumentExportFormatSchema>;
+
+/**
+ * Lightweight document shape returned by `/v1/documents` (list endpoint).
+ * Drops `body_markdown` to keep payloads compact.
+ */
+export const DocumentSummarySchema = z
+  .object({
+    id: z.string(),
+    artifact_id: z.string(),
+    artifact_type: ArtifactTypeLooseSchema,
+    title: z.string(),
+    summary: z.string().default(""),
+    agent_id: z.string(),
+    agent_display_name: z.string().default(""),
+    created_at: z.string(),
+    approved_at: z.string().nullable().optional(),
+    tags: z.array(z.string()).optional().default([]),
+    drive_url: z.string().nullable().optional(),
+    // Some metadata may be carried for typing process docs (SOP / RACI / etc.)
+    metadata: z.record(z.any()).optional(),
+  })
+  .passthrough();
+export type DocumentSummary = z.infer<typeof DocumentSummarySchema>;
+
+/**
+ * Full document shape returned by `/v1/documents/{id}`. Adds the markdown
+ * body, approver info, and the internal blob path.
+ */
+export const DocumentSchema = z
+  .object({
+    id: z.string(),
+    artifact_id: z.string(),
+    artifact_type: ArtifactTypeLooseSchema,
+    title: z.string(),
+    summary: z.string().default(""),
+    body_markdown: z.string().default(""),
+    agent_id: z.string(),
+    agent_display_name: z.string().default(""),
+    created_at: z.string(),
+    approved_at: z.string().nullable().optional(),
+    approved_by: z.string().nullable().optional(),
+    approval_id: z.string().nullable().optional(),
+    tags: z.array(z.string()).optional().default([]),
+    drive_url: z.string().nullable().optional(),
+    minio_path: z.string().nullable().optional(),
+    metadata: z.record(z.any()).optional(),
+  })
+  .passthrough();
+export type Document = z.infer<typeof DocumentSchema>;
+
+/** List envelope returned by `/v1/documents`. */
+export const DocumentListPageSchema = z.object({
+  items: z.array(DocumentSummarySchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type DocumentListPage = z.infer<typeof DocumentListPageSchema>;
+
+/** Search hit shape returned by `/v1/documents/search`. */
+export const DocumentSearchHitSchema = DocumentSummarySchema.extend({
+  score: z.number().optional(),
+  snippet: z.string().optional(),
+});
+export type DocumentSearchHit = z.infer<typeof DocumentSearchHitSchema>;
+
+export const DocumentSearchResultSchema = z.object({
+  items: z.array(DocumentSearchHitSchema),
+  total: z.number().int(),
+  q: z.string(),
+});
+export type DocumentSearchResult = z.infer<typeof DocumentSearchResultSchema>;
+
+export const DocumentDriveLinkSchema = z.object({
+  url: z.string().nullable(),
+  status: z.string().optional(),
+});
+export type DocumentDriveLink = z.infer<typeof DocumentDriveLinkSchema>;

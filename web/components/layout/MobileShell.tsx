@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { History, Inbox, Sparkles, User } from "lucide-react";
+import { FileText, Inbox, Sparkles, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useSession } from "@/lib/api";
@@ -34,10 +34,13 @@ import type { Session } from "@/lib/schemas";
  * called out in MOBILE_UX_SPEC §7.
  */
 
+// Phase D.2: Documents replaces Activity in the bottom bar; Activity moves
+// under Profile (DOCUMENTS_SPEC.md §"Tab bar update"). The existing /audit
+// route is preserved — it's now reached via Profile → Activity.
 const TABS = [
   { href: "/queue", label: "Queue", icon: Inbox },
   { href: "/today", label: "Today", icon: Sparkles },
-  { href: "/audit", label: "Activity", icon: History },
+  { href: "/documents", label: "Documents", icon: FileText },
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
 
@@ -162,7 +165,10 @@ function TabBar() {
             pathname === href ||
             pathname.startsWith(href + "/") ||
             // /approvals/* is conceptually under /queue
-            (href === "/queue" && pathname.startsWith("/approvals"));
+            (href === "/queue" && pathname.startsWith("/approvals")) ||
+            // /audit is reached via Profile → Activity (per Phase D.2 tab
+            // bar update), so highlight Profile when the user is in /audit.
+            (href === "/profile" && pathname.startsWith("/audit"));
           const showBadge = href === "/queue" && pendingCount > 0;
           return (
             <li key={href} className="flex-1">

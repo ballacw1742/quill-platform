@@ -102,7 +102,9 @@ export function BiometricPrompt({
       if (isUserCancelledError(err)) {
         setError("Cancelled. Try again to confirm.");
       } else {
-        setError(err instanceof Error ? err.message : "Passkey check failed.");
+        // eslint-disable-next-line no-console
+        console.error("biometric confirm failed", err);
+        setError("Your passkey wasn't recognized. Try again.");
       }
     } finally {
       setPending(false);

@@ -70,7 +70,9 @@ export function RegisterPasskeyDialog({
       if (isUserCancelledError(err)) {
         setError("Registration cancelled.");
       } else {
-        setError(err instanceof Error ? err.message : "Registration failed");
+        // eslint-disable-next-line no-console
+        console.error("passkey registration failed", err);
+        setError("Couldn't register your passkey. Try again.");
       }
       setStep("naming");
     }

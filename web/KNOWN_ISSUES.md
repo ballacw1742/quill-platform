@@ -161,3 +161,115 @@ user-visible severity tag per CONTRIBUTING_AGENTS.md rule 6:
     `/today` until the dev server is restarted. The production build is
     clean and `tsc --noEmit` is clean. Only affects the live dev server
     process — restart it to recover.
+
+## Phase D.2 — Documents tab
+
+18. **~~`(visible-tolerable)` — filter icon in /documents top bar is a no-op~~**
+    **RESOLVED in Phase E (commit 4).** The right-side `SlidersHorizontal`
+    button on the Documents top bar now opens a real multi-axis filter
+    sheet (artifact type, helper, date range, tags). Active-filter count
+    surfaces as a badge on the icon.
+
+19. **~~`(visible-tolerable)` — More (•••) menu on /documents/[id] is a
+    placeholder~~**
+    **RESOLVED in Phase E (commit 4).** Tapping the menu icon now opens
+    a bottom-sheet action menu with: Copy link / Open in new tab / Print
+    / View raw JSON. Each closes the sheet on tap; the JSON viewer is a
+    separate full-height sheet with its own copy-to-clipboard action.
+
+20. **`(visible-tolerable)` — PDF / Word export rely on the API-side
+    converter**
+    `useDocumentExport(id, format)` simply streams whatever the
+    `/v1/documents/{id}/export?format=…` endpoint returns. In MOCK mode
+    we synthesize a tiny placeholder file so the download flow is
+    exercised end-to-end. Real .pdf / .docx output quality is owned by
+    the API service (Phase D.1) and is out of scope here.
+
+21. **`(visible-tolerable)` — Drive link "uploading…" disabled state can
+    persist if the API never returns a URL**
+    `useDocumentDriveLink` polls every 30s while `url` is null; in the
+    mock it stays null for documents that ship without a `drive_url`.
+    The button copy ("Drive link still uploading…") is honest about
+    that, but a doc that genuinely has no Drive copy will read the same
+    way as one whose upload is mid-flight. Future: distinguish via a
+    `status: "skipped" | "pending" | "ready"` enum from the API.
+
+22. **`(visible-tolerable)` — Activity (audit) tab no longer in the
+    bottom bar**
+    Per DOCUMENTS_SPEC §"Tab bar update" the bottom bar is now Queue /
+    Today / Documents / Profile. Activity is reachable from Profile →
+    Activity (linking the existing /audit route). Users who had muscle
+    memory for the old 4th tab will need to re-learn one click; the
+    Profile row is highlighted in info-tone to make the relocation
+    discoverable.
+
+23. **`(invisible)` — react-markdown brings ~50 KB to the detail page**
+    /documents/[id] First Load JS = 258 KB (vs 142 KB for /today).
+    Acceptable for an artifact viewer, but worth a code-split if other
+    pages start rendering markdown. The renderer is also gated by
+    rehype-sanitize default schema so agent output is never trusted
+    with raw HTML.
+
+24. **`(invisible)` — running `next build` while `next start` is alive
+    leaves stale vendor chunks in the running process**
+    The currently-running production server on port :3000 referenced
+    `./vendor-chunks/zod.js` and started 500ing on dynamic routes after
+    I ran `next build` mid-session. A clean `rm -rf .next && next build
+    && next start` recovers; the server simply needs a restart. The
+    build itself is clean (verified by booting a parallel `next start`
+    on :3099 — every Documents route returns 200).
+
+## Phase E — Final UX polish (feat/ux-polish)
+
+25. **`(visible-tolerable)` — onboarding 4th card always shows, regardless
+    of Telegram pairing status**
+    The new 4th card ("Chat with Quill on Telegram") is shown to every
+    user on first login, not just users already paired. Decision: the
+    bot is universally useful and the card invites pairing rather than
+    reporting state, so it works equally well in both situations. Future
+    iteration could branch the copy: "Tap @DC_QuillBot to start" for
+    unpaired users vs. "@DC_QuillBot is ready when you are" for paired.
+
+26. **`(invisible)` — onboarding overlay is still browser-local (LS flag)**
+    Carry-over from Phase A item 14: `localStorage.quill.onboarded` is
+    per-browser. Adding the 4th card doesn't change that. Server-side
+    onboarding completion remains a future-sprint concern.
+
+27. **`(visible-tolerable)` — DocumentsFilterSheet operates client-side**
+    The new filter sheet on /documents narrows the *current* result set
+    (the API list query and FTS results) rather than re-issuing a server
+    query with the new constraints. For the current dataset sizes
+    (`limit=100` on list; FTS returns top-K matches) this is
+    indistinguishable, but a power user filtering across thousands of
+    docs would want server-side filtering. Future: extend `useDocuments`
+    to accept the multi-axis params.
+
+28. **`(visible-tolerable)` — Print from the more-menu prints the entire
+    page including chrome**
+    `MoreMenuSheet` calls `window.print()` after the sheet animates out,
+    which uses the default browser print stylesheet. The bottom tab bar
+    + top app bar are still in the printout. A dedicated `@media print`
+    rule that hides chrome and prints just the document body is a polish
+    follow-up.
+
+29. **`(invisible)` — toast errors deliberately drop raw API messages**
+    Phase E commit 3 replaced raw `e.message` toasts with plain-English
+    copy across login, biometric prompt, passkey registration, approval
+    decisions, and trust-tier changes. Raw errors are still
+    `console.error`'d for developer triage; future work that wants the
+    raw message for a power-user/debug path should use the console
+    output, not the toast.
+
+30. **`(invisible)` — shared skeleton primitives in components/ui/skeletons.tsx**
+    Phase E commit 2 added shared `SkelBar` / `SkelListRow` / `SkelList`
+    / `SkelCard` / `SkelSectionCard` / `SkelHeroCard` primitives. The
+    pre-existing inline `SkeletonRows` in /audit and /documents pages
+    were left as-is to keep the diff small; they could be migrated to
+    the shared primitive in a future cleanup.
+
+31. **`(visible-tolerable)` — onboarding overlay does not deep-link to
+    Telegram**
+    The 4th onboarding card mentions @DC_QuillBot but doesn't render the
+    Telegram link as tappable text or a button. Showing it as static
+    copy keeps the card calm; future iteration could add a small
+    secondary button "Open Telegram" that fires `tg://resolve?domain=DC_QuillBot`.

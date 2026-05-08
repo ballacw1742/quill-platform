@@ -19,6 +19,7 @@ import { ListRow } from "@/components/ui/list-row";
 import { useLogout, useSession } from "@/lib/api";
 import type { Session } from "@/lib/schemas";
 import { toast } from "sonner";
+import { SkelBar } from "@/components/ui/skeletons";
 
 /**
  * /profile — iOS-redesign profile + admin landing.
@@ -32,9 +33,10 @@ import { toast } from "sonner";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { data: rawSession } = useSession();
+  const { data: rawSession, isLoading: sessionLoading } = useSession();
   const session = rawSession as Session | null | undefined;
   const logout = useLogout();
+  const showSessionSkel = sessionLoading && !session;
 
   const onSignOut = () => {
     if (!confirm("Sign out of Quill?")) return;
@@ -51,20 +53,42 @@ export default function ProfilePage() {
       <TopBar
         hero
         title="Profile"
-        subtitle={session?.email ?? "Not signed in"}
+        subtitle={
+          showSessionSkel ? (
+            <SkelBar tone="dark" className="h-4 w-40 inline-block align-middle" />
+          ) : (
+            session?.email ?? "Not signed in"
+          )
+        }
       />
 
       <GroupedList>
         <ListGroup title="Account">
-          <ListRow
-            icon={<UserIcon className="h-4 w-4" />}
-            iconTone="accent"
-            title={session?.display_name ?? session?.email ?? "—"}
-            subtitle={session?.email ?? undefined}
-            chip={String(session?.role ?? "viewer")}
-            chevron={false}
-            hideDivider
-          />
+          {showSessionSkel ? (
+            <div
+              className="flex items-center gap-3 px-4 py-3 min-h-[56px]"
+              role="status"
+              aria-busy="true"
+              aria-label="Loading account"
+            >
+              <SkelBar className="h-7 w-7 shrink-0 rounded-md" />
+              <div className="flex-1 space-y-1.5">
+                <SkelBar className="h-4 w-2/3" />
+                <SkelBar className="h-3.5 w-5/6" />
+              </div>
+              <SkelBar className="h-3 w-12 shrink-0" />
+            </div>
+          ) : (
+            <ListRow
+              icon={<UserIcon className="h-4 w-4" />}
+              iconTone="accent"
+              title={session?.display_name ?? session?.email ?? "—"}
+              subtitle={session?.email ?? undefined}
+              chip={String(session?.role ?? "viewer")}
+              chevron={false}
+              hideDivider
+            />
+          )}
         </ListGroup>
 
         <ListGroup title="Authentication">
@@ -138,6 +162,13 @@ export default function ProfilePage() {
             title="Fleet health"
             subtitle="Subsystems, queue depth, spend"
             href="/profile/health"
+          />
+          <ListRow
+            icon={<Activity className="h-4 w-4" />}
+            iconTone="info"
+            title="Activity"
+            subtitle="Tamper-proof record of every action"
+            href="/audit"
           />
           <ListRow
             icon={<SettingsIcon className="h-4 w-4" />}

@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import {
   useMutation,
   useQuery,
@@ -13,12 +14,21 @@ import {
   ApprovalItemSchema,
   AuditEntrySchema,
   ChainVerificationSchema,
+  DocumentDriveLinkSchema,
+  DocumentListPageSchema,
+  DocumentSchema,
+  DocumentSearchResultSchema,
   HealthSchema,
   SessionSchema,
   type Agent,
   type ApprovalItem,
   type AuditEntry,
   type ChainVerification,
+  type Document,
+  type DocumentDriveLink,
+  type DocumentExportFormat,
+  type DocumentListPage,
+  type DocumentSearchResult,
   type Health,
   type Session,
 } from "@/lib/schemas";
@@ -598,4 +608,201 @@ export function useSchedulerJobs(opts?: UseQueryOptions<SchedulerSnapshot>) {
     refetchInterval: 30_000,
     ...opts,
   });
+}
+
+// ─── Documents (Phase D) ──────────────────────────────────────────────────────
+//
+// Backed by `/v1/documents` from feat/documents-service. The web client always
+// hits `${API_BASE}/api/v1/...` which next.config.mjs rewrites to `/v1/...`.
+//
+// `useDocuments`, `useDocument`, `useSearchDocuments` follow the same TanStack
+// Query pattern as the Approvals hooks above. `useDocumentExport` is a function
+// that returns a download trigger (not a hook) — it's invoked imperatively from
+// the export sheet so the user gets a real browser download.
+// `useDocumentDriveLink` is a hook so the detail page can render "Open in Drive"
+// only once the link is ready.
+
+export type DocumentListParams = {
+  artifact_type?: string;
+  agent_id?: string;
+  q?: string;
+  since?: string;
+  limit?: number;
+  offset?: number;
+};
+
+function buildDocsQuery(params: DocumentListParams = {}): string {
+  const u = new URLSearchParams();
+  if (params.artifact_type) u.set("artifact_type", params.artifact_type);
+  if (params.agent_id) u.set("agent_id", params.agent_id);
+  if (params.q) u.set("q", params.q);
+  if (params.since) u.set("since", params.since);
+  u.set("limit", String(params.limit ?? 50));
+  u.set("offset", String(params.offset ?? 0));
+  return u.toString();
+}
+
+export function useDocuments(
+  params: DocumentListParams = {},
+  opts?: { enabled?: boolean },
+) {
+  return useQuery<DocumentListPage>({
+    queryKey: ["documents", params],
+    queryFn: async (): Promise<DocumentListPage> => {
+      if (USE_MOCK) {
+        await sleep(80);
+        return DocumentListPageSchema.parse(mockStore.listDocuments(params));
+      }
+      const qs = buildDocsQuery(params);
+      return (await apiFetch(`/api/v1/documents?${qs}`, {
+        schema: DocumentListPageSchema,
+      })) as DocumentListPage;
+    },
+    enabled: opts?.enabled,
+  });
+}
+
+export function useDocument(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<Document | undefined>,
+) {
+  return useQuery<Document | undefined>({
+    queryKey: ["document", id],
+    queryFn: async (): Promise<Document | undefined> => {
+      if (!id) return undefined;
+      if (USE_MOCK) {
+        await sleep(60);
+        const d = mockStore.getDocument(id);
+        return d ? (DocumentSchema.parse(d) as Document) : undefined;
+      }
+      try {
+        return (await apiFetch(`/api/v1/documents/${encodeURIComponent(id)}`, {
+          schema: DocumentSchema,
+        })) as Document;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return undefined;
+        throw e;
+      }
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+export function useSearchDocuments(
+  q: string,
+  opts?: UseQueryOptions<DocumentSearchResult>,
+) {
+  const trimmed = q.trim();
+  return useQuery<DocumentSearchResult>({
+    queryKey: ["documents", "search", trimmed],
+    queryFn: async (): Promise<DocumentSearchResult> => {
+      if (!trimmed) return { items: [], total: 0, q: "" };
+      if (USE_MOCK) {
+        await sleep(80);
+        return DocumentSearchResultSchema.parse(
+          mockStore.searchDocuments(trimmed),
+        );
+      }
+      const qs = new URLSearchParams({ q: trimmed }).toString();
+      return (await apiFetch(`/api/v1/documents/search?${qs}`, {
+        schema: DocumentSearchResultSchema,
+      })) as DocumentSearchResult;
+    },
+    enabled: trimmed.length > 0,
+    // Keep results around briefly so quickly-typed queries don't flicker.
+    staleTime: 5_000,
+    ...opts,
+  });
+}
+
+export function useDocumentDriveLink(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<DocumentDriveLink>,
+) {
+  return useQuery<DocumentDriveLink>({
+    queryKey: ["document", id, "drive_link"],
+    queryFn: async (): Promise<DocumentDriveLink> => {
+      if (!id) return { url: null };
+      if (USE_MOCK) {
+        await sleep(40);
+        return DocumentDriveLinkSchema.parse(mockStore.documentDriveLink(id));
+      }
+      try {
+        return (await apiFetch(
+          `/api/v1/documents/${encodeURIComponent(id)}/drive_link`,
+          { schema: DocumentDriveLinkSchema },
+        )) as DocumentDriveLink;
+      } catch (e) {
+        if (e instanceof ApiError && (e.status === 404 || e.status === 202)) {
+          return { url: null, status: "pending" };
+        }
+        throw e;
+      }
+    },
+    enabled: !!id,
+    // Drive uploads are async; refetch every 30s so a "pending" state recovers.
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      if (!data || !data.url) return 30_000;
+      return false;
+    },
+    ...opts,
+  });
+}
+
+/**
+ * Triggers a browser download of an exported document. Returns a no-arg async
+ * function the UI can call from a button click handler.
+ *
+ * In MOCK mode we synthesize the file client-side from the in-memory store; in
+ * live mode we call `/v1/documents/{id}/export?format=...` and stream the
+ * response into a Blob the browser can save.
+ */
+export function useDocumentExport(
+  id: string | null | undefined,
+  format: DocumentExportFormat,
+): () => Promise<void> {
+  return React.useCallback(async () => {
+    if (!id) return;
+    if (typeof window === "undefined") return;
+    if (USE_MOCK) {
+      const out = mockStore.documentExport(id, format);
+      if (!out) return;
+      const blob = new Blob([out.content], { type: out.mime });
+      triggerDownload(blob, out.filename);
+      return;
+    }
+    const token = getStoredToken();
+    const res = await fetch(
+      `${API_BASE}/api/v1/documents/${encodeURIComponent(id)}/export?format=${format}`,
+      {
+        credentials: "include",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      },
+    );
+    if (!res.ok) {
+      throw new ApiError(res.status, (await res.text().catch(() => "")) || res.statusText);
+    }
+    const blob = await res.blob();
+    // Best-effort filename: prefer Content-Disposition, fall back to id.format.
+    const cd = res.headers.get("content-disposition") ?? "";
+    const m = cd.match(/filename\*?=(?:UTF-8'')?\"?([^;\";]+)\"?/i);
+    const filename = m?.[1] ?? `document-${id}.${format}`;
+    triggerDownload(blob, filename);
+  }, [id, format]);
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Slight delay before revoke so the browser can start the download.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

@@ -195,7 +195,7 @@ export function ApprovalDetailSheet({
   const onReasonContinue = () => {
     if (!reasonOpen) return;
     if (reasonOpen === "reject" && !reason.trim()) {
-      toast.error("Reason required for rejection.");
+      toast.error("Add a short reason before sending it back.");
       return;
     }
     setPendingMode(reasonOpen);
@@ -247,9 +247,11 @@ export function ApprovalDetailSheet({
       );
       onClose();
     } catch (e) {
-      toast.error(
-        e instanceof Error ? e.message : "Decision failed — try again.",
-      );
+      // Plain-English (COPY_GUIDE): never surface raw API errors. Log the
+      // detail for the developer console; show the user a friendly line.
+      // eslint-disable-next-line no-console
+      console.error("approval decision failed", e);
+      toast.error("Couldn't save your decision. Try again.");
     }
   };
 
