@@ -224,10 +224,18 @@ class MockStore {
     }
     rows.sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at));
     const total = rows.length;
-    const page = rows.slice(offset, offset + limit).map(
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      ({ body_markdown, approved_by, approval_id, minio_path, ...rest }) => rest,
-    );
+    const page = rows.slice(offset, offset + limit).map((d) => {
+      // Strip body + internal fields for the list endpoint shape.
+      const {
+        body_markdown: _body,
+        approved_by: _ap,
+        approval_id: _aid,
+        minio_path: _mp,
+        ...rest
+      } = d;
+      void _body; void _ap; void _aid; void _mp;
+      return rest;
+    });
     return { items: page, total, limit, offset };
   }
 
@@ -250,8 +258,14 @@ class MockStore {
       const start = Math.max(0, matchAt - 30);
       const end = Math.min(raw.length, matchAt + needle.length + 60);
       const snippet = (start > 0 ? "\u2026" : "") + raw.slice(start, end) + (end < raw.length ? "\u2026" : "");
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { body_markdown, approved_by, approval_id, minio_path, ...summary } = d;
+      const {
+        body_markdown: _body,
+        approved_by: _ap,
+        approval_id: _aid,
+        minio_path: _mp,
+        ...summary
+      } = d;
+      void _body; void _ap; void _aid; void _mp;
       hits.push({ ...summary, snippet, score: 1 });
     }
     return { items: hits, total: hits.length, q };

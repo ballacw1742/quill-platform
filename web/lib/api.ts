@@ -644,7 +644,7 @@ function buildDocsQuery(params: DocumentListParams = {}): string {
 
 export function useDocuments(
   params: DocumentListParams = {},
-  opts?: UseQueryOptions<DocumentListPage>,
+  opts?: { enabled?: boolean },
 ) {
   return useQuery<DocumentListPage>({
     queryKey: ["documents", params],
@@ -658,7 +658,7 @@ export function useDocuments(
         schema: DocumentListPageSchema,
       })) as DocumentListPage;
     },
-    ...opts,
+    enabled: opts?.enabled,
   });
 }
 
