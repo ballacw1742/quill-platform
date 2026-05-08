@@ -29,7 +29,8 @@ const TIER_TONE: Record<Agent["trust_tier"], "destructive" | "warning" | "succes
 };
 
 export default function AgentsPage() {
-  const { data: agents = [], isLoading } = useAgents();
+  const { data, isLoading } = useAgents();
+  const agents = (data ?? []) as Agent[];
   const setTier = useSetTrustTier();
   const [pending, setPending] = React.useState<{ agent: Agent; next: Agent["trust_tier"] } | null>(
     null,

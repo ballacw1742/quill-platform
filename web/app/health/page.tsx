@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HashChainVerifier } from "@/components/audit/HashChainVerifier";
 import { useHealth } from "@/lib/api";
+import type { Health } from "@/lib/schemas";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 import { LANE_META } from "@/components/queue/laneMeta";
 
@@ -19,7 +20,8 @@ const STATUS_TONE: Record<string, "success" | "warning" | "destructive" | "muted
 };
 
 export default function HealthPage() {
-  const { data, isLoading } = useHealth();
+  const { data: rawData, isLoading } = useHealth();
+  const data = rawData as Health | undefined;
 
   if (isLoading || !data) {
     return (

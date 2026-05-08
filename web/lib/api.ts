@@ -244,16 +244,16 @@ export function useAudit(opts?: UseQueryOptions<AuditEntry[]>) {
 
 export function useVerifyChain() {
   return useMutation<ChainVerification, Error, void>({
-    mutationFn: async () => {
+    mutationFn: async (): Promise<ChainVerification> => {
       if (USE_MOCK) {
         await sleep(400);
-        return ChainVerificationSchema.parse(mockStore.verifyChain());
+        return ChainVerificationSchema.parse(mockStore.verifyChain()) as ChainVerification;
       }
       // API endpoint is GET, not POST.
-      return apiFetch("/api/v1/audit/verify", {
+      return (await apiFetch("/api/v1/audit/verify", {
         method: "GET",
         schema: ChainVerificationSchema,
-      });
+      })) as ChainVerification;
     },
   });
 }
@@ -263,12 +263,12 @@ export function useVerifyChain() {
 export function useAgents() {
   return useQuery<Agent[]>({
     queryKey: ["agents"],
-    queryFn: async () => {
+    queryFn: async (): Promise<Agent[]> => {
       if (USE_MOCK) {
         await sleep(100);
-        return z.array(AgentSchema).parse(mockStore.listAgents());
+        return z.array(AgentSchema).parse(mockStore.listAgents()) as Agent[];
       }
-      return apiFetch("/api/v1/agents", { schema: z.array(AgentSchema) });
+      return (await apiFetch("/api/v1/agents", { schema: z.array(AgentSchema) })) as Agent[];
     },
   });
 }
@@ -276,16 +276,16 @@ export function useAgents() {
 export function useSetTrustTier() {
   const qc = useQueryClient();
   return useMutation<Agent, Error, { agent_id: string; trust_tier: Agent["trust_tier"] }>({
-    mutationFn: async ({ agent_id, trust_tier }) => {
+    mutationFn: async ({ agent_id, trust_tier }): Promise<Agent> => {
       if (USE_MOCK) {
         await sleep(150);
-        return AgentSchema.parse(mockStore.setTrustTier(agent_id, trust_tier));
+        return AgentSchema.parse(mockStore.setTrustTier(agent_id, trust_tier)) as Agent;
       }
-      return apiFetch(`/api/v1/agents/${agent_id}/trust-tier`, {
+      return (await apiFetch(`/api/v1/agents/${agent_id}/trust-tier`, {
         method: "POST",
         body: JSON.stringify({ trust_tier }),
         schema: AgentSchema,
-      });
+      })) as Agent;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["agents"] });
@@ -299,19 +299,19 @@ export function useSetTrustTier() {
 export function useHealth() {
   return useQuery<Health>({
     queryKey: ["health"],
-    queryFn: async () => {
+    queryFn: async (): Promise<Health> => {
       if (USE_MOCK) {
         await sleep(60);
-        return HealthSchema.parse(mockStore.getHealth());
+        return HealthSchema.parse(mockStore.getHealth()) as Health;
       }
       // API has /admin/health, not /health.
-      return apiFetch("/api/v1/admin/health", {
+      return (await apiFetch("/api/v1/admin/health", {
         schema: HealthSchema,
         headers: {
           // The admin gate accepts the user JWT for owner-role users; the
           // shared-secret X-Admin header is the agent path. Both work.
         },
-      });
+      })) as Health;
     },
     refetchInterval: USE_MOCK ? 5000 : 15000,
   });
@@ -322,10 +322,10 @@ export function useHealth() {
 export function useSession() {
   return useQuery<Session | null>({
     queryKey: ["session"],
-    queryFn: async () => {
+    queryFn: async (): Promise<Session | null> => {
       if (USE_MOCK) {
         await sleep(40);
-        return mockStore.getSession();
+        return mockStore.getSession() as Session | null;
       }
       // No token → no session. Don't even hit the network (also avoids the
       // global 401 redirect short-circuit in apiFetch).
@@ -333,7 +333,7 @@ export function useSession() {
       if (!token) return null;
       try {
         // API exposes /auth/me, not /auth/session. The schema is permissive enough for both.
-        return await apiFetch("/api/v1/auth/me", { schema: SessionSchema });
+        return (await apiFetch("/api/v1/auth/me", { schema: SessionSchema })) as Session;
       } catch (e) {
         if (e instanceof ApiError && e.status === 401) {
           // Stale token; clear it.
@@ -354,16 +354,16 @@ export function useSession() {
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation<Session, Error, { email: string; password: string }>({
-    mutationFn: async ({ email, password }) => {
+    mutationFn: async ({ email, password }): Promise<Session> => {
       if (USE_MOCK) {
         await sleep(150);
-        return SessionSchema.parse(mockStore.login(email, password));
+        return SessionSchema.parse(mockStore.login(email, password)) as Session;
       }
-      const session = await apiFetch("/api/v1/auth/login", {
+      const session = (await apiFetch("/api/v1/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
         schema: SessionSchema,
-      });
+      })) as Session;
       // Persist the JWT so subsequent requests authenticate.
       if (session.access_token) {
         setStoredToken(session.access_token);

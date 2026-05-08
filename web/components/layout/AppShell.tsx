@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useLogout, useSession } from "@/lib/api";
+import type { Session } from "@/lib/schemas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +47,8 @@ export function AppShell({
   useApprovalsSocket();
   const pathname = usePathname();
   const router = useRouter();
-  const { data: session, isLoading } = useSession();
+  const { data: rawSession, isLoading } = useSession();
+  const session = rawSession as Session | null | undefined;
   const logout = useLogout();
   const { data: approvals } = useApprovals();
   const pendingCount = approvals?.length ?? 0;

@@ -2,84 +2,163 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Quill iOS-redesign — color tokens                                         */
+/* DESIGN_SYSTEM.md §2. Values are RGB triplets so Tailwind's                 */
+/* `rgb(var(--token) / <alpha-value>)` formula resolves cleanly.             */
+/* ────────────────────────────────────────────────────────────────────────── */
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222 47% 11%;
-    --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    --primary: 221 83% 53%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222 47% 11%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215 16% 47%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222 47% 11%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
-    --success: 160 60% 36%;
-    --success-foreground: 0 0% 100%;
-    --warning: 32 95% 44%;
-    --warning-foreground: 0 0% 100%;
-    --border: 214 32% 91%;
-    --input: 214 32% 91%;
-    --ring: 221 83% 53%;
-    --radius: 0.5rem;
+    /* Light mode (DESIGN_SYSTEM §2 — light) */
+    --bg: 255 255 255;                   /* #FFFFFF */
+    --bg-elevated: 242 242 247;          /* #F2F2F7 — iOS systemGroupedBackground */
+    --bg-tertiary: 255 255 255;          /* card on top of grouped bg */
+    --separator: 60 60 67;               /* used with /12 alpha utility */
+    --separator-opaque: 198 198 200;     /* #C6C6C8 */
+    --label-primary: 0 0 0;
+    --label-secondary: 60 60 67;         /* used with /60 alpha */
+    --label-tertiary: 60 60 67;          /* used with /30 alpha */
+    --label-quaternary: 60 60 67;        /* used with /18 alpha */
+    --accent: 0 122 255;                 /* iOS systemBlue */
+    --accent-pressed: 0 98 204;          /* #0062CC */
+    --success: 52 199 89;                /* systemGreen */
+    --warning: 255 149 0;                /* systemOrange */
+    --danger: 255 59 48;                 /* systemRed */
+    --info: 88 86 214;                   /* systemIndigo */
+
+    /* Tab bar / chrome translucency */
+    --bg-translucent: 255 255 255;
   }
 
-  .dark {
-    --background: 222 47% 7%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 11%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 210 40% 98%;
-    --success: 160 60% 45%;
-    --success-foreground: 222 47% 7%;
-    --warning: 32 95% 50%;
-    --warning-foreground: 222 47% 7%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 217 91% 60%;
+  /* Dark mode tracks both prefers-color-scheme and the .dark class so
+     OS dark mode "just works" without app-level toggles. */
+  .dark,
+  :root.dark {
+    --bg: 0 0 0;
+    --bg-elevated: 28 28 30;             /* iOS systemGray6 dark */
+    --bg-tertiary: 44 44 46;
+    --separator: 84 84 88;
+    --separator-opaque: 56 56 58;
+    --label-primary: 255 255 255;
+    --label-secondary: 235 235 245;      /* used with /60 alpha */
+    --label-tertiary: 235 235 245;       /* /30 */
+    --label-quaternary: 235 235 245;     /* /18 */
+    --accent: 10 132 255;                /* iOS dark systemBlue */
+    --accent-pressed: 64 156 255;
+    --success: 48 209 88;
+    --warning: 255 159 10;
+    --danger: 255 69 58;
+    --info: 94 92 230;
+    --bg-translucent: 0 0 0;
   }
-}
 
-@layer base {
-  * {
-    @apply border-border;
+  @media (prefers-color-scheme: dark) {
+    :root:not(.light) {
+      --bg: 0 0 0;
+      --bg-elevated: 28 28 30;
+      --bg-tertiary: 44 44 46;
+      --separator: 84 84 88;
+      --separator-opaque: 56 56 58;
+      --label-primary: 255 255 255;
+      --label-secondary: 235 235 245;
+      --label-tertiary: 235 235 245;
+      --label-quaternary: 235 235 245;
+      --accent: 10 132 255;
+      --accent-pressed: 64 156 255;
+      --success: 48 209 88;
+      --warning: 255 159 10;
+      --danger: 255 69 58;
+      --info: 94 92 230;
+      --bg-translucent: 0 0 0;
+    }
   }
+
+  /* Default everything to the iOS body type. Per DESIGN_SYSTEM §3 we
+     never use raw text-sm/xs in app code; the base font-size is 17px. */
   html,
   body {
-    @apply bg-background text-foreground antialiased;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    @apply bg-bg text-label-primary antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+      "SF Pro Display", system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 22px;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+
+  /* iOS overscroll feel without the rubber-band leaking into chrome. */
+  html {
+    overscroll-behavior-y: none;
+    /* prevent zoom on input focus; iOS zooms when font < 16px */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Selection colour matches accent. */
   ::selection {
-    @apply bg-primary/20;
+    background: rgb(var(--accent) / 0.2);
+  }
+
+  /* Hide scroll chrome on iOS — content scroll is the real UI. */
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
   }
 }
 
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Utility extensions                                                        */
+/* ────────────────────────────────────────────────────────────────────────── */
+
 @layer utilities {
-  .scrollbar-thin {
-    scrollbar-width: thin;
+  /* Hairline iOS separator (1 / device pixel ratio) */
+  .border-hairline {
+    border-color: rgb(var(--separator) / 0.36);
   }
-  .scrollbar-thin::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+
+  /* Translucent tab/nav bar background — iOS frosted glass. */
+  .bg-chrome {
+    background: rgb(var(--bg-translucent) / 0.72);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
   }
-  .scrollbar-thin::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-border;
+
+  /* Tap highlight removal (iOS Safari shows a grey flash on <a>/<button>). */
+  .no-tap-highlight {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Prevent text selection on swipeable list rows. */
+  .no-select {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  /* Hairline separator helper for list rows (indented to align with title). */
+  .list-divider {
+    background-image: linear-gradient(
+      to right,
+      transparent 0,
+      transparent 56px,
+      rgb(var(--separator) / 0.36) 56px,
+      rgb(var(--separator) / 0.36) 100%
+    );
+    background-repeat: no-repeat;
+    background-position: bottom;
+    background-size: 100% 1px;
+  }
+
+  /* Reduced-motion: kill spring/slide animations entirely.
+     DESIGN_SYSTEM §10 + §11 mandate this. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }

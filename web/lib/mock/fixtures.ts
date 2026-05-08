@@ -301,7 +301,10 @@ export const MOCK_AGENTS: Agent[] = [
   },
 ];
 
-export const MOCK_AUDIT: AuditEntry[] = [
+// The schema's transform widens the output type with derived fields
+// (approval_id, agent_id are normalized in). The literal seed values omit
+// optional ones; cast keeps strict mode happy without changing data.
+export const MOCK_AUDIT = [
   {
     seq: 1,
     ts: hoursAgo(72),
@@ -368,7 +371,7 @@ export const MOCK_AUDIT: AuditEntry[] = [
     prev_hash: "4444dddd" + "0".repeat(56),
     hash: "6666ffff" + "0".repeat(56),
   },
-];
+] as unknown as AuditEntry[];
 
 export const MOCK_CHAIN: ChainVerification = {
   ok: true,
