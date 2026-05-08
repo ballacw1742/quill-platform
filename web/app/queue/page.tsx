@@ -15,6 +15,7 @@ import { useApprovals } from "@/lib/api";
 import type { ApprovalItem, Lane } from "@/lib/schemas";
 import { sortItemsForLane, LANE_META } from "@/components/queue/laneMeta";
 import { laneTabLabel } from "@/lib/agent-meta";
+import { OnboardingOverlay } from "@/components/onboarding/OnboardingOverlay";
 
 /**
  * /queue — iOS-redesign main screen, per MOBILE_UX_SPEC §"Tab 1 — Queue".
@@ -126,6 +127,7 @@ export default function QueuePage() {
 
   return (
     <MobileShell>
+      <OnboardingOverlay />
       <TopBar
         title="Queue"
         right={
