@@ -19,11 +19,20 @@ os.environ.setdefault("QUILL_WEB_BASE_URL", "https://web.test")
 
 
 from quill_bot.config import BotConfig  # noqa: E402
+from quill_bot.dedup import reset_store_for_tests  # noqa: E402
 
 
 @pytest.fixture
 def bot_config() -> BotConfig:
     return BotConfig.from_env()
+
+
+@pytest.fixture(autouse=True)
+def _isolated_dedup_store(tmp_path):
+    """Each test gets a brand-new SQLite dedup file so reminder/pairing
+    rows from previous tests don't bleed across."""
+    reset_store_for_tests(tmp_path / "bot-dedup.db")
+    yield
 
 
 class FakeAPIClient:

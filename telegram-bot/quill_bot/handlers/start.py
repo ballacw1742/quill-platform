@@ -12,6 +12,7 @@ from typing import Any
 
 from quill_bot.api_client import QuillAPIClient, QuillAPIError
 from quill_bot.config import BotConfig
+from quill_bot.dedup import DedupStore, get_store
 from quill_bot.pairing import InvalidPairingCode, verify_code
 
 log = logging.getLogger("quill.bot.start")
@@ -30,6 +31,12 @@ WELCOME_NEEDS_CODE = (
     "Get your code from an admin: `quill-bot mint-pair --email <you@…>`."
 )
 
+ALREADY_REDEEMED = (
+    "❌ That pairing code has already been used.\n"
+    "Each code is one-shot. Ask an admin to mint a new one:\n"
+    "`quill-bot mint-pair --email <you@…>`."
+)
+
 
 async def handle_start(
     *,
@@ -38,11 +45,17 @@ async def handle_start(
     chat_id: int | str,
     args: list[str],
     telegram_username: str | None = None,
+    dedup_store: DedupStore | None = None,
 ) -> str:
     """Pure-logic handler so the same code path is unit-testable.
 
     Returns the markdown reply. The bot adapter calls this and forwards the
     text to Telegram.
+
+    Sprint-4 fix #2: pairing codes are one-shot. We claim the redemption in
+    a tiny SQLite store BEFORE calling the API so a reused code is rejected
+    at the bot layer with a clear message; the HMAC verification still runs
+    first so we never persist garbage codes.
     """
     if not args:
         return WELCOME_NEEDS_CODE
@@ -53,6 +66,13 @@ async def handle_start(
     except InvalidPairingCode as e:
         log.warning("pairing code rejected: %s", e)
         return f"❌ Invalid pairing code: {e}\n\nAsk an admin for a new one."
+
+    store = dedup_store or get_store()
+    if not store.claim_pairing(code, email=parsed.email, chat_id=str(chat_id)):
+        log.warning(
+            "pairing code re-use rejected email=%s chat=%s", parsed.email, chat_id
+        )
+        return ALREADY_REDEEMED
 
     try:
         result = await api.pair_user_telegram(
@@ -74,4 +94,10 @@ def help_handler() -> str:
     return help_text()
 
 
-__all__: list[Any] = ["handle_start", "help_handler", "WELCOME_NEEDS_CODE", "WELCOME_PAIRED"]
+__all__: list[Any] = [
+    "handle_start",
+    "help_handler",
+    "WELCOME_NEEDS_CODE",
+    "WELCOME_PAIRED",
+    "ALREADY_REDEEMED",
+]
