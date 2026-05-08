@@ -105,8 +105,8 @@ export default function ProfilePasskeysPage() {
         {credentials !== null && active.length === 0 && supported && (
           <EmptyState
             icon={<Fingerprint />}
-            title="No passkeys yet"
-            subtitle="Register one to sign in and approve actions on this device."
+            title="No passkeys yet."
+            subtitle="Add a passkey to sign in with Face ID or Touch ID."
             action={
               <Button onClick={() => setRegisterOpen(true)} className="rounded-md">
                 <Plus className="h-4 w-4" /> Register a passkey

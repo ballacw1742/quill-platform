@@ -45,8 +45,8 @@ export default function ApprovalDeepLinkPage() {
         ) : (
           <EmptyState
             icon={<Inbox />}
-            title="Not found"
-            subtitle="This approval may have been resolved or expired."
+            title="Item not found."
+            subtitle="This item may already be resolved or expired."
           />
         )}
       </div>

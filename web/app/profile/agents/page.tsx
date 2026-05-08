@@ -79,8 +79,8 @@ export default function ProfileAgentsPage() {
         ) : agents.length === 0 ? (
           <EmptyState
             icon={<Bot />}
-            title="No agents registered"
-            subtitle="Agents appear here once the runtime registers them."
+            title="No helpers yet."
+            subtitle="Helpers appear here once they're registered for your projects."
           />
         ) : (
           <ListGroup

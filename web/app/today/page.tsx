@@ -51,8 +51,8 @@ export default function TodayPage() {
           {isEmpty ? (
             <EmptyState
               icon={<Sparkles />}
-              title="No brief yet"
-              subtitle="Quill builds your daily brief from agent activity. Check back tomorrow morning."
+              title="Quill is still learning your project."
+              subtitle="Once the helpers have processed a day's work, you'll see your morning brief here."
             />
           ) : (
             <>
