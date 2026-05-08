@@ -230,7 +230,11 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
                   passkey_assertion: assertion?.auth_assertion,
                 },
                 {
-                  onError: (e) => toast.error(e.message || "Decision failed"),
+                  onError: (e) => {
+                    // eslint-disable-next-line no-console
+                    console.error("decision failed", e);
+                    toast.error("Couldn't save your decision. Try again.");
+                  },
                 },
               );
               finish(verb + "ed");

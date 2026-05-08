@@ -78,7 +78,9 @@ export function PasskeyChallengeModal({
       if (isUserCancelledError(err)) {
         setError("Cancelled. Try again to confirm this action.");
       } else {
-        setError(err instanceof Error ? err.message : "Passkey confirmation failed");
+        // eslint-disable-next-line no-console
+        console.error("passkey confirmation failed", err);
+        setError("Your passkey wasn't recognized. Try again.");
       }
     } finally {
       setPending(false);

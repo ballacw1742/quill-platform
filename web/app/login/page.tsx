@@ -102,8 +102,10 @@ export default function LoginPage() {
       if (isUserCancelledError(err)) {
         toast.message("Passkey prompt cancelled");
       } else {
+        // eslint-disable-next-line no-console
+        console.error("passkey sign-in failed", err);
         toast.error(
-          err instanceof Error ? err.message : "Passkey sign-in failed",
+          "Sign-in didn't work — your passkey wasn't recognized. Try again.",
         );
       }
     } finally {
@@ -124,7 +126,11 @@ export default function LoginPage() {
           toast.success("Signed in");
           router.replace("/queue");
         },
-        onError: (e) => toast.error(e.message || "Sign-in failed"),
+        onError: (e) => {
+          // eslint-disable-next-line no-console
+          console.error("password sign-in failed", e);
+          toast.error("Couldn't sign in. Check your email and password.");
+        },
       },
     );
   };

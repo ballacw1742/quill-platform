@@ -19,6 +19,7 @@ import { useHealth } from "@/lib/api";
 import type { Health } from "@/lib/schemas";
 import { formatCurrency, formatPercent, cn } from "@/lib/utils";
 import { SkelBar, SkelList } from "@/components/ui/skeletons";
+import { ErrorBanner } from "@/components/ui/error-banner";
 
 /**
  * /profile/health — replaces /health.
@@ -30,7 +31,7 @@ import { SkelBar, SkelList } from "@/components/ui/skeletons";
  */
 
 export default function ProfileHealthPage() {
-  const { data: rawData, isLoading } = useHealth();
+  const { data: rawData, isLoading, error, refetch } = useHealth();
   const data = rawData as Health | undefined;
 
   const status = computeStatus(data);
@@ -43,6 +44,12 @@ export default function ProfileHealthPage() {
       />
 
       <GroupedList>
+        {error && !data && (
+          <ErrorBanner
+            message="Couldn't load fleet health. Try again."
+            onRetry={() => refetch()}
+          />
+        )}
         {/* Hero — overall status */}
         {isLoading && !data ? (
           <section

@@ -210,7 +210,9 @@ export default function ProfileAgentsPage() {
               `${displayName(pendingTier.agent.agent_id)} → ${displayTrustTier(pendingTier.next)}`,
             );
           } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Couldn't update trust level. Try again.");
+            // eslint-disable-next-line no-console
+            console.error("trust-tier change failed", e);
+            toast.error("Couldn't update trust level. Try again.");
           }
         }}
       />
