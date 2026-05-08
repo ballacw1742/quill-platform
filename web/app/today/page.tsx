@@ -65,7 +65,7 @@ export default function TodayPage() {
                 title="Approvals waiting"
                 href="/queue"
                 value={`${stats.pending} pending`}
-                subtitle={`Mandatory ${stats.byLane["tier-0-mandatory"]} · Spot-check ${stats.byLane["tier-1-spotcheck"]} · Auto ${stats.byLane["tier-2-auto"]}`}
+                subtitle={`Yours ${stats.byLane["tier-1-spotcheck"]} · Two-signer ${stats.byLane["tier-0-mandatory"]} · Auto ${stats.byLane["tier-2-auto"]}`}
               />
 
               <SectionCard
