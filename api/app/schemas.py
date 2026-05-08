@@ -200,7 +200,7 @@ class LitigationHoldRequest(_Base):
 
 
 # ---------------------------------------------------------------------------
-# Auth (Sprint 1 stubs)
+# Auth — email/password (dev fallback) + WebAuthn passkeys
 # ---------------------------------------------------------------------------
 class RegisterRequest(_Base):
     email: str
@@ -230,6 +230,74 @@ class UserOut(_Base):
     created_at: datetime
 
 
+# ── WebAuthn ────────────────────────────────────────────────────────────────
+class PasskeyRegisterBegin(_Base):
+    """Optional UI hint: 'platform' or 'cross-platform'."""
+
+    attachment: Literal["platform", "cross-platform"] | None = None
+    name: str | None = Field(default=None, max_length=128)
+
+
+class PasskeyOptionsOut(_Base):
+    """What the browser feeds to @simplewebauthn/browser."""
+
+    ceremony_id: str
+    options: dict[str, Any]
+
+
+class PasskeyRegisterComplete(_Base):
+    ceremony_id: str
+    response: dict[str, Any]
+    name: str | None = Field(default=None, max_length=128)
+
+
+class PasskeyLoginBegin(_Base):
+    email: str
+
+
+class PasskeyLoginComplete(_Base):
+    ceremony_id: str
+    response: dict[str, Any]
+
+
+class ActionIntent(_Base):
+    """What the user is about to authorize. Bound into the action JWT."""
+
+    approval_id: str
+    decision: Decision
+    edits: dict[str, Any] | None = None
+    rejection_reason: str | None = None
+    escalate_to_lane: int | None = Field(default=None, ge=1, le=3)
+
+
+class PasskeyChallengeBegin(_Base):
+    action_intent: ActionIntent
+
+
+class PasskeyChallengeComplete(_Base):
+    ceremony_id: str
+    response: dict[str, Any]
+    action_intent: ActionIntent
+
+
+class ActionAssertionOut(_Base):
+    auth_assertion: str
+    expires_in: int
+
+
+class PasskeyCredentialOut(_Base):
+    id: str
+    name: str | None = None
+    transports: str | None = None
+    attachment: str | None = None
+    aaguid: str | None = None
+    backup_eligible: bool
+    backup_state: bool
+    created_at: datetime
+    last_used_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
 __all__ = [
     "ApprovalCreate",
     "ApprovalOut",
@@ -247,4 +315,14 @@ __all__ = [
     "LoginRequest",
     "TokenOut",
     "UserOut",
+    "PasskeyRegisterBegin",
+    "PasskeyRegisterComplete",
+    "PasskeyOptionsOut",
+    "PasskeyLoginBegin",
+    "PasskeyLoginComplete",
+    "PasskeyChallengeBegin",
+    "PasskeyChallengeComplete",
+    "ActionIntent",
+    "ActionAssertionOut",
+    "PasskeyCredentialOut",
 ]

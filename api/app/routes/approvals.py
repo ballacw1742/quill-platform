@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db import get_db
 from app.enums import AuthMethod, Decision
 from app.models import ApprovalItem, AuditLogEntry
@@ -19,6 +20,12 @@ from app.schemas import (
 )
 from app.security import get_current_user, require_agent_secret
 from app.services import approvals as svc
+from app.services.security import (
+    used_action_jtis,
+    verify_action_assertion_jwt,
+)
+
+_settings = get_settings()
 
 router = APIRouter(prefix="/v1/approvals", tags=["approvals"])
 
@@ -116,10 +123,51 @@ async def decide(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ) -> ApprovalOut:
-    # Sprint 1: auth_assertion is just stamped as evidence; Sprint 2 verifies WebAuthn.
+    # Sprint 2.2: require a fresh passkey-minted action assertion JWT,
+    # bound to the *exact* decision the user is about to commit. The dev
+    # fallback path (any non-empty token) is preserved only when
+    # DEV_AUTH_FALLBACK is on, so the existing test suite keeps passing.
     auth_method = AuthMethod.DEV_TOKEN
-    if body.auth_assertion:
+    looks_like_jwt = bool(body.auth_assertion) and body.auth_assertion.count(".") == 2
+    if looks_like_jwt:
+        expected_intent = {
+            "approval_id": approval_id,
+            "decision": body.decision.value
+            if hasattr(body.decision, "value")
+            else str(body.decision),
+            "edits": body.edits,
+            "rejection_reason": body.rejection_reason,
+            "escalate_to_lane": body.escalate_to_lane,
+        }
+        # If it looks like a JWT we MUST verify it. We never silently fall
+        # back when the token is JWT-shaped — that would defeat replay
+        # protection.
+        claims = verify_action_assertion_jwt(
+            token=body.auth_assertion,
+            expected_intent=expected_intent,
+            expected_user_id=user.id,
+        )
+        jti = str(claims.get("jti", ""))
+        exp = float(claims.get("exp", 0))
+        if not jti or not used_action_jtis.consume(jti, exp):
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, "action assertion already used"
+            )
+        auth_method = AuthMethod.PASSKEY
+    elif body.auth_assertion:
+        # Opaque non-JWT — only honored under the dev fallback.
+        if not _settings.DEV_AUTH_FALLBACK:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED,
+                "action assertion must be a passkey-issued JWT",
+            )
         auth_method = AuthMethod.PASSWORD
+    elif not _settings.DEV_AUTH_FALLBACK:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "missing auth_assertion — passkey re-auth required",
+        )
+
     try:
         item = await svc.decide_approval(
             db,

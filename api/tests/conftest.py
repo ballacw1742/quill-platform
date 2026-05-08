@@ -10,6 +10,11 @@ os.environ.setdefault("DATABASE_URL_SYNC", "sqlite:///:memory:")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("AGENT_SHARED_SECRET", "test-agent-secret")
 os.environ.setdefault("CORS_ORIGINS", "http://localhost")
+os.environ.setdefault("WEBAUTHN_RP_ID", "localhost")
+os.environ.setdefault("WEBAUTHN_RP_NAME", "Quill-Test")
+os.environ.setdefault("WEBAUTHN_ORIGIN", "http://localhost:3000")
+os.environ.setdefault("ACTION_ASSERTION_SECRET", "test-action-secret")
+os.environ.setdefault("DEV_AUTH_FALLBACK", "true")
 
 from collections.abc import AsyncIterator  # noqa: E402
 

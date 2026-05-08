@@ -210,11 +210,23 @@ class WebAuthnCredential(Base):
     user_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
+    # base64url-encoded credential id (no padding)
     credential_id_b64: Mapped[str] = mapped_column(String(512), index=True)
+    # base64-encoded COSE public key as returned by the webauthn library
     public_key_b64: Mapped[str] = mapped_column(Text)
     sign_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Friendly nickname ("Charles' iPhone", "YubiKey 5C")
     name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # CSV of transport hints from the authenticator ("internal,hybrid", "usb,nfc")
+    transports: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # "platform" (Touch ID/Face ID) vs "cross-platform" (security key)
+    attachment: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    aaguid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    backup_eligible: Mapped[bool] = mapped_column(Boolean, default=False)
+    backup_state: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped[User] = relationship("User", back_populates="credentials")
 
