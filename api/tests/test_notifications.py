@@ -186,6 +186,43 @@ async def test_admin_scheduler_heartbeat_then_list(client):
     assert "approvals-ws-listener" in ids
 
 
+async def test_admin_telegram_pair_updates_user(client, owner_token):
+    user_id, _token = owner_token
+    r = await client.post(
+        "/v1/admin/users/telegram_pair",
+        json={
+            "email": "charles@test.local",
+            "chat_id": "7890123",
+            "telegram_username": "cmitchell",
+        },
+        headers=admin_h(),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["telegram_chat_id"] == "7890123"
+    assert body["email"] == "charles@test.local"
+    assert body["user_id"] == user_id
+
+
+async def test_admin_telegram_pair_unknown_user_404(client):
+    r = await client.post(
+        "/v1/admin/users/telegram_pair",
+        json={"email": "ghost@example.com", "chat_id": "1"},
+        headers=admin_h(),
+    )
+    assert r.status_code == 404
+
+
+async def test_admin_telegram_pair_requires_email_and_chat(client):
+    r = await client.post(
+        "/v1/admin/users/telegram_pair",
+        json={"email": "x@y"},
+        headers=admin_h(),
+    )
+    assert r.status_code == 400
+
+
 @pytest.mark.parametrize("bad_body", [{}, {"jobs": "not-a-list"}, {"jobs": 42}])
 async def test_admin_scheduler_heartbeat_bad_body(client, bad_body):
     r = await client.post(
