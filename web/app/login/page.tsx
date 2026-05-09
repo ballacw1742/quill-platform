@@ -51,7 +51,13 @@ export default function LoginPage() {
   const { data: rawSession } = useSession();
   const session = rawSession as Session | null | undefined;
   const passwordLogin = useLogin();
-  const passkeyAvailable = isPasskeySupported();
+  // Passkey support must be checked client-side only — SSR has no `window`.
+  // Default to true so the SSR HTML shows an enabled button (matching what
+  // 99%+ of real users will hydrate to) and avoids hydration mismatch flicker.
+  const [passkeyAvailable, setPasskeyAvailable] = React.useState(true);
+  React.useEffect(() => {
+    setPasskeyAvailable(isPasskeySupported());
+  }, []);
 
   const [passkeyPending, setPasskeyPending] = React.useState(false);
   const [registerOpen, setRegisterOpen] = React.useState(false);
