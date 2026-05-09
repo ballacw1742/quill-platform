@@ -252,6 +252,15 @@ async def decide_approval(
 # ---------------------------------------------------------------------------
 # Execute (Sprint 1 stub + Phase D.1 publish hook)
 # ---------------------------------------------------------------------------
+# Phase G.1: Estimates artifacts also publish to Documents on approval.
+# We extend the publish-artifact set rather than maintain a parallel one
+# so any new estimate-flavor artifact gets the same lifecycle treatment.
+_ESTIMATE_PUBLISH_WORKFLOWS: frozenset[str] = frozenset({
+    "aace_classification.publish",
+    "cost_schedule_package.publish",
+})
+
+
 def _is_publish_artifact(item: ApprovalItem) -> bool:
     """True if this approval should produce a Document on execute.
 
@@ -262,13 +271,51 @@ def _is_publish_artifact(item: ApprovalItem) -> bool:
     # Lazy import to avoid a service<->service circular at module load.
     from app.services.documents import ARTIFACT_PUBLISH_WORKFLOWS, PUBLISH_ACTION_KIND
 
-    if (item.workflow or "") in ARTIFACT_PUBLISH_WORKFLOWS:
+    wf = item.workflow or ""
+    if wf in ARTIFACT_PUBLISH_WORKFLOWS or wf in _ESTIMATE_PUBLISH_WORKFLOWS:
         return True
     payload = item.payload or {}
     proposed = payload.get("proposed_action") if isinstance(payload, dict) else None
     if isinstance(proposed, dict) and proposed.get("kind") == PUBLISH_ACTION_KIND:
         return True
     return False
+
+
+def _extract_estimate_artifact_kind(item: ApprovalItem) -> str | None:
+    """Return 'aace_classification' or 'cost_schedule_package' if this
+    approval carries an estimate-flavor artifact, otherwise None."""
+    payload = item.payload or {}
+    artifact = payload.get("artifact") if isinstance(payload, dict) else None
+    if isinstance(artifact, dict):
+        at = artifact.get("artifact_type")
+        if at in ("aace_classification", "cost_schedule_package"):
+            return at
+    return None
+
+
+def _extract_estimate_upload_id(item: ApprovalItem) -> str | None:
+    """Pull upload_id out of an estimate-flavor approval payload.
+
+    The upload_id is conventionally placed in:
+      payload.estimate_upload_id, or
+      payload.context.estimate_upload_id, or
+      payload.artifact.metadata.upload_id
+    Whichever the agent / runtime sets first.
+    """
+    payload = item.payload or {}
+    if not isinstance(payload, dict):
+        return None
+    if "estimate_upload_id" in payload:
+        return str(payload["estimate_upload_id"])
+    ctx = payload.get("context")
+    if isinstance(ctx, dict) and "estimate_upload_id" in ctx:
+        return str(ctx["estimate_upload_id"])
+    artifact = payload.get("artifact")
+    if isinstance(artifact, dict):
+        meta = artifact.get("metadata")
+        if isinstance(meta, dict) and "upload_id" in meta:
+            return str(meta["upload_id"])
+    return None
 
 
 async def execute_approval(
@@ -288,6 +335,8 @@ async def execute_approval(
         raise ValueError(f"cannot execute from status={item.status}")
 
     document_id: str | None = None
+    estimate_kind = _extract_estimate_artifact_kind(item)
+    estimate_upload_id = _extract_estimate_upload_id(item) if estimate_kind else None
 
     # ---- Phase D.1: artifact publication path ----
     if _is_publish_artifact(item):
@@ -320,6 +369,40 @@ async def execute_approval(
 
     item.status = ApprovalStatus.EXECUTED.value
     item.executed_at = _utcnow()
+    # ---- Phase G.1: estimate lifecycle hook ----
+    # If this approval published an estimate artifact, stamp the matching
+    # Estimate row so /v1/estimates/{upload_id}/status reflects it. Both
+    # the classification and the package paths are wired here.
+    if document_id is not None and estimate_kind is not None and estimate_upload_id is not None:
+        from app.services.estimates import service as est_service
+
+        try:
+            payload_artifact = (item.payload or {}).get("artifact") or {}
+            artifact_id = str(payload_artifact.get("id") or document_id)
+            if estimate_kind == "aace_classification":
+                await est_service.on_classification_approved(
+                    session,
+                    upload_id=estimate_upload_id,
+                    artifact_id=artifact_id,
+                    actor=actor,
+                )
+            elif estimate_kind == "cost_schedule_package":
+                await est_service.on_package_approved(
+                    session,
+                    upload_id=estimate_upload_id,
+                    artifact_id=artifact_id,
+                    actor=actor,
+                )
+        except Exception as exc:  # noqa: BLE001
+            # Estimate stamping is best-effort: a failure here should not
+            # roll back the document publication. We log and continue.
+            import logging
+
+            logging.getLogger("quill.approvals").warning(
+                "approvals.estimate_hook_failed kind=%s upload_id=%s err=%s",
+                estimate_kind, estimate_upload_id, exc,
+            )
+
     if document_id is not None:
         item.execution_result = ExecutionResult.SUCCESS.value
         item.external_ref = f"document:{document_id}"
