@@ -63,7 +63,7 @@ export default function EstimatesPage() {
   const [filter, setFilter] = React.useState<Filter>("all");
   const [uploadOpen, setUploadOpen] = React.useState(false);
 
-  const allItems = data?.items ?? [];
+  const allItems = React.useMemo(() => data?.items ?? [], [data?.items]);
 
   const visibleItems = React.useMemo(() => {
     if (filter === "all") return allItems;
