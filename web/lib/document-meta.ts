@@ -22,6 +22,8 @@ import {
   Lightbulb,
   Mail,
   Newspaper,
+  Calculator,
+  Ruler,
   type LucideIcon,
 } from "lucide-react";
 import { prettyCase } from "@/lib/agent-meta";
@@ -34,6 +36,8 @@ const ARTIFACT_ICON: Record<string, LucideIcon> = {
   pm_analysis: BarChart3,
   comms_draft: Mail,
   knowledge_entry: Lightbulb,
+  aace_classification: Ruler,
+  cost_schedule_package: Calculator,
 };
 
 export function artifactTypeIcon(type: string | null | undefined): LucideIcon {
@@ -58,6 +62,8 @@ const ARTIFACT_TONE: Record<string, ArtifactTone> = {
   pm_analysis: "warning", // analyses often surface risk → systemOrange
   comms_draft: "success", // outbound comms → systemGreen
   knowledge_entry: "neutral", // institutional memory → label-secondary
+  aace_classification: "info", // design-maturity readout
+  cost_schedule_package: "accent", // headline budget + schedule
 };
 
 export function artifactTypeTone(type: string | null | undefined): ArtifactTone {
@@ -73,6 +79,8 @@ const ARTIFACT_LABEL: Record<string, string> = {
   pm_analysis: "Analysis",
   comms_draft: "Comms draft",
   knowledge_entry: "Knowledge entry",
+  aace_classification: "Classification",
+  cost_schedule_package: "Estimate package",
 };
 
 /**

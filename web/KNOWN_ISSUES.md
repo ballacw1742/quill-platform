@@ -323,3 +323,42 @@ user-visible severity tag per CONTRIBUTING_AGENTS.md rule 6:
     Telegram link as tappable text or a button. Showing it as static
     copy keeps the card calm; future iteration could add a small
     secondary button "Open Telegram" that fires `tg://resolve?domain=DC_QuillBot`.
+
+32. **`(visible-tolerable)` — Gantt schedule is anchored on "today", not
+    the project start**
+    Phase G.2 ships `frappe-gantt` for the Schedule tab on
+    cost_schedule_package documents. The schema doesn't store explicit
+    activity start dates (just durations + predecessors), so the UI
+    resolves the network topologically and anchors the project on
+    today's UTC date. This makes the chart shape correct (durations,
+    relationships, critical-path styling) but the absolute dates are
+    illustrative — the agent doesn't know the real project start yet.
+    A `metadata.project_start_date` field on the package would fix this
+    cleanly.
+
+33. **`(visible-tolerable)` — CSV / XER export is disabled when the
+    artifact metadata doesn't carry an `upload_id`**
+    The export endpoints live under `/v1/estimates/{upload_id}/export`,
+    so the EstimatePackageDetail UI only enables the buttons when
+    `metadata.upload_id` is present. The current API doesn't always
+    propagate `upload_id` into the published artifact metadata; until
+    it does, users opening a package directly from /documents will see
+    the export button greyed out. Workaround: navigate from
+    /estimates/[upload_id] → published doc.
+
+34. **`(visible-tolerable)` — passkey ceremony falls back gracefully if
+    the user cancels**
+    The /estimates/[upload_id] approval button calls
+    `challengePasskey()` first; if the ceremony fails (cancelled / no
+    credential), we still issue the start_estimation request without an
+    auth assertion. The API will reject the call with 401 if it
+    requires the assertion — at which point we surface the error toast.
+    A nicer flow would be to detect "no passkey registered" up-front
+    and prompt registration before the user hits "Approve".
+
+35. **`(invisible)` — frappe-gantt CSS is co-located in `components/
+    estimates/frappe-gantt.css`**
+    `frappe-gantt`'s package.json exports field forbids direct CSS
+    imports under Next 14's bundler. We copied the bundled CSS into the
+    repo so we can `import "./frappe-gantt.css"` from a client
+    component. If we bump the dep, the CSS file may need a refresh.
