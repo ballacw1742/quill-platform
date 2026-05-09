@@ -65,8 +65,10 @@ VALID_STATUSES = {
     "failed",
 }
 
-ALLOWED_KINDS = {"pdf", "ifc", "dxf"}
-"""v0.1 surfaces only these formats end-to-end. dwg/rvt are deferred to G.4."""
+ALLOWED_KINDS = {"pdf", "ifc", "dxf", "dwg", "rvt"}
+"""Phase G.4 expands the accepted set; DWG flows through ODA File Converter
+if present (else returns a friendly needs_conversion status); RVT flows
+through Autodesk APS if creds are present (else not_configured)."""
 
 MAX_FILE_BYTES = 200 * 1024 * 1024  # 200 MB per file
 MAX_TOTAL_BYTES = 600 * 1024 * 1024  # 600 MB per upload

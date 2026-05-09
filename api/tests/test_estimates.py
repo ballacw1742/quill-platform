@@ -277,7 +277,13 @@ async def test_export_unsupported_format(client, owner_token):
 
 
 @pytest.mark.asyncio
-async def test_export_xer_returns_501(client, session_maker, owner_token):
+async def test_export_xer_without_approval_payload_returns_409(
+    client, session_maker, owner_token
+):
+    """Phase G.4: when there's no ApprovalItem with the schedule artifact
+    payload (i.e., Document with no approval_id), XER export must return 409
+    (not 501).
+    """
     user_id, token = owner_token
     pdf = _tiny_pdf()
     r1 = await client.post(
@@ -288,7 +294,6 @@ async def test_export_xer_returns_501(client, session_maker, owner_token):
     )
     upload_id = r1.json()["upload_id"]
 
-    # Simulate the package being approved with a published Document.
     from app.models import Document
 
     async with session_maker() as s:
@@ -296,8 +301,6 @@ async def test_export_xer_returns_501(client, session_maker, owner_token):
             s, upload_id=upload_id, artifact_id="csp-x"
         )
         assert est is not None
-        # Insert a Document row mapping to that artifact_id so export
-        # can find it.
         from datetime import UTC, datetime
 
         s.add(
@@ -310,6 +313,7 @@ async def test_export_xer_returns_501(client, session_maker, owner_token):
                 agent_id="estimator-scheduler",
                 agent_display_name="Estimator-Scheduler",
                 created_at=datetime.now(UTC),
+                approval_id=None,  # explicit: no approval payload to pull schedule from
             )
         )
         await s.commit()
@@ -318,7 +322,92 @@ async def test_export_xer_returns_501(client, session_maker, owner_token):
         f"/v1/estimates/{upload_id}/export?format=xer",
         headers=auth_h(token),
     )
-    assert r.status_code == 501
+    assert r.status_code == 409
+    assert "package artifact" in r.json().get("detail", "").lower()
+
+
+@pytest.mark.asyncio
+async def test_export_xer_with_approval_payload_returns_xer_text(
+    client, session_maker, owner_token
+):
+    """Phase G.4: full happy path — ApprovalItem.payload contains the
+    cost_schedule_package artifact with schedule.activities; export returns
+    well-formed XER text."""
+    user_id, token = owner_token
+    pdf = _tiny_pdf()
+    r1 = await client.post(
+        "/v1/estimates/upload",
+        files={"files": ("plan.pdf", pdf, "application/pdf")},
+        data={"project_label": "x"},
+        headers=auth_h(token),
+    )
+    upload_id = r1.json()["upload_id"]
+
+    from app.models import ApprovalItem, Document
+
+    artifact_payload = {
+        "artifact": {
+            "artifact_type": "cost_schedule_package",
+            "title": "Test Package",
+            "metadata": {
+                "aace_class": "5",
+                "schedule": {
+                    "level": 1,
+                    "activities": [
+                        {"id": "A1", "name": "Mob", "wbs": "1.1",
+                         "duration_days": 5, "predecessors": []},
+                        {"id": "A2", "name": "Sitework", "wbs": "1.2",
+                         "duration_days": 20,
+                         "predecessors": [{"id": "A1", "type": "FS", "lag_days": 0}]},
+                    ],
+                },
+            },
+        }
+    }
+
+    async with session_maker() as s:
+        est = await estimates_service.on_package_approved(
+            s, upload_id=upload_id, artifact_id="csp-y"
+        )
+        assert est is not None
+        # Persist an ApprovalItem with the schedule payload
+        appr = ApprovalItem(
+            id="appr-xer-1",
+            agent_id="estimator-scheduler",
+            workflow="estimator-scheduler",
+            payload=artifact_payload,
+        )
+        s.add(appr)
+        from datetime import UTC, datetime
+
+        s.add(
+            Document(
+                artifact_id="csp-y",
+                artifact_type="cost_schedule_package",
+                title="Test Package",
+                summary="t",
+                body_markdown="# Test",
+                agent_id="estimator-scheduler",
+                agent_display_name="Estimator-Scheduler",
+                created_at=datetime.now(UTC),
+                approval_id="appr-xer-1",
+            )
+        )
+        await s.commit()
+
+    r = await client.get(
+        f"/v1/estimates/{upload_id}/export?format=xer",
+        headers=auth_h(token),
+    )
+    assert r.status_code == 200, r.text
+    body = r.text
+    assert body.startswith("ERMHDR\t")
+    assert "%T\tPROJECT" in body
+    assert "%T\tTASK" in body
+    assert "%T\tTASKPRED" in body
+    assert body.rstrip().endswith("%E")
+    assert "Sitework" in body
+    assert r.headers["content-disposition"].endswith('.xer"')
 
 
 @pytest.mark.asyncio

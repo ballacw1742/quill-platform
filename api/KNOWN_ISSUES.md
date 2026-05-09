@@ -56,3 +56,72 @@ has a **user-visible severity** tag (per CONTRIBUTING_AGENTS.md \u00a76):
    Any authenticated Quill user (any role) can see all documents. The
    spec explicitly defers per-document ACLs to a later phase; consistent
    with how approvals + audit currently work.
+
+## Phase G.4 — Estimate polish (May 9 2026)
+
+1. **`(visible-tolerable)` DWG extraction requires ODA File Converter.**
+   `DwgExtractor` shells out to the free Autodesk ODA File Converter to
+   produce a DXF and re-extracts via `DxfExtractor`. If the binary is
+   not on `PATH` (or in `/Applications/ODAFileConverter.app/...` on
+   macOS), the result returns `extraction_status='failed'` with summary
+   "DWG files need conversion. Install ODA File Converter (free at
+   opendesign.com) or convert to DXF in any CAD tool." Soft-status
+   `entities.extraction_status_detail = 'needs_conversion'` is
+   surfaced for the design-classifier agent. Native `libredwg` is NOT
+   in Homebrew on macOS and building from source is brittle, so we
+   deliberately ship without it.
+
+2. **`(visible-tolerable)` RVT extraction requires Autodesk APS credentials.**
+   `RvtExtractor` uses the new `app.services.aps.APSClient` (Model
+   Derivative API). When `APS_CLIENT_ID` and `APS_CLIENT_SECRET` are
+   unset, returns `extraction_status='failed'` with summary
+   "RVT extraction needs Autodesk APS credentials… Or export your RVT
+   to IFC from Revit and upload the IFC instead." Soft-status
+   `entities.extraction_status_detail = 'not_configured'`. The full
+   APS pipeline (auth → bucket → upload → translate → poll → metadata
+   → quantities) is implemented + unit-tested with httpx.MockTransport;
+   it just doesn't run in dev.
+
+3. **`(invisible)` APS uploads use single-PUT (no resumable for >100MB).**
+   APS requires resumable multi-part uploads for files larger than
+   ~100MB. RVTs under that cap upload fine; floor-level building models
+   are usually well under. Multi-part upload is a follow-up if/when we
+   see a real RVT exceed it.
+
+4. **`(visible-tolerable)` XER export omits RSRC / TASKACTV / UDFTYPE tables.**
+   `ScheduleToXer` emits ERMHDR + PROJECT + CALENDAR + PROJWBS + TASK +
+   TASKPRED + EOF. Missing optional tables P6 synthesizes at import
+   time; the resulting schedule round-trips with activities, durations,
+   relationships, and milestone flags intact, but resource assignments
+   and code-value structures are not preserved. Adequate for v0.1
+   "import schedule into P6 as a starting point."
+
+5. **`(visible-frustrating)` Agent prompt gaps surfaced by the smoke test.**
+   The G.4 smoke (`api/scripts/smoke_estimate_pipeline.py`) ran both
+   agents end-to-end against live Anthropic and produced sensible
+   business outputs (Class 5, $1.39B/96MW DC, 1490d schedule), but
+   schema validation failed on:
+   - `design-classifier` invented two evidence categories
+     (`civil_site_detail`, `bim_model_quality`) not in the enum, and
+     wrote a summary longer than the schema's max length.
+   - `estimator-scheduler` emitted citation objects with `purpose` (not
+     in schema) instead of the schema-required `kind` field.
+   These are agent-prompt issues — the runtime, validation, and Quill
+   pipeline all worked. Tracked for the next agent-prompt revision in
+   `agentic-pmo-prompts/`.
+
+6. **`(invisible)` Smoke test bypasses the API + Approval Queue layer.**
+   For cost/control reasons the smoke runs the runtime `Agent.run()`
+   in-process and writes nothing to the queue. End-to-end including
+   the approval-queue dispatch + execute-on-approve loop is exercised
+   by the pytest suite (mocked LLM); a "true" full-stack smoke (boot
+   API + post real upload + wait for approval webhook) is deferred.
+
+7. **`(invisible)` Runtime LLM client patches (uncovered by smoke).**
+   - Default `max_tokens` raised from 2,000 → 16,000. The classifier was
+     hitting the 2k cap on Sonnet 4.6 and producing truncated JSON.
+   - Newer Anthropic models (`claude-opus-4*`) reject the `temperature`
+     parameter as deprecated. The client now omits it for that family.
+   - `validator.py` builds a `referencing.Registry` from the prompts
+     repo's `schemas/` dir on first use so `https://agentic-pmo.local/...`
+     `$ref`s resolve locally.

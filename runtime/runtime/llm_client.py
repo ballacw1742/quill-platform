@@ -46,6 +46,17 @@ def _backoff_seconds(attempt: int, *, ceiling: float = 60.0) -> float:
     return base + random.uniform(0, 0.5)
 
 
+# Anthropic models that reject the `temperature` request parameter as
+# deprecated. Match by family prefix so future Opus 4.x revisions match.
+_NO_TEMPERATURE_PREFIXES: tuple[str, ...] = (
+    "claude-opus-4",
+)
+
+
+def _model_drops_temperature(model: str) -> bool:
+    return any(model.startswith(p) for p in _NO_TEMPERATURE_PREFIXES)
+
+
 def _is_rate_limit(exc: BaseException) -> bool:
     name = type(exc).__name__.lower()
     if "ratelimit" in name or "rate_limit" in name:
@@ -115,7 +126,7 @@ class LLMClient:
         model: str,
         system: str,
         user: str,
-        max_tokens: int = 2000,
+        max_tokens: int = 16000,
         temperature: float = 0.0,
         upgrade_model: str | None = None,
         max_attempts: int = 5,
@@ -180,13 +191,20 @@ class LLMClient:
         while attempt < max_attempts:
             attempt += 1
             try:
-                resp = self.client.messages.create(
-                    model=active_model,
-                    system=system_param,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    messages=[{"role": "user", "content": user}],
-                )
+                # Some newer Anthropic models (e.g. Opus 4.7+) reject the
+                # `temperature` parameter entirely. We default to omitting
+                # it for those families and fall back to a retry-without if
+                # the API rejects it.
+                _supports_temperature = not _model_drops_temperature(active_model)
+                _kwargs: dict[str, Any] = {
+                    "model": active_model,
+                    "system": system_param,
+                    "max_tokens": max_tokens,
+                    "messages": [{"role": "user", "content": user}],
+                }
+                if _supports_temperature:
+                    _kwargs["temperature"] = temperature
+                resp = self.client.messages.create(**_kwargs)
                 text = self._extract_text(resp)
                 in_tok, out_tok = self._extract_tokens(resp)
                 cache_creation, cache_read = self._extract_cache_tokens(resp)

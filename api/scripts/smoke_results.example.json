@@ -1,0 +1,153 @@
+{
+  "stamp_utc": "2026-05-09T08-28-26",
+  "cumulative_cost_usd": 0.9229,
+  "classifier": {
+    "model": "claude-sonnet-4-6",
+    "input_tokens": 56703,
+    "output_tokens": 3635,
+    "cost_usd": 0.2246,
+    "validation_ok": false,
+    "class": "5",
+    "confidence": 0.97,
+    "missing_for_next_class": [
+      {
+        "deliverable": "Site plan with grading",
+        "rationale": "No civil sheet exists. The narrative mentions 2.5M CY earthwork but provides no drawing. A grading plan with spot elevations and drainage routing is required for Class 4.",
+        "would_unlock_class": "4"
+      },
+      {
+        "deliverable": "Gross floor plans for all 4 buildings",
+        "rationale": "No architectural floor plans exist. The IFC has one building storey entity with no room or zone layout. Floor plans for all 4 buildings are required for Class 4.",
+        "would_unlock_class": "4"
+      },
+      {
+        "deliverable": "Electrical one-line diagram with gross MW allocation",
+        "rationale": "No electrical sheet exists. 'Dual MV substation feed' is a program bullet. A one-line showing gross MW per building and substation configuration is required for Class 4.",
+        "would_unlock_class": "4"
+      },
+      {
+        "deliverable": "Mechanical block diagram",
+        "rationale": "No mechanical sheet exists. '4 chillers' is a program bullet. A block diagram showing chiller plant, cooling tower, and distribution topology is required for Class 4.",
+        "would_unlock_class": "4"
+      },
+      {
+        "deliverable": "Programmatic equipment list",
+        "rationale": "No equipment schedule of any kind exists. A list of major mechanical and electrical equipment with approximate capacities is required for Class 4.",
+        "would_unlock_class": "4"
+      }
+    ]
+  },
+  "estimator": {
+    "model": "claude-opus-4-7",
+    "input_tokens": 8603,
+    "output_tokens": 7590,
+    "cost_usd": 0.6983,
+    "validation_ok": false,
+    "total_usd": 1393600000,
+    "total_per_sf_usd": 774,
+    "total_per_mw_usd": 14516667,
+    "total_duration_days": 1490,
+    "top_5_rows": [
+      {
+        "csi_section": "01 00 00",
+        "description": "Hyperscale data center, all-in parametric ($/MW), 96 MW IT capacity",
+        "quantity": 96,
+        "unit": "MW",
+        "unit_rate_usd": 11500000,
+        "extended_usd": 1104000000,
+        "rate_source": "llm_estimate",
+        "confidence": 0.45,
+        "notes": "Includes structure, shell, MEP, IT-ready fit-out, sitework, central energy plant, MV electrical. Excludes IT/server hardware, owner soft costs, land. Class 5 parametric only \u2014 no quantity takeoff supports this row.",
+        "source_citation": "QPB1-Concept-Site-Plan.pdf page 1 (96 MW program target); cost library v0.1.0-smoke row 01 00 00 (llm_estimate)"
+      },
+      {
+        "csi_section": "31 00 00",
+        "description": "Mass earthwork, sitework cross-check (informational; subsumed in $/MW)",
+        "quantity": 2500000,
+        "unit": "CY",
+        "unit_rate_usd": 12.5,
+        "extended_usd": 31250000,
+        "rate_source": "llm_estimate",
+        "confidence": 0.45,
+        "notes": "Cross-check only. Narrative-stated 2.5M CY at $12.5/CY = $31.25M, which is ~3% of the $/MW envelope and consistent with Class 5 expectations. NOT added to total (avoid double-count).",
+        "source_citation": "QPB1-Concept-Site-Plan.pdf page 1 ('estimated 2.5M CY mass earthwork'); cost library v0.1.0-smoke row 31 00 00 (llm_estimate)"
+      }
+    ],
+    "top_5_activities": [
+      {
+        "id": "A1.0",
+        "name": "Design completion through DD/CD",
+        "wbs": "1.0",
+        "duration_days": 180,
+        "predecessors": [],
+        "milestone": false,
+        "critical_path": false,
+        "notes": "Pre-NTP design progression from current Class 5 concept to construction documents."
+      },
+      {
+        "id": "M1.0",
+        "name": "Notice to Proceed",
+        "wbs": "2.0",
+        "duration_days": 0,
+        "predecessors": [
+          {
+            "id": "A1.0",
+            "type": "FS",
+            "lag_days": -90
+          }
+        ],
+        "milestone": true,
+        "critical_path": true,
+        "notes": "Assumed 2026-09-01. Overlap with design CD phase."
+      },
+      {
+        "id": "A2.0",
+        "name": "Permitting and utility coordination",
+        "wbs": "2.1",
+        "duration_days": 120,
+        "predecessors": [
+          {
+            "id": "M1.0",
+            "type": "SS",
+            "lag_days": 0
+          }
+        ],
+        "milestone": false,
+        "critical_path": true,
+        "notes": "Site, building, stormwater permits; utility interconnect application."
+      },
+      {
+        "id": "A3.0",
+        "name": "Mass earthwork (2.5M CY)",
+        "wbs": "3.0",
+        "duration_days": 240,
+        "predecessors": [
+          {
+            "id": "A2.0",
+            "type": "FS",
+            "lag_days": 0
+          }
+        ],
+        "milestone": false,
+        "critical_path": true,
+        "notes": "Includes detention basin. 5x10 calendar with weather allowance."
+      },
+      {
+        "id": "A4.0",
+        "name": "Building shells DC-1 through DC-4 (paired, parallel)",
+        "wbs": "4.0",
+        "duration_days": 540,
+        "predecessors": [
+          {
+            "id": "A3.0",
+            "type": "SS",
+            "lag_days": 90
+          }
+        ],
+        "milestone": false,
+        "critical_path": true,
+        "notes": "DC-1/DC-2 in pair 1, DC-3/DC-4 in pair 2 with 6-month offset. CP runs through DC-1 (earliest commission)."
+      }
+    ]
+  }
+}
