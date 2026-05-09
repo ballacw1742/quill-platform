@@ -332,6 +332,100 @@ class Document(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Estimate — Phase G.1 (drawing-driven estimate + schedule)
+# ---------------------------------------------------------------------------
+class Estimate(Base):
+    """A drawing-upload run that flows through extraction → classification
+    → estimating. Tracks the upload identity, the file manifest, and
+    pointers to the resulting Documents (when each artifact is approved).
+
+    State machine:
+        queued → extracting → classifying → estimating → done
+                                                          ↓
+                                                       failed
+    """
+
+    __tablename__ = "estimates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    upload_id: Mapped[str] = mapped_column(
+        String(36), unique=True, index=True, default=_uuid
+    )
+    project_label: Mapped[str] = mapped_column(String(200), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(32), default="queued", index=True)
+    """queued | extracting | classifying | estimating | done | failed"""
+
+    # Manifest of files uploaded for this estimate — list of
+    # { filename, kind, size_bytes, extraction_status, extraction_summary,
+    #   minio_key }.
+    uploaded_files: Mapped[list[Any]] = mapped_column(JSONType, default=list)
+
+    # Pointers to the published Documents (set after each artifact is
+    # approved + executed via approvals.execute_approval).
+    classification_artifact_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+    package_artifact_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True
+    )
+
+    # Lifecycle
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("ix_estimates_status_created", "status", "created_at"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# CostLibraryRow — Phase G.1 (bootstrap loader)
+# ---------------------------------------------------------------------------
+class CostLibraryRow(Base):
+    """Flattened cost library row for fast estimator lookup.
+
+    The authoritative library lives in agentic-pmo-prompts/data/
+    cost_library_v0_1.json. The bootstrap script
+    (api/scripts/bootstrap_cost_library.py) loads it into this table at
+    deploy time.
+    """
+
+    __tablename__ = "cost_library_rows"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    library_version: Mapped[str] = mapped_column(String(32), index=True)
+    csi_section: Mapped[str] = mapped_column(String(16), index=True)
+    description: Mapped[str] = mapped_column(String(300))
+    unit: Mapped[str] = mapped_column(String(8))
+    unit_rate_usd: Mapped[float] = mapped_column(Float)
+    rate_source: Mapped[str] = mapped_column(String(32))
+    rate_year: Mapped[int] = mapped_column(Integer)
+    geographic_multiplier_for: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
+    confidence: Mapped[float] = mapped_column(Float, default=0.5)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tags: Mapped[list[Any]] = mapped_column(JSONType, default=list)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "library_version", "csi_section", "description",
+            name="uq_costlib_version_section_desc",
+        ),
+        Index("ix_costlib_version_csi", "library_version", "csi_section"),
+    )
+
+
 __all__ = [
     "ApprovalItem",
     "ApprovalRecord",
@@ -342,6 +436,8 @@ __all__ = [
     "User",
     "WebAuthnCredential",
     "Document",
+    "Estimate",
+    "CostLibraryRow",
     "Decision",
     "ExecutionResult",
 ]
