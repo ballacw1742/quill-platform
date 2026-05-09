@@ -306,11 +306,48 @@ async def export_estimate(
         )
 
     if format == "xer":
-        # Primavera P6 XER export. Spec §API: only available when
-        # schedule.level >= 3. v0.1 returns 501.
-        raise HTTPException(
-            status.HTTP_501_NOT_IMPLEMENTED,
-            "XER export ships in Phase G.4",
+        # Primavera P6 XER export — Phase G.4.
+        # Pull the full artifact (with schedule.activities + relationships)
+        # from the ApprovalItem.payload that produced this Document.
+        from app.models import ApprovalItem
+        from app.services.xer import ScheduleToXer
+
+        package_artifact: dict[str, Any] | None = None
+        if doc.approval_id:
+            ar = await db.execute(
+                select(ApprovalItem).where(ApprovalItem.id == doc.approval_id)
+            )
+            appr = ar.scalar_one_or_none()
+            if appr is not None:
+                payload = appr.payload or {}
+                package_artifact = (
+                    payload.get("artifact")
+                    or payload.get("proposed_action", {}).get("artifact")
+                    or payload
+                )
+        if not package_artifact:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "package artifact not available for XER export (approval item missing payload.artifact)",
+            )
+        try:
+            xer_text = ScheduleToXer(
+                project_id=(est.project_label or "QPB1")[:20] or "QPB1",
+                project_name=est.project_label or "Quill Estimate",
+            ).generate_xer(package_artifact)
+        except ValueError as e:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"XER export failed: {e}",
+            ) from e
+        return Response(
+            content=xer_text.encode("utf-8"),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="estimate-{upload_id}.xer"'
+                )
+            },
         )
 
     if format == "pdf":
