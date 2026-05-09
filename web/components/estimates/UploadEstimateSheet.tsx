@@ -14,6 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { useUploadEstimate } from "@/lib/api";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 /**
@@ -139,9 +140,20 @@ export function UploadEstimateSheet({
       setNotes("");
       setProjectLabel(defaultProjectLabel());
       onOpenChange(false);
+      // Show a confirmation toast so the user has feedback even if router.push
+      // is delayed or blocked by a race in client navigation.
+      toast.success("Upload received — opening progress page\u2026");
       router.push(`/estimates/${encodeURIComponent(result.upload_id)}`);
-    } catch {
-      // Error surfaces via upload.error in the sheet.
+    } catch (err) {
+      // Surface the actual error rather than silently dropping it. Previously
+      // any throw between mutateAsync's success path and router.push (e.g. a
+      // schema parse error on a permissive field) was swallowed silently and
+      // looked like "nothing happened" to the user.
+      toast.error(
+        err instanceof Error
+          ? `Couldn't start the estimate: ${err.message}`
+          : "Couldn't start the estimate. Try again.",
+      );
     }
   };
 
