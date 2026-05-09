@@ -18,6 +18,10 @@ import { ErrorBanner } from "@/components/ui/error-banner";
 import { MarkdownBody } from "@/components/documents/MarkdownBody";
 import { ExportSheet } from "@/components/documents/ExportSheet";
 import { MoreMenuSheet } from "@/components/documents/MoreMenuSheet";
+import {
+  EstimatePackageDetail,
+  AaceClassificationDetail,
+} from "@/components/estimates/EstimatePackageDetail";
 import { useDocument, useDocumentDriveLink } from "@/lib/api";
 import {
   artifactTypeLabel,
@@ -153,7 +157,21 @@ export default function DocumentDetailPage() {
 
             {/* Body */}
             <article className="flex-1 px-4 pb-32 bg-bg">
-              <MarkdownBody markdown={doc.body_markdown || ""} />
+              {doc.artifact_type === "cost_schedule_package" ? (
+                <EstimatePackageDetail
+                  metadata={
+                    (doc.metadata as Record<string, unknown> | undefined) ?? null
+                  }
+                />
+              ) : doc.artifact_type === "aace_classification" ? (
+                <AaceClassificationDetail
+                  metadata={
+                    (doc.metadata as Record<string, unknown> | undefined) ?? null
+                  }
+                />
+              ) : (
+                <MarkdownBody markdown={doc.body_markdown || ""} />
+              )}
             </article>
           </>
         )}

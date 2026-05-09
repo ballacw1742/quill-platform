@@ -365,7 +365,7 @@ function ClassificationPanel({
 
         {!classification ? (
           <div className="text-callout text-label-secondary">
-            We're picking the right class. This usually finishes in a minute or two.
+            We&apos;re picking the right class. This usually finishes in a minute or two.
           </div>
         ) : (
           <>
