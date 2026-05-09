@@ -10,6 +10,7 @@ import bcrypt
 from fastapi import Depends, Header, HTTPException, status
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.config import get_settings
 from app.db import get_db
@@ -107,3 +108,37 @@ def require_admin_header(
     if not x_admin or not hmac.compare_digest(x_admin, _settings.AGENT_SHARED_SECRET):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "admin header missing/invalid")
     return "admin:header"
+
+
+async def get_current_user_or_agent(
+    authorization: str | None = Header(default=None),
+    x_agent_secret: str | None = Header(default=None, alias="X-Agent-Secret"),
+    db: AsyncSession = Depends(get_db),
+) -> User | str:
+    """Read-only routes that accept EITHER a user JWT OR the agent shared secret.
+
+    Returns the User object if the request is from a logged-in user, or the
+    string "agent:service-account" if the agent shared secret was used.
+    Raises 401 if neither credential is present/valid.
+    """
+    # Try agent secret first (cheap header check)
+    if x_agent_secret and hmac.compare_digest(
+        x_agent_secret, _settings.AGENT_SHARED_SECRET
+    ):
+        return "agent:service-account"
+    # Fall through to user JWT
+    token = _bearer(authorization)
+    if not token:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "missing bearer token or agent secret",
+        )
+    payload = decode_token(token)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "malformed token")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user not found")
+    return user

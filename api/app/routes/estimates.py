@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.security import get_current_user
+from app.security import get_current_user, get_current_user_or_agent
 from app.services.estimates import (
     MAX_FILE_BYTES,
     MAX_FILE_COUNT,
@@ -193,7 +193,7 @@ async def upload_estimate(
 async def get_status_route(
     upload_id: str,
     db: AsyncSession = Depends(get_db),
-    user: Any = Depends(get_current_user),  # noqa: ARG001
+    user: Any = Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> StatusOut:
     est = await estimates_service.get_status(db, upload_id)
     if est is None:
@@ -235,7 +235,7 @@ async def export_estimate(
     upload_id: str,
     format: str = Query(default="md", pattern="^(md|csv|xer|pdf)$"),
     db: AsyncSession = Depends(get_db),
-    user: Any = Depends(get_current_user),  # noqa: ARG001
+    user: Any = Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> Response:
     est = await estimates_service.get_status(db, upload_id)
     if est is None:

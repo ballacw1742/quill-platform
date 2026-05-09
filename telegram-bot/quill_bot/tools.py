@@ -104,6 +104,18 @@ class WhoamiInput(BaseModel):
     pass
 
 
+class GetEstimateStatusInput(BaseModel):
+    upload_id: str = Field(min_length=1)
+
+
+class ListRecentEstimatesInput(BaseModel):
+    limit: int = Field(default=10, ge=1, le=50)
+
+
+class EstimateUploadLinkInput(BaseModel):
+    pass
+
+
 # ---------------------------------------------------------------------------
 # ToolSpec — schema + executor.
 # ---------------------------------------------------------------------------
@@ -382,6 +394,137 @@ async def _exec_current_time(
     }
 
 
+async def _exec_get_estimate_status(
+    ctx: ChatContext, raw: dict[str, Any]
+) -> dict[str, Any]:
+    """GET /v1/estimates/{upload_id}/status — returns the run status JSON.
+
+    Read-only. Does not start, modify, or upload anything.
+    """
+    args = GetEstimateStatusInput.model_validate(raw)
+    try:
+        info = await ctx.api.get_estimate_status(args.upload_id)
+    except QuillAPIError as e:
+        if e.status == 404:
+            return {"error": "not_found", "upload_id": args.upload_id}
+        if e.status == 401:
+            return {
+                "error": "unauthorized",
+                "upload_id": args.upload_id,
+                "detail": (
+                    "API requires user JWT for /v1/estimates; bot service "
+                    "identity not yet accepted. See KNOWN_ISSUES."
+                ),
+            }
+        return {"error": f"API error {e.status}", "upload_id": args.upload_id}
+    # Keep what's useful for a chat reply, drop heavy fields.
+    keep = (
+        "upload_id",
+        "status",
+        "project_label",
+        "notes",
+        "classification_artifact_id",
+        "package_artifact_id",
+        "created_at",
+        "updated_at",
+        "error_message",
+    )
+    out = {k: info.get(k) for k in keep if k in info}
+    files = info.get("uploaded_files") or []
+    out["file_count"] = len(files)
+    out["files"] = [
+        {
+            "filename": f.get("filename"),
+            "kind": f.get("kind"),
+            "extraction_status": f.get("extraction_status"),
+        }
+        for f in files[:10]
+    ]
+    return out
+
+
+async def _exec_list_recent_estimates(
+    ctx: ChatContext, raw: dict[str, Any]
+) -> dict[str, Any]:
+    """List recent estimate-related Documents (classifications + packages).
+
+    Filters Documents by artifact_type in (aace_classification,
+    cost_schedule_package). The bot does not call a dedicated
+    /v1/estimates list endpoint — it doesn't exist; this falls back
+    to the existing documents list and merges the two artifact types.
+    """
+    args = ListRecentEstimatesInput.model_validate(raw)
+    try:
+        items = await ctx.api.list_estimates(limit=args.limit)
+    except QuillAPIError as e:
+        if e.status == 401:
+            return {
+                "error": "unauthorized",
+                "items": [],
+                "detail": (
+                    "API requires user JWT for /v1/documents; bot service "
+                    "identity not yet accepted. See KNOWN_ISSUES."
+                ),
+            }
+        return {"error": f"API error {e.status}", "items": []}
+
+    summaries = [
+        {
+            "document_id": it.get("id"),
+            "artifact_id": it.get("artifact_id"),
+            "artifact_type": it.get("artifact_type"),
+            "title": it.get("title"),
+            "agent_id": it.get("agent_id"),
+            "created_at": it.get("created_at"),
+            # upload_id is encoded in tags or summary on G.1; surface if present
+            "upload_id": _extract_upload_id(it),
+            "summary": (it.get("summary") or "")[:200],
+        }
+        for it in (items or [])[: args.limit]
+    ]
+    return {"items": summaries, "count": len(summaries)}
+
+
+def _extract_upload_id(doc: dict[str, Any]) -> str | None:
+    """Pull an upload_id out of a Document if present.
+
+    G.1 stores estimate documents with a tag of the form
+    ``upload:<upload_id>`` (or sometimes embedded in the summary). Try
+    common locations and fall back to None.
+    """
+    tags = doc.get("tags") or []
+    if isinstance(tags, list):
+        for t in tags:
+            if isinstance(t, str) and t.startswith("upload:"):
+                return t.split(":", 1)[1]
+    meta = doc.get("meta") or doc.get("metadata")
+    if isinstance(meta, dict):
+        uid = meta.get("upload_id")
+        if isinstance(uid, str) and uid:
+            return uid
+    return None
+
+
+async def _exec_estimate_upload_link(
+    ctx: ChatContext, raw: dict[str, Any]
+) -> dict[str, Any]:
+    """Return a deep link to the web app's estimate-upload entry point.
+
+    The bot can't accept files. Charles starts uploads on the web app.
+    """
+    EstimateUploadLinkInput.model_validate(raw)
+    base = ctx.config.quill_web_base_url.rstrip("/")
+    url = f"{base}/today"
+    return {
+        "url": url,
+        "instructions": (
+            f"Open {url} and tap '+ Estimate from drawings' to upload "
+            "PDFs, IFC, or RVT files. The bot can't accept files directly."
+        ),
+        "note": "file upload is web-app-only",
+    }
+
+
 async def _exec_whoami(ctx: ChatContext, raw: dict[str, Any]) -> dict[str, Any]:
     WhoamiInput.model_validate(raw)
     try:
@@ -531,6 +674,41 @@ WHOAMI_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+GET_ESTIMATE_STATUS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "upload_id": {
+            "type": "string",
+            "description": (
+                "The upload_id returned when an estimate run was started "
+                "on the web app (UUID-shaped)."
+            ),
+        }
+    },
+    "required": ["upload_id"],
+    "additionalProperties": False,
+}
+
+LIST_RECENT_ESTIMATES_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 10,
+            "description": "Max number of recent estimate documents to return.",
+        }
+    },
+    "additionalProperties": False,
+}
+
+ESTIMATE_UPLOAD_LINK_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": False,
+}
+
 
 # ---------------------------------------------------------------------------
 # Registry.
@@ -633,6 +811,44 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=WhoamiInput,
         executor=_exec_whoami,
     ),
+    "get_estimate_status": ToolSpec(
+        name="get_estimate_status",
+        description=(
+            "Get the status of an estimate run by upload_id. Returns "
+            "current status (queued/extracting/classifying/estimating/"
+            "done/failed), file list, and which artifacts (AACE "
+            "classification, cost-schedule package) have been published."
+            " Read-only — does not start or modify estimation."
+        ),
+        input_schema=GET_ESTIMATE_STATUS_SCHEMA,
+        input_model=GetEstimateStatusInput,
+        executor=_exec_get_estimate_status,
+    ),
+    "list_recent_estimates": ToolSpec(
+        name="list_recent_estimates",
+        description=(
+            "List recent estimate documents (AACE classifications and "
+            "cost-schedule packages). Use to answer 'show me my latest "
+            "estimates' or 'what estimates are in flight?'. Returns "
+            "title, artifact type, agent, created_at, and upload_id "
+            "when available."
+        ),
+        input_schema=LIST_RECENT_ESTIMATES_SCHEMA,
+        input_model=ListRecentEstimatesInput,
+        executor=_exec_list_recent_estimates,
+    ),
+    "estimate_upload_link": ToolSpec(
+        name="estimate_upload_link",
+        description=(
+            "Return a deep link + instructions for starting a new estimate "
+            "upload on the web app. Use whenever the user asks to upload "
+            "drawings, start an estimate, or sends a file (the bot cannot "
+            "accept files; uploads happen on the web)."
+        ),
+        input_schema=ESTIMATE_UPLOAD_LINK_SCHEMA,
+        input_model=EstimateUploadLinkInput,
+        executor=_exec_estimate_upload_link,
+    ),
 }
 
 
@@ -683,4 +899,7 @@ __all__ = [
     "GenerateDeepLinkInput",
     "CurrentTimeInput",
     "WhoamiInput",
+    "GetEstimateStatusInput",
+    "ListRecentEstimatesInput",
+    "EstimateUploadLinkInput",
 ]

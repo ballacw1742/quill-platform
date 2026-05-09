@@ -3,6 +3,47 @@
 Tracking caveats, deferred work, and "fix later" notes for the conversational
 bot. Each entry has a severity tag and target sprint.
 
+## Phase G.3 (estimates bot tools)
+
+### G.3.1 No file upload support in bot — use /today on the web app
+- **Severity:** `(visible-tolerable)` — by design for v1
+- **Discovered:** Phase G.3 design, 2026-05-09
+- **What:** The bot has three new tools (`get_estimate_status`,
+  `list_recent_estimates`, `estimate_upload_link`) but cannot accept
+  PDF / IFC / RVT files via Telegram. Document handlers (and the
+  multipart upload plumbing for binary files behind the API's user-
+  auth gate) are out of scope for G.3.
+- **Workaround:** The `estimate_upload_link` tool returns the web
+  deep link (`https://app.quillpm.com/today`); the bot's system
+  prompt instructs it to surface that link whenever the user wants
+  to start an estimate or sends a file.
+- **Target:** Phase G.4 or post-handover; needs MIME sniffing,
+  size cap enforcement, and a service-account upload path.
+
+### G.3.2 /v1/estimates and /v1/documents require user JWT — bot uses agent secret
+- **Severity:** `(blocking)` for the new tools to work end-to-end against
+  the running API; tools work in unit tests but will return
+  `unauthorized` against the real API until resolved.
+- **Discovered:** Phase G.3 implementation, 2026-05-09
+- **What:** Both `/v1/estimates/{id}/status` and `/v1/documents`
+  depend on `get_current_user`, which requires a Bearer JWT minted
+  via `issue_token(user)`. The Telegram bot only carries the agent
+  shared secret (`X-Agent-Secret` + `Authorization: Bearer
+  <agent-secret>`), so its requests will 401 against these routes.
+- **Mitigation in code:** Both bot tools translate 401 into a
+  user-facing `unauthorized` envelope with a pointer to this file,
+  rather than crashing the LLM loop.
+- **Fix paths (pick one in a follow-up commit — brief forbade API
+  changes in this PR):**
+  1. Add `Depends(require_agent_secret)` as an alternative auth
+     gate on the read-only estimate/document GETs (preferred; one
+     OR-of-two dependency).
+  2. Mint a long-lived service-account JWT at bot startup and
+     attach it to the Authorization header for these routes.
+  3. Add a thin admin echo route (e.g. `/v1/admin/estimates/{id}`)
+     that the bot can call instead.
+- **Target:** Phase G.4 (paired with the file-upload work above).
+
 ## Phase B (conversational bot)
 
 ### 1. `ANTHROPIC_API_KEY` not configured in `.env` — blocking e2e test
