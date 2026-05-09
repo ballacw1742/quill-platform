@@ -55,21 +55,29 @@ def test_extract_requires_data_or_path():
 
 
 # ---------------------------------------------------------------------------
-# Stub extractors for deferred formats
+# DWG / RVT extractors — friendly conversion / not_configured paths
+# (Detailed coverage lives in test_drawings_dwg.py / test_drawings_rvt.py.)
 # ---------------------------------------------------------------------------
-def test_dwg_extractor_returns_failed_with_workaround():
+def test_dwg_extractor_without_oda_returns_needs_conversion(monkeypatch):
+    # Force "no ODA on PATH" by stubbing the discovery helper.
+    from app.services import drawings as _drawings
+    monkeypatch.setattr(_drawings, "_find_oda_binary", lambda: None)
     result = DwgExtractor().extract(filename="plan.dwg", data=b"AC1018")
     assert result.kind == "dwg"
     assert result.extraction_status == "failed"
-    assert "G.4" in result.summary
-    assert "DXF" in result.summary  # workaround mentioned
+    assert "DXF" in result.summary
+    assert result.entities.get("extraction_status_detail") == "needs_conversion"
 
 
-def test_rvt_extractor_returns_failed_with_workaround():
+def test_rvt_extractor_without_aps_creds_returns_not_configured(monkeypatch):
+    # Ensure neither var is set.
+    monkeypatch.delenv("APS_CLIENT_ID", raising=False)
+    monkeypatch.delenv("APS_CLIENT_SECRET", raising=False)
     result = RvtExtractor().extract(filename="model.rvt", data=b"\x00\x00\x00\x00")
     assert result.kind == "rvt"
     assert result.extraction_status == "failed"
     assert "IFC" in result.summary  # workaround mentioned
+    assert result.entities.get("extraction_status_detail") == "not_configured"
 
 
 # ---------------------------------------------------------------------------

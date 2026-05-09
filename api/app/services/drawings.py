@@ -453,10 +453,70 @@ class DxfExtractor(_BaseExtractor):
 
 
 # ---------------------------------------------------------------------------
-# Stub extractors for deferred formats (DWG / RVT)
+# DWG — Phase G.4
 # ---------------------------------------------------------------------------
+#
+# Native DWG parsing is non-trivial: libredwg is not in Homebrew on macOS
+# and building from source is brittle. Instead we look for the ODA File
+# Converter binary (a free Autodesk tool that converts DWG → DXF) on PATH.
+# If present, we shell out to it, read back the produced DXF, and re-extract
+# via DxfExtractor. If not present, we return a friendly
+# extraction_status='needs_conversion' with instructions.
+# ---------------------------------------------------------------------------
+import shutil
+import subprocess
+import tempfile
+
+# Common install locations for ODA File Converter (mac + linux defaults
+# documented at https://www.opendesign.com/guestfiles/oda_file_converter).
+_ODA_CANDIDATE_BINARIES = (
+    "ODAFileConverter",                                                # PATH lookup
+    "/Applications/ODAFileConverter.app/Contents/MacOS/ODAFileConverter",
+    "/usr/bin/ODAFileConverter",
+    "/usr/local/bin/ODAFileConverter",
+)
+
+_DWG_NEEDS_CONVERSION_MESSAGE = (
+    "DWG files need conversion. Install ODA File Converter (free at "
+    "https://www.opendesign.com/guestfiles/oda_file_converter) and ensure the "
+    "`ODAFileConverter` binary is on PATH, or convert this file to DXF in "
+    "any CAD tool (AutoCAD, BricsCAD, FreeCAD, LibreCAD) and re-upload the "
+    "DXF."
+)
+
+
+def _find_oda_binary() -> str | None:
+    """Return path to the ODA File Converter binary, or None if not found."""
+    for cand in _ODA_CANDIDATE_BINARIES:
+        if cand == "ODAFileConverter":
+            found = shutil.which(cand)
+            if found:
+                return found
+        elif os.path.isfile(cand) and os.access(cand, os.X_OK):
+            return cand
+    return None
+
+
 class DwgExtractor(_BaseExtractor):
+    """DWG → DXF (via ODA File Converter) → DxfExtractor.
+
+    If ODA File Converter is not installed, returns a friendly
+    `extraction_status='needs_conversion'` (note: this status is reported
+    in the result; the dataclass `extraction_status` field is one of
+    ok|partial|failed at the schema level, so we use 'failed' as the
+    underlying status and surface 'needs_conversion' in the summary +
+    errors list).
+    """
+
     kind: FileKind = "dwg"
+
+    # ODA File Converter CLI signature (it's a TUI dialog tool when run
+    # without args; when run with positional args it operates headless).
+    # Args: <input_dir> <output_dir> <output_version> <output_filetype>
+    #       <recurse> <audit> [<input_filter>]
+    # output_version: "ACAD2018" works broadly; output_filetype: 1=DXF, 2=DWG
+    _ODA_OUTPUT_VERSION = "ACAD2018"
+    _ODA_OUTPUT_FILETYPE = "1"  # DXF
 
     def _extract_into(
         self,
@@ -465,16 +525,116 @@ class DwgExtractor(_BaseExtractor):
         data: bytes | None,
         path: Path | None,
     ) -> None:
-        result.summary = (
-            "DWG extraction is deferred to Phase G.4 (LibreDWG / ODA File "
-            "Converter). Workaround: convert to DXF in any CAD tool first, "
-            "then re-upload."
-        )
-        result.errors.append("dwg extractor not implemented in v0.1")
-        result.extraction_status = "failed"
+        oda = _find_oda_binary()
+        if not oda:
+            result.summary = _DWG_NEEDS_CONVERSION_MESSAGE
+            result.errors.append("oda_file_converter_not_found")
+            # Surface the soft-status on the entities dict so callers and
+            # downstream agents can detect the conversion-needed case
+            # without parsing the human-readable summary.
+            result.entities = {"extraction_status_detail": "needs_conversion"}
+            result.extraction_status = "failed"
+            return
+
+        # ODA File Converter operates on directories, not single files, so
+        # we set up an isolated input dir with the DWG copied in, run the
+        # converter, and pick up the resulting DXF from the output dir.
+        with tempfile.TemporaryDirectory(prefix="quill_dwg_in_") as in_dir, \
+             tempfile.TemporaryDirectory(prefix="quill_dwg_out_") as out_dir:
+            in_path = Path(in_dir) / "input.dwg"
+            if data is not None:
+                in_path.write_bytes(data)
+            elif path is not None:
+                in_path.write_bytes(Path(path).read_bytes())
+            else:
+                result.summary = "DWG: no data or path provided."
+                result.errors.append("no_input")
+                result.extraction_status = "failed"
+                return
+
+            try:
+                proc = subprocess.run(  # noqa: S603 — trusted local binary
+                    [
+                        oda,
+                        in_dir,
+                        out_dir,
+                        self._ODA_OUTPUT_VERSION,
+                        self._ODA_OUTPUT_FILETYPE,
+                        "0",  # recurse
+                        "1",  # audit
+                    ],
+                    capture_output=True,
+                    timeout=60,
+                )
+            except subprocess.TimeoutExpired:
+                result.summary = (
+                    "DWG: ODA File Converter timed out after 60s. The DWG "
+                    "may be too large or corrupted. Convert to DXF manually "
+                    "and re-upload."
+                )
+                result.errors.append("oda_timeout")
+                result.extraction_status = "failed"
+                return
+            except OSError as exc:
+                result.summary = f"DWG: ODA File Converter failed to start ({exc})."
+                result.errors.append(f"oda_oserror: {exc}")
+                result.extraction_status = "failed"
+                return
+
+            if proc.returncode != 0:
+                stderr = (proc.stderr or b"").decode("utf-8", errors="replace")[:400]
+                result.summary = (
+                    "DWG: ODA File Converter returned a non-zero exit "
+                    f"code ({proc.returncode}). Try converting to DXF manually."
+                )
+                result.errors.append(f"oda_returncode={proc.returncode}: {stderr}")
+                result.extraction_status = "failed"
+                return
+
+            # Pick up the resulting DXF (ODA names it <stem>.dxf in out_dir).
+            dxf_files = list(Path(out_dir).glob("*.dxf"))
+            if not dxf_files:
+                result.summary = (
+                    "DWG: ODA File Converter ran but produced no DXF output."
+                )
+                result.errors.append("oda_no_dxf_produced")
+                result.extraction_status = "failed"
+                return
+
+            dxf_path = dxf_files[0]
+            inner = DxfExtractor().extract(
+                filename=result.filename, path=dxf_path
+            )
+            # Mirror the inner DXF result onto our dwg result so the
+            # caller still sees kind='dwg'.
+            result.entities = inner.entities
+            result.quantities = inner.quantities
+            result.renders = inner.renders
+            result.errors.extend(inner.errors)
+            result.extraction_status = inner.extraction_status
+            result.summary = (
+                f"DWG (converted to DXF via ODA File Converter): {inner.summary}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# RVT — Phase G.4
+# ---------------------------------------------------------------------------
+_RVT_NOT_CONFIGURED_MESSAGE = (
+    "RVT extraction needs Autodesk APS credentials (set APS_CLIENT_ID + "
+    "APS_CLIENT_SECRET in .env). Or export your RVT to IFC from Revit "
+    "(File → Export → IFC) and upload the IFC instead."
+)
 
 
 class RvtExtractor(_BaseExtractor):
+    """RVT extractor backed by the Autodesk Platform Services (APS, formerly
+    Forge) Model Derivative API.
+
+    If `APS_CLIENT_ID` and `APS_CLIENT_SECRET` are not set, returns a
+    friendly 'not_configured' status with workaround instructions.
+    """
+
     kind: FileKind = "rvt"
 
     def _extract_into(
@@ -484,13 +644,70 @@ class RvtExtractor(_BaseExtractor):
         data: bytes | None,
         path: Path | None,
     ) -> None:
+        # Lazy import so api boot doesn't depend on httpx being available
+        # for non-RVT users.
+        try:
+            from app.services.aps import APSClient
+        except Exception as exc:  # noqa: BLE001
+            result.summary = (
+                f"RVT: APS client unavailable ({type(exc).__name__}). "
+                + _RVT_NOT_CONFIGURED_MESSAGE
+            )
+            result.errors.append(f"aps_import_failed: {exc}")
+            result.entities = {"extraction_status_detail": "not_configured"}
+            result.extraction_status = "failed"
+            return
+
+        client = APSClient()
+        if not client.is_available:
+            result.summary = _RVT_NOT_CONFIGURED_MESSAGE
+            result.errors.append("aps_credentials_not_set")
+            result.entities = {"extraction_status_detail": "not_configured"}
+            result.extraction_status = "failed"
+            return
+
+        # Real extraction path runs the APS client end-to-end. Synchronous
+        # wrapper around the async client so the extractor signature is
+        # uniform with the others.
+        import asyncio as _asyncio
+        try:
+            entities, quantities = _asyncio.run(
+                _run_aps_extraction(client, data=data, path=path, filename=result.filename)
+            )
+        except Exception as exc:  # noqa: BLE001
+            result.summary = (
+                f"RVT: APS extraction failed ({type(exc).__name__}: {exc}). "
+                "Try exporting to IFC from Revit and re-uploading."
+            )
+            result.errors.append(f"aps_failed: {exc}")
+            result.extraction_status = "failed"
+            return
+
+        result.entities = entities
+        result.quantities = quantities
+        elem_count = len(entities.get("elements", []))
         result.summary = (
-            "RVT extraction is deferred to Phase G.4 (Forge/APS Model "
-            "Derivative API). Workaround: export an IFC from Revit and "
-            "upload the IFC instead."
+            f"RVT (via Autodesk APS Model Derivative): {elem_count} elements; "
+            f"quantities: {sorted(quantities.keys())[:6]}."
         )
-        result.errors.append("rvt extractor not implemented in v0.1")
-        result.extraction_status = "failed"
+        result.extraction_status = "ok" if elem_count > 0 else "partial"
+
+
+async def _run_aps_extraction(
+    client,  # APSClient — typed loosely to avoid circular import
+    *,
+    data: bytes | None,
+    path: Path | None,
+    filename: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    body = data if data is not None else (path.read_bytes() if path else b"")
+    await client.authenticate()
+    urn = await client.upload(body, filename)
+    await client.start_translation(urn)
+    await client.poll_translation(urn, timeout_s=60.0)
+    metadata = await client.get_metadata(urn)
+    quantities = await client.get_quantities(urn)
+    return metadata, quantities
 
 
 # ---------------------------------------------------------------------------
