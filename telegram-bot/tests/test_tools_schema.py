@@ -18,6 +18,10 @@ EXPECTED_TOOLS = {
     "generate_deep_link",
     "current_time",
     "whoami",
+    # Phase G.3 — estimates
+    "get_estimate_status",
+    "list_recent_estimates",
+    "estimate_upload_link",
 }
 
 
