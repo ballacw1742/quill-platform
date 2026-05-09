@@ -18,8 +18,12 @@ import {
   DocumentListPageSchema,
   DocumentSchema,
   DocumentSearchResultSchema,
+  EstimateStatusSchema,
+  EstimateUploadResponseSchema,
+  StartEstimationResponseSchema,
   HealthSchema,
   SessionSchema,
+  isEstimateInFlight,
   type Agent,
   type ApprovalItem,
   type AuditEntry,
@@ -29,6 +33,10 @@ import {
   type DocumentExportFormat,
   type DocumentListPage,
   type DocumentSearchResult,
+  type EstimateExportFormat,
+  type EstimateStatus,
+  type EstimateUploadResponse,
+  type StartEstimationResponse,
   type Health,
   type Session,
 } from "@/lib/schemas";
@@ -793,6 +801,275 @@ export function useDocumentExport(
     const filename = m?.[1] ?? `document-${id}.${format}`;
     triggerDownload(blob, filename);
   }, [id, format]);
+}
+
+// ─── Estimates (Phase G.2) ───────────────────────────────────────────────────
+//
+// Routes (live API; rewritten by next.config.mjs from /api/v1 → /v1):
+//   POST /v1/estimates/upload                       multipart
+//   GET  /v1/estimates/{upload_id}/status
+//   POST /v1/estimates/{upload_id}/start_estimation
+//   GET  /v1/estimates/{upload_id}/export?format=md|csv|xer|pdf
+//
+// MOCK mode: a tiny in-memory store on `globalThis` so the upload → status
+// progression is exercisable in dev without the API. The mock store is
+// intentionally simple — it lives only for the lifetime of the page.
+
+type MockEstimateRecord = EstimateStatus & {
+  _phase: number; // 0..N steps through the pipeline
+};
+
+function _mockEstimates(): Map<string, MockEstimateRecord> {
+  const g = globalThis as unknown as { __quill_mock_estimates?: Map<string, MockEstimateRecord> };
+  if (!g.__quill_mock_estimates) g.__quill_mock_estimates = new Map();
+  return g.__quill_mock_estimates;
+}
+
+function _mockTickStatus(rec: MockEstimateRecord): MockEstimateRecord {
+  // Advance through queued → extracting → classifying → awaiting → estimating → done
+  const order = [
+    "queued",
+    "extracting",
+    "classifying",
+    "awaiting_classification_approval",
+    "estimating",
+    "awaiting_package_approval",
+    "done",
+  ];
+  rec._phase = Math.min(rec._phase + 1, order.length - 1);
+  rec.status = order[rec._phase] as EstimateStatus["status"];
+  rec.updated_at = new Date().toISOString();
+  if (rec.status === "awaiting_classification_approval" && !rec.classification_artifact_id) {
+    rec.classification_artifact_id = `mock-class-${rec.upload_id}`;
+  }
+  if (rec.status === "done" && !rec.package_artifact_id) {
+    rec.package_artifact_id = `mock-pkg-${rec.upload_id}`;
+  }
+  return rec;
+}
+
+export function useEstimateStatus(
+  uploadId: string | null | undefined,
+  opts?: UseQueryOptions<EstimateStatus | undefined>,
+) {
+  return useQuery<EstimateStatus | undefined>({
+    queryKey: ["estimate", "status", uploadId],
+    queryFn: async (): Promise<EstimateStatus | undefined> => {
+      if (!uploadId) return undefined;
+      if (USE_MOCK) {
+        await sleep(80);
+        const rec = _mockEstimates().get(uploadId);
+        if (!rec) return undefined;
+        return EstimateStatusSchema.parse(_mockTickStatus(rec));
+      }
+      try {
+        return (await apiFetch(
+          `/api/v1/estimates/${encodeURIComponent(uploadId)}/status`,
+          { schema: EstimateStatusSchema },
+        )) as EstimateStatus;
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return undefined;
+        throw e;
+      }
+    },
+    enabled: !!uploadId,
+    // Poll every 4s while the run is in flight; stop on done | failed.
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      if (!data) return 4000;
+      if (isEstimateInFlight(data.status)) return 4000;
+      return false;
+    },
+    ...opts,
+  });
+}
+
+export function useUploadEstimate(
+  opts?: UseMutationOptions<
+    EstimateUploadResponse,
+    Error,
+    { files: File[]; project_label?: string; notes?: string }
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<
+    EstimateUploadResponse,
+    Error,
+    { files: File[]; project_label?: string; notes?: string }
+  >({
+    mutationFn: async ({ files, project_label, notes }) => {
+      if (!files || files.length === 0) {
+        throw new Error("Pick at least one drawing file before starting an estimate.");
+      }
+      if (USE_MOCK) {
+        await sleep(180);
+        const upload_id = `mock-${Math.random().toString(36).slice(2, 10)}`;
+        const total_bytes = files.reduce((n, f) => n + (f.size || 0), 0);
+        const rec: MockEstimateRecord = {
+          upload_id,
+          status: "queued",
+          project_label: project_label ?? "",
+          notes: notes ?? "",
+          uploaded_files: files.map((f) => ({
+            filename: f.name,
+            kind: kindFromFilename(f.name),
+            size_bytes: f.size,
+            extraction_status: "pending",
+            extraction_summary: "",
+            minio_key: null,
+          })),
+          classification_artifact_id: null,
+          package_artifact_id: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          error_message: null,
+          _phase: 0,
+        };
+        _mockEstimates().set(upload_id, rec);
+        return EstimateUploadResponseSchema.parse({
+          upload_id,
+          file_count: files.length,
+          total_bytes,
+          extraction_started: true,
+        });
+      }
+      const fd = new FormData();
+      for (const f of files) fd.append("files", f, f.name);
+      fd.append("project_label", project_label ?? "");
+      fd.append("notes", notes ?? "");
+      const token = getStoredToken();
+      const res = await fetch(`${API_BASE}/api/v1/estimates/upload`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          // Note: do NOT set Content-Type — the browser supplies the multipart
+          // boundary automatically when given a FormData body.
+        },
+        body: fd,
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new ApiError(res.status, text || res.statusText);
+      }
+      const data = await res.json();
+      return EstimateUploadResponseSchema.parse(data);
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["estimate", "status", data.upload_id] });
+    },
+    ...opts,
+  });
+}
+
+export function useStartEstimation(
+  uploadId: string,
+  opts?: UseMutationOptions<
+    StartEstimationResponse,
+    Error,
+    { passkey_assertion?: string } | void
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<
+    StartEstimationResponse,
+    Error,
+    { passkey_assertion?: string } | void
+  >({
+    mutationFn: async (vars) => {
+      if (USE_MOCK) {
+        await sleep(220);
+        const rec = _mockEstimates().get(uploadId);
+        if (rec) {
+          rec._phase = 4; // estimating
+          rec.status = "estimating";
+          rec.updated_at = new Date().toISOString();
+        }
+        return StartEstimationResponseSchema.parse({
+          ok: true,
+          upload_id: uploadId,
+          audit_hash: "mock-hash",
+          agent_id: "estimator-scheduler",
+        });
+      }
+      const token = getStoredToken();
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      };
+      const passkey =
+        vars && "passkey_assertion" in vars ? vars.passkey_assertion : undefined;
+      if (passkey) headers["X-Auth-Assertion"] = passkey;
+      const res = await fetch(
+        `${API_BASE}/api/v1/estimates/${encodeURIComponent(uploadId)}/start_estimation`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers,
+          body: JSON.stringify({ auth_assertion: passkey ?? null }),
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new ApiError(res.status, text || res.statusText);
+      }
+      const data = await res.json();
+      return StartEstimationResponseSchema.parse(data);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["estimate", "status", uploadId] });
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+    },
+    ...opts,
+  });
+}
+
+/**
+ * Returns a no-arg async function that triggers a browser download of the
+ * exported estimate package in the requested format. Mirrors the pattern of
+ * `useDocumentExport` so the callsite is a single `onClick={fn}`.
+ */
+export function useEstimateExport(
+  uploadId: string | null | undefined,
+  format: EstimateExportFormat,
+): () => Promise<void> {
+  return React.useCallback(async () => {
+    if (!uploadId) return;
+    if (typeof window === "undefined") return;
+    if (USE_MOCK) {
+      const stub = `# Estimate ${uploadId} (mock ${format})\n\nMock export.\n`;
+      const blob = new Blob([stub], { type: "text/plain" });
+      triggerDownload(blob, `estimate-${uploadId}.${format}`);
+      return;
+    }
+    const token = getStoredToken();
+    const res = await fetch(
+      `${API_BASE}/api/v1/estimates/${encodeURIComponent(uploadId)}/export?format=${format}`,
+      {
+        credentials: "include",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      },
+    );
+    if (!res.ok) {
+      throw new ApiError(
+        res.status,
+        (await res.text().catch(() => "")) || res.statusText,
+      );
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get("content-disposition") ?? "";
+    const m = cd.match(/filename\*?=(?:UTF-8'')?\"?([^;\";]+)\"?/i);
+    const filename = m?.[1] ?? `estimate-${uploadId}.${format}`;
+    triggerDownload(blob, filename);
+  }, [uploadId, format]);
+}
+
+function kindFromFilename(name: string): string {
+  const ext = name.toLowerCase().split(".").pop() ?? "";
+  if (["pdf", "ifc", "dxf", "dwg", "rvt"].includes(ext)) return ext;
+  return "other";
 }
 
 function triggerDownload(blob: Blob, filename: string) {
