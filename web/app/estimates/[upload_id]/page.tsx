@@ -122,7 +122,7 @@ export default function EstimateProgressPage() {
     <MobileShell>
       <TopBar
         title={title}
-        left={<BackButton href="/today" label="Today" />}
+        left={<BackButton href="/estimates" label="Estimates" />}
       />
 
       <div className="flex min-h-[calc(100dvh-200px)] flex-col bg-bg pb-24">

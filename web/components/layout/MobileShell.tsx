@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FileText, Inbox, Sparkles, User } from "lucide-react";
+import { Calculator, FileText, Inbox, Sparkles, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useSession } from "@/lib/api";
@@ -37,9 +37,14 @@ import type { Session } from "@/lib/schemas";
 // Phase D.2: Documents replaces Activity in the bottom bar; Activity moves
 // under Profile (DOCUMENTS_SPEC.md §"Tab bar update"). The existing /audit
 // route is preserved — it's now reached via Profile → Activity.
+//
+// Phase G.5: Estimates is its own first-class tab (slot 3) for the
+// drawing-driven cost + schedule flow. We're now at the iOS HIG max of 5
+// tabs; labels are kept short to render cleanly at 375px.
 const TABS = [
   { href: "/queue", label: "Queue", icon: Inbox },
   { href: "/today", label: "Today", icon: Sparkles },
+  { href: "/estimates", label: "Estimates", icon: Calculator },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
@@ -169,6 +174,9 @@ function TabBar() {
             // /audit is reached via Profile → Activity (per Phase D.2 tab
             // bar update), so highlight Profile when the user is in /audit.
             (href === "/profile" && pathname.startsWith("/audit"));
+          // 5 tabs are tighter — drop label one notch (text-caption-2 → 10/12)
+          // so "Documents" / "Estimates" stay on one line at 375px width.
+          const labelClass = "text-[10px] leading-[12px] font-medium tracking-tight";
           const showBadge = href === "/queue" && pendingCount > 0;
           return (
             <li key={href} className="flex-1">
@@ -187,7 +195,7 @@ function TabBar() {
               >
                 <span className="relative inline-flex">
                   <Icon
-                    className="h-7 w-7"
+                    className="h-6 w-6"
                     strokeWidth={active ? 2 : 1.75}
                     aria-hidden="true"
                   />
@@ -200,7 +208,7 @@ function TabBar() {
                     </span>
                   )}
                 </span>
-                <span className="text-caption-2 font-medium">{label}</span>
+                <span className={cn(labelClass, "truncate max-w-full px-0.5")}>{label}</span>
               </Link>
             </li>
           );
