@@ -53,3 +53,6 @@ mock-data/_state/
 # Logs
 *.log
 logs/
+
+# Phase G.4 smoke test artifacts (per-run output dirs)
+api/scripts/smoke_results/
