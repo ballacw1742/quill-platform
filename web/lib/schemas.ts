@@ -747,6 +747,32 @@ export type CostSchedulePackage = z.infer<typeof CostSchedulePackageSchema>;
 export const EstimateExportFormatSchema = z.enum(["md", "csv", "xer", "pdf"]);
 export type EstimateExportFormat = z.infer<typeof EstimateExportFormatSchema>;
 
+/** Listing row returned by GET /v1/estimates (server-canonical shape). */
+export const EstimateListItemSchema = z
+  .object({
+    upload_id: z.string(),
+    project_label: z.string().default(""),
+    notes: z.string().default(""),
+    status: EstimateStatusEnumSchema,
+    created_at: z.string(),
+    updated_at: z.string(),
+    classification_artifact_id: z.string().nullable().optional(),
+    package_artifact_id: z.string().nullable().optional(),
+    error_message: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type EstimateListItem = z.infer<typeof EstimateListItemSchema>;
+
+export const EstimateListResponseSchema = z
+  .object({
+    items: z.array(EstimateListItemSchema).default([]),
+    total: z.number().int().min(0).default(0),
+    limit: z.number().int().min(0).default(50),
+    offset: z.number().int().min(0).default(0),
+  })
+  .passthrough();
+export type EstimateListResponse = z.infer<typeof EstimateListResponseSchema>;
+
 /** True while the upload is still progressing through the pipeline. */
 export function isEstimateInFlight(status: string | undefined): boolean {
   if (!status) return false;

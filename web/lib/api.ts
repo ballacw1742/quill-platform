@@ -18,6 +18,7 @@ import {
   DocumentListPageSchema,
   DocumentSchema,
   DocumentSearchResultSchema,
+  EstimateListResponseSchema,
   EstimateStatusSchema,
   EstimateUploadResponseSchema,
   StartEstimationResponseSchema,
@@ -1091,11 +1092,15 @@ export type EstimateListItem = {
   upload_id: string;
   /** Human-readable label, falls back to the document title. */
   project_label: string;
-  /** Best-known status hint — "published" if a package exists, otherwise
-   *  "classified" if only a classification doc exists. The /estimates page
-   *  hydrates a finer-grained status with useEstimateStatus per row when
-   *  the row is in flight. */
-  status_hint: "published" | "classified";
+  /** Best-known status hint:
+   *   - "published" — a cost_schedule_package exists
+   *   - "classified" — only a classification doc exists (estimate not generated yet)
+   *   - "in_flight" — server-side status is queued/extracting/classifying/estimating
+   *   - "failed" — extraction or estimation failed
+   */
+  status_hint: "published" | "classified" | "in_flight" | "failed";
+  /** Server-canonical fine-grained status. */
+  status: "queued" | "extracting" | "classifying" | "estimating" | "done" | "failed";
   /** AACE class if known. */
   aace_class?: string;
   /** Total dollar amount when published. */
@@ -1109,6 +1114,8 @@ export type EstimateListItem = {
   package_document_id: string | null;
   /** Document id of the aace_classification doc, if any. */
   classification_document_id: string | null;
+  /** Error message when status === "failed". */
+  error_message?: string | null;
 };
 
 export type EstimateListResult = {
@@ -1118,102 +1125,52 @@ export type EstimateListResult = {
 };
 
 export function useListEstimates(opts?: { enabled?: boolean }) {
-  const classifications = useDocuments(
-    { artifact_type: "aace_classification", limit: 100 },
-    { enabled: opts?.enabled },
-  );
-  const packages = useDocuments(
-    { artifact_type: "cost_schedule_package", limit: 100 },
-    { enabled: opts?.enabled },
-  );
-
-  const data: EstimateListResult | undefined = React.useMemo(() => {
-    if (!classifications.data && !packages.data) return undefined;
-    const byUpload = new Map<string, EstimateListItem>();
-
-    const ingest = (
-      doc: DocumentSummary,
-      kind: "classification" | "package",
-    ) => {
-      const meta = (doc.metadata ?? {}) as Record<string, unknown>;
-      const uploadId =
-        (typeof meta.upload_id === "string" && meta.upload_id) ||
-        // Fall back to the artifact_id when the API didn't surface it.
-        doc.artifact_id;
-      if (!uploadId) return;
-      const existing = byUpload.get(uploadId);
-      const aaceClass =
-        (typeof meta.class === "string" && (meta.class as string)) ||
-        (typeof meta.aace_class === "string" && (meta.aace_class as string)) ||
-        existing?.aace_class;
-      const headlineMetrics =
-        (meta.headline_metrics as { total_usd?: number | null } | undefined) ??
-        undefined;
-      const totalUsd =
-        (typeof headlineMetrics?.total_usd === "number"
-          ? headlineMetrics.total_usd
-          : undefined) ?? existing?.total_usd ?? null;
-
-      // Bias: package wins for status / project_label when both exist.
-      const isPackageWinning = kind === "package";
-      const projectLabel =
-        (typeof meta.project_label === "string" &&
-          (meta.project_label as string)) ||
-        doc.title ||
-        existing?.project_label ||
-        "Untitled estimate";
-
-      const merged: EstimateListItem = {
-        upload_id: uploadId,
-        project_label:
-          isPackageWinning || !existing
-            ? projectLabel
-            : existing.project_label,
-        status_hint: kind === "package" || existing?.status_hint === "published"
-          ? "published"
-          : "classified",
-        aace_class: aaceClass,
-        total_usd: totalUsd,
-        // Newest created_at wins; both are ISO-8601 so lexical compare is fine.
-        created_at:
-          existing && existing.created_at > doc.created_at
-            ? existing.created_at
-            : doc.created_at,
-        document_id:
-          kind === "package"
-            ? doc.id
-            : existing?.package_document_id ?? doc.id,
-        package_document_id:
-          kind === "package" ? doc.id : existing?.package_document_id ?? null,
-        classification_document_id:
-          kind === "classification"
-            ? doc.id
-            : existing?.classification_document_id ?? null,
+  return useQuery<EstimateListResult>({
+    queryKey: ["estimates", "list"],
+    enabled: opts?.enabled ?? true,
+    queryFn: async () => {
+      const raw: any = await apiFetch("/api/v1/estimates?limit=100");
+      const parsed = EstimateListResponseSchema.parse(raw);
+      const items: EstimateListItem[] = parsed.items.map((est) => {
+        const status_hint: EstimateListItem["status_hint"] =
+          est.status === "done"
+            ? est.package_artifact_id
+              ? "published"
+              : "classified"
+            : est.status === "failed"
+              ? "failed"
+              : "in_flight";
+        return {
+          upload_id: est.upload_id,
+          project_label: est.project_label || "Untitled estimate",
+          status_hint,
+          status: est.status as EstimateListItem["status"],
+          aace_class: undefined,
+          total_usd: null,
+          created_at: est.created_at,
+          // Best-effort tap target: package > classification > /estimates/[upload_id]
+          document_id:
+            est.package_artifact_id ??
+            est.classification_artifact_id ??
+            est.upload_id,
+          package_document_id: est.package_artifact_id ?? null,
+          classification_document_id: est.classification_artifact_id ?? null,
+          error_message: est.error_message ?? null,
+        };
+      });
+      return {
+        items,
+        total: parsed.total,
       };
-      byUpload.set(uploadId, merged);
-    };
-
-    for (const d of classifications.data?.items ?? []) ingest(d, "classification");
-    for (const d of packages.data?.items ?? []) ingest(d, "package");
-
-    const items = Array.from(byUpload.values()).sort((a, b) =>
-      a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0,
-    );
-    return { items, total: items.length };
-  }, [classifications.data, packages.data]);
-
-  return {
-    data,
-    isLoading: classifications.isLoading || packages.isLoading,
-    error: classifications.error || packages.error,
-    refetch: async () => {
-      await Promise.all([classifications.refetch(), packages.refetch()]);
     },
-    dataUpdatedAt: Math.max(
-      classifications.dataUpdatedAt ?? 0,
-      packages.dataUpdatedAt ?? 0,
-    ),
-  };
+    refetchInterval: (query) => {
+      // Poll while any item is in flight.
+      const data = (query.state.data as EstimateListResult | undefined) ?? null;
+      if (!data) return false;
+      const inFlight = data.items.some((it) => it.status_hint === "in_flight");
+      return inFlight ? 5000 : false;
+    },
+  });
 }
 
 function triggerDownload(blob: Blob, filename: string) {
