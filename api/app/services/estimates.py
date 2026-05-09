@@ -255,6 +255,41 @@ class EstimatesService:
         )
         return res.scalar_one_or_none()
 
+    async def list_estimates(
+        self,
+        session: AsyncSession,
+        *,
+        status: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[Estimate], int]:
+        """Return a paginated list of Estimate rows ordered by created_at
+        DESC, plus the total matching count.
+
+        The Estimate model isn't user-scoped in v0.1 (single-tenant), so this
+        is effectively a global listing. Auth is enforced at the route layer
+        (`get_current_user_or_agent`).
+        """
+        from sqlalchemy import func
+
+        if status is not None and status not in VALID_STATUSES:
+            raise ValueError(f"invalid status filter {status!r}")
+        limit = max(1, min(int(limit or 50), 200))
+        offset = max(0, int(offset or 0))
+
+        q = select(Estimate)
+        cq = select(func.count()).select_from(Estimate)
+        if status:
+            q = q.where(Estimate.status == status)
+            cq = cq.where(Estimate.status == status)
+        q = q.order_by(Estimate.created_at.desc()).limit(limit).offset(offset)
+
+        res = await session.execute(q)
+        items = list(res.scalars().all())
+        total_res = await session.execute(cq)
+        total = int(total_res.scalar_one() or 0)
+        return items, total
+
     # ---- Lifecycle hooks --------------------------------------------------
     async def mark_status(
         self,
