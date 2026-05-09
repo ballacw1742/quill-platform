@@ -46,11 +46,26 @@ class AuthError extends Error {
   }
 }
 
+// Read the Bearer token from localStorage. Mirrors lib/api.ts getStoredToken();
+// duplicated here to avoid a circular dependency between lib/auth.ts and lib/api.ts.
+function getBearerToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("quill_session_token");
+}
+
+function authHeaders(extra?: Record<string, string>): Record<string, string> {
+  const token = getBearerToken();
+  return {
+    ...(extra ?? {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
 async function jpost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     credentials: "include",
-    headers: { "Content-Type": "application/json" },
+    headers: authHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -63,6 +78,7 @@ async function jpost<T>(path: string, body: unknown): Promise<T> {
 async function jget<T>(path: string): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
+    headers: authHeaders(),
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
@@ -160,6 +176,7 @@ export async function revokePasskey(id: string): Promise<void> {
   const res = await fetch(`${API_BASE}/api/v1/auth/passkey/credentials/${id}`, {
     method: "DELETE",
     credentials: "include",
+    headers: authHeaders(),
   });
   if (!res.ok) {
     throw new AuthError(res.status, await res.text());
