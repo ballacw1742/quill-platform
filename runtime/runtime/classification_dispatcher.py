@@ -320,14 +320,20 @@ async def dispatch_one(
         prompt_cache=True,
     )
 
-    if run.error:
+    if run.output is None:
+        raise RuntimeError(f"agent returned no output (error={run.error!r})")
+    if run.error and run.error != "schema_validation_failed":
+        # Hard errors (llm_error, json_extraction, submit_error) are fatal.
         raise RuntimeError(f"agent error: {run.error}")
     if not run.validation_ok:
-        raise RuntimeError(
-            f"agent output failed schema validation: {run.validation_errors[:3]}"
+        # Soft validation failures (e.g. citation field mismatches) are logged
+        # as warnings but do not block dispatch. The core artifact fields
+        # (artifact_type, class, confidence, body_markdown) are still present.
+        log.warning(
+            "classify.validation_warn",
+            upload_id=upload_id,
+            errors=run.validation_errors[:5],
         )
-    if run.output is None:
-        raise RuntimeError("agent returned no output")
 
     # Build the approval item payload with estimate_upload_id injected so
     # _extract_estimate_upload_id and _extract_estimate_artifact_kind both

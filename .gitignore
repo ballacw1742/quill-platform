@@ -58,5 +58,7 @@ logs/
 api/scripts/smoke_results/
 
 # Classification dispatcher state (Phase G.5)
-runtime/_state/classification_dispatched.json
-runtime/_state/dispatch_requests/
+_state/classification_dispatched.json
+_state/dispatch_requests/
+runtime/_state/
+_state/

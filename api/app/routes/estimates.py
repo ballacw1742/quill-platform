@@ -312,7 +312,7 @@ async def dispatch_classification_route(
     - 409 if already classified (``classification_artifact_id`` is set)
       or not in ``queued`` status.
     - Records an ``estimate.classification_dispatch_requested`` audit event.
-    - Writes a priority marker under ``runtime/_state/dispatch_requests/``
+    - Writes a priority marker under ``_state/dispatch_requests/``
       that the classification daemon consumes on its next poll tick.
     """
     import os as _os
@@ -341,7 +341,7 @@ async def dispatch_classification_route(
     # operators force an immediate pickup on the next tick without waiting.
     try:
         _repo_root = _Path(__file__).resolve().parents[3]
-        _marker_dir = _repo_root / "runtime" / "_state" / "dispatch_requests"
+        _marker_dir = _repo_root / "_state" / "dispatch_requests"
         _marker_dir.mkdir(parents=True, exist_ok=True)
         _marker = _marker_dir / f"{upload_id}.json"
         _marker.write_text(
