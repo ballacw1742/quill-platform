@@ -30,6 +30,7 @@ dependencies = [
     "aiosqlite>=0.19",
     "b2sdk>=2.0",
     # Phase G.1 — drawing extraction (PDF / IFC / DXF). DWG / RVT deferred.
+    "python-multipart>=0.0.20",
     "pdfplumber>=0.11",
     "pypdfium2>=4.30",
     "ifcopenshell>=0.7",
