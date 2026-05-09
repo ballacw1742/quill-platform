@@ -288,6 +288,101 @@ async def start_estimation_route(
 
 
 # ---------------------------------------------------------------------------
+# POST /{upload_id}/dispatch_classification
+# ---------------------------------------------------------------------------
+class DispatchClassificationOut(BaseModel):
+    ok: bool
+    upload_id: str
+    audit_hash: str
+
+
+@router.post(
+    "/{upload_id}/dispatch_classification",
+    response_model=DispatchClassificationOut,
+    summary="Request classification dispatch for a queued estimate upload",
+)
+async def dispatch_classification_route(
+    upload_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user),
+) -> DispatchClassificationOut:
+    """Signal that the classification daemon should pick up this upload.
+
+    - 404 if the upload does not exist.
+    - 409 if already classified (``classification_artifact_id`` is set)
+      or not in ``queued`` status.
+    - Records an ``estimate.classification_dispatch_requested`` audit event.
+    - Writes a priority marker under ``runtime/_state/dispatch_requests/``
+      that the classification daemon consumes on its next poll tick.
+    """
+    import os as _os
+    from pathlib import Path as _Path
+    import json as _json
+    from datetime import UTC as _UTC, datetime as _datetime
+    from app.services import audit as _audit_svc
+
+    est = await estimates_service.get_status(db, upload_id)
+    if est is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "upload not found")
+    if est.classification_artifact_id is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "classification already completed for this upload",
+        )
+    if est.status != "queued":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"upload is not in queued status (current: {est.status}); "
+            "classification dispatch requires queued status",
+        )
+
+    # Write a priority marker that the classification daemon picks up.
+    # The daemon polls queued estimates automatically, but this marker lets
+    # operators force an immediate pickup on the next tick without waiting.
+    try:
+        _repo_root = _Path(__file__).resolve().parents[3]
+        _marker_dir = _repo_root / "runtime" / "_state" / "dispatch_requests"
+        _marker_dir.mkdir(parents=True, exist_ok=True)
+        _marker = _marker_dir / f"{upload_id}.json"
+        _marker.write_text(
+            _json.dumps(
+                {
+                    "upload_id": upload_id,
+                    "requested_at": _datetime.now(_UTC).isoformat(),
+                    "requested_by": getattr(user, "id", str(user)),
+                }
+            ),
+            encoding="utf-8",
+        )
+    except Exception as _exc:  # noqa: BLE001
+        import logging as _logging
+        _logging.getLogger("quill.estimates").warning(
+            "dispatch_classification.marker_write_failed upload_id=%s err=%s",
+            upload_id, _exc,
+        )
+        # Non-fatal — the daemon polls all queued estimates anyway.
+
+    entry = await _audit_svc.record_event(
+        db,
+        event_type="estimate.classification_dispatch_requested",
+        actor=getattr(user, "id", str(user)),
+        approval_item_id=None,
+        payload={
+            "upload_id": upload_id,
+            "estimate_id": est.id,
+            "project_label": est.project_label,
+        },
+    )
+    await db.commit()
+
+    return DispatchClassificationOut(
+        ok=True,
+        upload_id=upload_id,
+        audit_hash=entry.hash,
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /{upload_id}/export
 # ---------------------------------------------------------------------------
 @router.get(

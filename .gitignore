@@ -56,3 +56,7 @@ logs/
 
 # Phase G.4 smoke test artifacts (per-run output dirs)
 api/scripts/smoke_results/
+
+# Classification dispatcher state (Phase G.5)
+runtime/_state/classification_dispatched.json
+runtime/_state/dispatch_requests/

@@ -1,4 +1,4 @@
-.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay
+.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay classify-dispatcher
 
 PY ?= python3
 VENV ?= .venv
@@ -120,6 +120,19 @@ triage-dispatcher:
 		TRIAGE_EVENT_SOURCE=$${TRIAGE_EVENT_SOURCE:-mock} \
 		TRIAGE_POLL_INTERVAL_SECONDS=$${TRIAGE_POLL_INTERVAL_SECONDS:-5} \
 		exec $(VENV)/bin/quill-runtime triage start'
+
+# ---------------------------------------------------------------------------
+# Classification dispatcher (Phase G.5)
+# ---------------------------------------------------------------------------
+# Runs the ClassificationDispatcher in the foreground. Reads .env so
+# QUILL_API_URL / AGENT_SHARED_SECRET / CLASSIFY_POLL_INTERVAL_SECONDS
+# are honored.
+classify-dispatcher:
+	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
+		QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
+		AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
+		CLASSIFY_POLL_INTERVAL_SECONDS=$${CLASSIFY_POLL_INTERVAL_SECONDS:-10} \
+		exec $(VENV)/bin/quill-runtime classify start'
 
 triage-replay:
 	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
