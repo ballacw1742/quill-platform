@@ -105,7 +105,7 @@ export default function EstimatesPage() {
             type="button"
             onClick={() => setUploadOpen(true)}
             aria-label="New estimate"
-            className="-mr-2 inline-flex h-9 items-center gap-1 rounded-full bg-accent/10 px-3 text-callout font-medium text-accent active:opacity-70 no-tap-highlight"
+            className="-mr-2 inline-flex min-h-[44px] items-center gap-1 rounded-full bg-accent/10 px-3 py-1 text-callout font-medium text-accent active:opacity-70 no-tap-highlight"
           >
             <Plus className="h-4 w-4" strokeWidth={2.25} />
             <span>New</span>

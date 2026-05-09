@@ -1,5 +1,43 @@
 # KNOWN_ISSUES.md — feat/ui-ios-redesign
 
+## Phase G.5 — Estimates module / dedicated tab (May 9, 2026)
+
+G5.1 **`(visible-tolerable)` — "In flight" pill on the Estimates tab
+  is intentionally NOT implemented.** The tab bar renders on every
+  screen. Wiring `useListEstimates` (which fans out to two
+  `/v1/documents` queries) into MobileShell would fire those fetches on
+  Queue / Today / Documents / Profile too — a perf and bandwidth hit
+  unwarranted by the value of the badge. Once a shared estimate-status
+  context exists (or a real `/v1/estimates` list endpoint lands), the
+  badge can drop in trivially against that.
+
+G5.2 **`(visible-tolerable)` — `/estimates` reuses /v1/documents under
+  the hood.** The /v1/estimates routes don't expose a list endpoint. The
+  page calls /v1/documents twice (filtered by `aace_classification` and
+  `cost_schedule_package` respectively, limit 100 each) and joins by
+  `metadata.upload_id` client-side. Implications:
+  - Uploads that fail before producing an `aace_classification`
+    document never appear here. Today they're only reachable by the
+    direct `/estimates/<upload_id>` link the upload sheet pushes.
+  - At >100 estimates of either artifact type the list becomes
+    paginated-but-not-actually-paginated. Promote to a real /estimates
+    list endpoint with pagination when we approach that volume.
+
+G5.3 **`(invisible)` — "In flight" filter relies on the absence of a
+  published package.** A row is considered "in flight" when no
+  `cost_schedule_package` document exists for its upload_id. Failed
+  uploads with a stuck classification will show as "In flight" forever
+  in this view. The progress page itself still surfaces the failure
+  banner — but the list won't.
+
+G5.4 **`(invisible)` — Tab labels at 375px width were dropped one type
+  step (10/12 from caption-2's 11/13).** Inside Charles's typical
+  iPhone 15 width (393px) this looks fine; on iPhone SE (375px) the
+  five labels fit cleanly without truncation. Above 430px nothing
+  changes (we keep the same compact label). If we add a sixth tab in
+  the future the layout breaks — that's the iOS HIG signal to move to
+  a More tab anyway.
+
 ## Phase F.1 — Continuous Triage + Live Drafts (May 8, 2026)
 
 F1.1 **`(visible-tolerable)` — Live draft badge depends on chain_outputs schema staying as today's shape.**
