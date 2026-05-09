@@ -110,6 +110,69 @@ class QuillAPIClient:
         )
 
     # ------------------------------------------------------------------
+    # Estimates (Phase G)
+    # ------------------------------------------------------------------
+    async def get_estimate_status(self, upload_id: str) -> dict[str, Any]:
+        """GET /v1/estimates/{upload_id}/status — returns the StatusOut JSON.
+
+        Read-only; never starts or modifies an estimation run.
+        """
+        return await self._req("GET", f"/v1/estimates/{upload_id}/status")
+
+    async def list_estimates(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Return recent Documents that belong to the estimates pipeline.
+
+        The API does not currently expose a dedicated estimates-list
+        endpoint; we filter the Documents list by artifact_type. Two types
+        are relevant:
+          - ``aace_classification`` (drawings-classifier output)
+          - ``cost_schedule_package`` (estimator-scheduler output)
+
+        We ask for ``limit`` of each and merge by created_at desc, then
+        truncate to ``limit`` total. If the API rejects the artifact_type
+        filter, fall back to fetching the most recent unfiltered slice and
+        filtering client-side.
+        """
+        merged: list[dict[str, Any]] = []
+        for at in ("aace_classification", "cost_schedule_package"):
+            try:
+                resp = await self._req(
+                    "GET",
+                    "/v1/documents",
+                    params={"artifact_type": at, "limit": limit, "offset": 0},
+                )
+            except QuillAPIError as e:
+                if e.status in (400, 422):
+                    # API doesn't accept artifact_type filter — fall back
+                    # to fetching the most recent slice once and filtering
+                    # client-side; do this only for the first miss.
+                    resp = await self._req(
+                        "GET", "/v1/documents", params={"limit": 200, "offset": 0}
+                    )
+                    items_all = (
+                        resp.get("items", []) if isinstance(resp, dict) else resp
+                    ) or []
+                    return [
+                        it
+                        for it in items_all
+                        if it.get("artifact_type")
+                        in ("aace_classification", "cost_schedule_package")
+                    ][:limit]
+                raise
+            items = (
+                resp.get("items", []) if isinstance(resp, dict) else resp
+            ) or []
+            merged.extend(items)
+
+        # Sort by created_at desc, fall back to id for stability when the
+        # field is absent or equal.
+        merged.sort(
+            key=lambda d: (d.get("created_at") or "", d.get("id") or ""),
+            reverse=True,
+        )
+        return merged[:limit]
+
+    # ------------------------------------------------------------------
     # Health + scheduler
     # ------------------------------------------------------------------
     async def health(self) -> dict[str, Any]:
