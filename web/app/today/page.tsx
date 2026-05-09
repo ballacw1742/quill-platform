@@ -15,17 +15,12 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
-import { ListRow } from "@/components/ui/list-row";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { SkelHeroCard, SkelSectionCard } from "@/components/ui/skeletons";
 import { useApprovals } from "@/lib/api";
 import type { ApprovalItem, Lane } from "@/lib/schemas";
 import { detectFlags } from "@/components/queue/FlagChips";
-import {
-  NewEstimateButton,
-  UploadEstimateSheet,
-} from "@/components/estimates/UploadEstimateSheet";
 
 /**
  * /today — Daily Brief in-app view, per MOBILE_UX_SPEC §"Tab 2 — Today".
@@ -40,7 +35,6 @@ export default function TodayPage() {
   const { data, isLoading, dataUpdatedAt, error, refetch } = useApprovals();
   const qc = useQueryClient();
   const items = (data ?? []) as ApprovalItem[];
-  const [uploadOpen, setUploadOpen] = React.useState(false);
 
   const today = formatToday();
 
@@ -74,23 +68,15 @@ export default function TodayPage() {
               <SkelSectionCard />
             </>
           ) : isEmpty ? (
-            <>
-              <div className="flex justify-end -mt-1">
-                <NewEstimateButton onClick={() => setUploadOpen(true)} />
-              </div>
-              <EmptyState
-                icon={<Sparkles />}
-                title="Quill is still learning your project."
-                subtitle="Once the helpers have processed a day's work, you'll see your morning brief here."
-              />
-            </>
+            <EmptyState
+              icon={<Sparkles />}
+              title="Quill is still learning your project."
+              subtitle="Once the helpers have processed a day's work, you'll see your morning brief here. Need a cost & schedule estimate? Tap Estimates below."
+            />
           ) : (
             <>
               {/* Hero — Top of mind */}
-              <TopOfMind
-                topPriorityItems={stats.topPriority}
-                onNewEstimate={() => setUploadOpen(true)}
-              />
+              <TopOfMind topPriorityItems={stats.topPriority} />
 
               {/* Stacked sections */}
               <SectionCard
@@ -194,7 +180,6 @@ export default function TodayPage() {
         </div>
       </div>
 
-      <UploadEstimateSheet open={uploadOpen} onOpenChange={setUploadOpen} />
     </MobileShell>
   );
 }
@@ -203,19 +188,14 @@ export default function TodayPage() {
 
 function TopOfMind({
   topPriorityItems,
-  onNewEstimate,
 }: {
   topPriorityItems: ApprovalItem[];
-  onNewEstimate: () => void;
 }) {
   return (
     <section className="overflow-hidden rounded-xl bg-bg-tertiary p-4 shadow-card">
       <div className="flex items-center gap-2 mb-3">
         <Sparkles className="h-4 w-4 text-accent" />
         <h2 className="text-title-3 text-label-primary">Top of mind</h2>
-        <div className="ml-auto">
-          <NewEstimateButton onClick={onNewEstimate} />
-        </div>
       </div>
       {topPriorityItems.length === 0 ? (
         <p className="text-callout text-label-secondary">
