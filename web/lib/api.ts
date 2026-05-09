@@ -33,6 +33,7 @@ import {
   type DocumentExportFormat,
   type DocumentListPage,
   type DocumentSearchResult,
+  type DocumentSummary,
   type EstimateExportFormat,
   type EstimateStatus,
   type EstimateUploadResponse,
@@ -1070,6 +1071,149 @@ function kindFromFilename(name: string): string {
   const ext = name.toLowerCase().split(".").pop() ?? "";
   if (["pdf", "ifc", "dxf", "dwg", "rvt"].includes(ext)) return ext;
   return "other";
+}
+
+// ─── Estimates list (Phase G.5) ──────────────────────────────────────────────
+//
+// The /v1/estimates endpoints expose individual upload status by id but no
+// list endpoint. The Documents service indexes both artifact types we care
+// about — `aace_classification` (interim) and `cost_schedule_package`
+// (published) — and stamps `metadata.upload_id` on each. We fetch both
+// artifact_type buckets and merge by upload_id into a single row per
+// estimate, biased toward the more-final artifact (`cost_schedule_package`
+// wins over `aace_classification` when both are present).
+//
+// This is used by /estimates (the new tab listing) and any other surface
+// that needs a quick "how many estimates have I run / are in flight".
+
+export type EstimateListItem = {
+  /** upload_id is the stable join key — used as the route param. */
+  upload_id: string;
+  /** Human-readable label, falls back to the document title. */
+  project_label: string;
+  /** Best-known status hint — "published" if a package exists, otherwise
+   *  "classified" if only a classification doc exists. The /estimates page
+   *  hydrates a finer-grained status with useEstimateStatus per row when
+   *  the row is in flight. */
+  status_hint: "published" | "classified";
+  /** AACE class if known. */
+  aace_class?: string;
+  /** Total dollar amount when published. */
+  total_usd?: number | null;
+  /** Most recent created_at among the merged docs (ISO-8601). */
+  created_at: string;
+  /** Document id of the final/published artifact when available, otherwise
+   *  the classification doc id. Used to construct the row's tap target. */
+  document_id: string;
+  /** Document id of the published cost_schedule_package, if any. */
+  package_document_id: string | null;
+  /** Document id of the aace_classification doc, if any. */
+  classification_document_id: string | null;
+};
+
+export type EstimateListResult = {
+  items: EstimateListItem[];
+  /** Sum of the two underlying queries' totals (best-effort; not exact). */
+  total: number;
+};
+
+export function useListEstimates(opts?: { enabled?: boolean }) {
+  const classifications = useDocuments(
+    { artifact_type: "aace_classification", limit: 100 },
+    { enabled: opts?.enabled },
+  );
+  const packages = useDocuments(
+    { artifact_type: "cost_schedule_package", limit: 100 },
+    { enabled: opts?.enabled },
+  );
+
+  const data: EstimateListResult | undefined = React.useMemo(() => {
+    if (!classifications.data && !packages.data) return undefined;
+    const byUpload = new Map<string, EstimateListItem>();
+
+    const ingest = (
+      doc: DocumentSummary,
+      kind: "classification" | "package",
+    ) => {
+      const meta = (doc.metadata ?? {}) as Record<string, unknown>;
+      const uploadId =
+        (typeof meta.upload_id === "string" && meta.upload_id) ||
+        // Fall back to the artifact_id when the API didn't surface it.
+        doc.artifact_id;
+      if (!uploadId) return;
+      const existing = byUpload.get(uploadId);
+      const aaceClass =
+        (typeof meta.class === "string" && (meta.class as string)) ||
+        (typeof meta.aace_class === "string" && (meta.aace_class as string)) ||
+        existing?.aace_class;
+      const headlineMetrics =
+        (meta.headline_metrics as { total_usd?: number | null } | undefined) ??
+        undefined;
+      const totalUsd =
+        (typeof headlineMetrics?.total_usd === "number"
+          ? headlineMetrics.total_usd
+          : undefined) ?? existing?.total_usd ?? null;
+
+      // Bias: package wins for status / project_label when both exist.
+      const isPackageWinning = kind === "package";
+      const projectLabel =
+        (typeof meta.project_label === "string" &&
+          (meta.project_label as string)) ||
+        doc.title ||
+        existing?.project_label ||
+        "Untitled estimate";
+
+      const merged: EstimateListItem = {
+        upload_id: uploadId,
+        project_label:
+          isPackageWinning || !existing
+            ? projectLabel
+            : existing.project_label,
+        status_hint: kind === "package" || existing?.status_hint === "published"
+          ? "published"
+          : "classified",
+        aace_class: aaceClass,
+        total_usd: totalUsd,
+        // Newest created_at wins; both are ISO-8601 so lexical compare is fine.
+        created_at:
+          existing && existing.created_at > doc.created_at
+            ? existing.created_at
+            : doc.created_at,
+        document_id:
+          kind === "package"
+            ? doc.id
+            : existing?.package_document_id ?? doc.id,
+        package_document_id:
+          kind === "package" ? doc.id : existing?.package_document_id ?? null,
+        classification_document_id:
+          kind === "classification"
+            ? doc.id
+            : existing?.classification_document_id ?? null,
+      };
+      byUpload.set(uploadId, merged);
+    };
+
+    for (const d of classifications.data?.items ?? []) ingest(d, "classification");
+    for (const d of packages.data?.items ?? []) ingest(d, "package");
+
+    const items = Array.from(byUpload.values()).sort((a, b) =>
+      a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0,
+    );
+    return { items, total: items.length };
+  }, [classifications.data, packages.data]);
+
+  return {
+    data,
+    isLoading: classifications.isLoading || packages.isLoading,
+    error: classifications.error || packages.error,
+    refetch: async () => {
+      await Promise.all([classifications.refetch(), packages.refetch()]);
+    },
+    dataUpdatedAt: Math.max(
+      classifications.dataUpdatedAt ?? 0,
+      packages.dataUpdatedAt ?? 0,
+    ),
+  };
 }
 
 function triggerDownload(blob: Blob, filename: string) {
