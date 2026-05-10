@@ -18,6 +18,7 @@ Design notes:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -138,6 +139,28 @@ class DocumentsService:
         approved_at = approval.executed_at or _utcnow()
         approved_by = actor
 
+        # Sanity-cap the artifact payload at 256 KB. If it's larger we store
+        # a small marker dict so callers can detect the truncation.
+        _META_CAP_BYTES = 256 * 1024
+        try:
+            _serialized = json.dumps(artifact, default=str)
+            if len(_serialized) > _META_CAP_BYTES:
+                log.warning(
+                    "documents.meta_truncated artifact_id=%s size=%d cap=%d",
+                    artifact_id,
+                    len(_serialized),
+                    _META_CAP_BYTES,
+                )
+                meta_payload: dict[str, Any] | None = {
+                    "_truncated": True,
+                    "reason": f"payload exceeded {_META_CAP_BYTES} bytes ({len(_serialized)})",
+                }
+            else:
+                meta_payload = artifact
+        except Exception as exc:  # noqa: BLE001
+            log.warning("documents.meta_serialize_failed artifact_id=%s err=%s", artifact_id, exc)
+            meta_payload = None
+
         doc = Document(
             artifact_id=artifact_id,
             artifact_type=artifact_type,
@@ -152,6 +175,7 @@ class DocumentsService:
             approval_id=approval.id,
             tags=tags,
             minio_path=_blob_key(artifact_id, approved_at),
+            meta=meta_payload,
         )
         session.add(doc)
         await session.flush()

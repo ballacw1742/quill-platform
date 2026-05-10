@@ -326,6 +326,13 @@ class Document(Base):
     drive_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     minio_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
+    # Full artifact payload (Sprint G.7).
+    # Named `meta` because `metadata` is reserved by SQLAlchemy DeclarativeBase
+    # (it is the class-level MetaData object). The DB column is named "metadata".
+    meta: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata", JSONType, default=None, nullable=True
+    )
+
     __table_args__ = (
         Index("ix_documents_artifact_type_created", "artifact_type", "created_at"),
         Index("ix_documents_agent_created", "agent_id", "created_at"),

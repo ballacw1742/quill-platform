@@ -192,21 +192,20 @@ export default function EstimateProgressPage() {
                   </Link>
                 </div>
                 {packageDoc ? (() => {
-                  // Build the best artifact we can from the document.
-                  // API returns body_markdown + title/summary; metadata may be absent.
-                  const artifactPayload = {
+                  // Spread doc.metadata (the full artifact payload stored by
+                  // Sprint G.7) so ArtifactView gets `metadata.estimate`,
+                  // `metadata.schedule`, etc. as top-level keys on the artifact.
+                  const artifact = {
                     artifact_type: packageDoc.artifact_type ?? "cost_schedule_package",
                     artifact_id: packageDoc.artifact_id,
                     title: packageDoc.title,
                     summary: packageDoc.summary,
                     body_markdown: packageDoc.body_markdown,
-                    metadata: (packageDoc.metadata as Record<string, unknown>) ?? {},
-                    citations: [],
-                    confidence: 0,
+                    ...(packageDoc.metadata ?? {}),
                   };
                   return (
                     <ArtifactView
-                      artifact={artifactPayload}
+                      artifact={artifact}
                       mode="view"
                       approvalId={packageDoc.approval_id ?? undefined}
                     />
