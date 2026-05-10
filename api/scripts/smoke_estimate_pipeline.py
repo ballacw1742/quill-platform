@@ -375,49 +375,32 @@ def build_classifier_input(extraction_results: list[Any]) -> dict[str, Any]:
     }
 
 
+from app.services.estimator_input import build_estimator_input as _build_estimator_input  # noqa: E402
+
+
 def build_estimator_input(
     extraction_results: list[Any], classification_artifact: dict[str, Any]
 ) -> dict[str, Any]:
-    """Shape input per estimator-scheduler examples."""
-    pdf_extracts = []
-    ifc_extracts = []
-    for r in extraction_results:
-        if r.kind == "pdf":
-            pdf_extracts.append({
-                "filename": r.filename,
-                "page_count": r.entities.get("page_count", 0),
-                "extracted_text_excerpts": r.entities.get(
-                    "text_excerpts", []
-                )[:5],
-            })
-        elif r.kind == "ifc":
-            ifc_extracts.append({
-                "filename": r.filename,
-                "entities": r.entities,
-                "quantities": r.quantities,
-            })
+    """Shape input per estimator-scheduler examples.
 
-    meta = classification_artifact.get("metadata") or {}
-    return {
-        "project_label": "QPB1 \u2014 Smoke test concept site",
-        "approved_classification": {
-            "artifact_id": classification_artifact.get("artifact_id"),
-            "class": meta.get("class"),
-            "design_maturity_estimate_pct": meta.get(
-                "design_maturity_estimate_pct"
-            ),
-            "uploaded_files": meta.get("uploaded_files") or [],
-            "supporting_evidence": meta.get("supporting_evidence") or [],
-            "design_disciplines_detected": meta.get(
-                "design_disciplines_detected"
-            ) or [],
-            "missing_for_next_class": meta.get("missing_for_next_class") or [],
+    Delegates to the shared ``app.services.estimator_input`` module so that
+    both the smoke script and the estimator dispatcher use identical
+    input-building logic.  The output shape is unchanged.
+    """
+    return _build_estimator_input(
+        extraction_results,
+        classification_artifact,
+        project_label="QPB1 \u2014 Smoke test concept site",
+        project_context={
+            "project_type": "hyperscale_data_center",
+            "approximate_size_sf": 1_800_000,
+            "approximate_capacity_mw": 96,
+            "geographic_basis": "Central Ohio, USA",
+            "target_substantial_completion_date": "2029-09-30",
+            "shifts": "5x10",
+            "weather_calendar": "Central Ohio standard",
         },
-        "extracted_scope": {
-            "pdf": pdf_extracts,
-            "ifc": ifc_extracts,
-        },
-        "cost_library": {
+        cost_library={
             "version": "v0.1.0-smoke",
             "currency": "USD",
             "base_year": "2026",
@@ -434,16 +417,7 @@ def build_estimator_input(
                  "rate_year": 2026, "confidence": 0.5},
             ],
         },
-        "project_context": {
-            "project_type": "hyperscale_data_center",
-            "approximate_size_sf": 1_800_000,
-            "approximate_capacity_mw": 96,
-            "geographic_basis": "Central Ohio, USA",
-            "target_substantial_completion_date": "2029-09-30",
-            "shifts": "5x10",
-            "weather_calendar": "Central Ohio standard",
-        },
-    }
+    )
 
 
 # ---------------------------------------------------------------------------

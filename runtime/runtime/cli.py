@@ -366,5 +366,96 @@ def cmd_triage_replay(log_path: str, from_cursor: bool) -> None:
     )
 
 
+# ----------------------------------------------------------------------
+# `quill-runtime estimate` — estimator dispatcher daemon (Phase G.6)
+# ----------------------------------------------------------------------
+# Subcommand name rationale: ``estimate`` is preferred over ``estimator``
+# because it mirrors the verb used in the API route (``start_estimation``)
+# and the state machine status (``estimating``). It reads naturally:
+#   quill-runtime estimate start
+#   quill-runtime estimate status
+@main.group("estimate")
+def cmd_estimate() -> None:
+    """Estimator dispatcher — runs estimator-scheduler on classified estimates."""
+
+
+@cmd_estimate.command("start")
+@click.option(
+    "--poll-interval",
+    "poll_interval",
+    default=None,
+    type=float,
+    help="Seconds between polls. Defaults to ESTIMATE_POLL_INTERVAL_SECONDS or 10.",
+)
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to the JSON state file.",
+)
+def cmd_estimate_start(
+    poll_interval: float | None,
+    state_file: str | None,
+) -> None:
+    """Boot the EstimatorDispatcher daemon (foreground)."""
+    import os as _os
+    from pathlib import Path as _Path
+
+    from runtime.estimator_dispatcher import (
+        EstimatorDispatcher,
+        install_signal_handlers,
+    )
+
+    if poll_interval is None:
+        try:
+            poll_interval = float(
+                _os.environ.get("ESTIMATE_POLL_INTERVAL_SECONDS", "10")
+            )
+        except ValueError:
+            poll_interval = 10.0
+
+    cfg = get_config()
+    state_path = _Path(state_file) if state_file else None
+    dispatcher = EstimatorDispatcher(
+        config=cfg,
+        poll_interval_s=poll_interval,
+        state_file=state_path,
+    )
+    install_signal_handlers(dispatcher)
+
+    click.echo(
+        f"[estimate] starting poll={poll_interval}s api={cfg.queue_api_url}",
+        err=True,
+    )
+
+    async def _run() -> None:
+        await dispatcher.start()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        click.echo("[estimate] interrupted; shutting down", err=True)
+        sys.exit(0)
+
+
+@cmd_estimate.command("status")
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to the JSON state file.",
+)
+def cmd_estimate_status(state_file: str | None) -> None:
+    """Print the estimator dispatcher state (dispatched count, recent errors)."""
+    from pathlib import Path as _Path
+
+    from runtime.estimator_dispatcher import EstimatorDispatcher
+
+    state_path = _Path(state_file) if state_file else None
+    dispatcher = EstimatorDispatcher(state_file=state_path)
+    data = dispatcher.get_status_dict()
+    click.echo(json.dumps(data, indent=2, default=str))
+
+
 if __name__ == "__main__":
     main()
