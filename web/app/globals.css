@@ -149,6 +149,56 @@
     background-size: 100% 1px;
   }
 
+  /* Print styles — used by /print/artifact/[approval_id] */
+  @media print {
+    /* Hide nav, tab bars, buttons */
+    nav,
+    .no-print,
+    [role="tablist"],
+    .print\:hidden {
+      display: none !important;
+    }
+
+    /* Force white background */
+    body,
+    .print-root {
+      background: white !important;
+      color: black !important;
+    }
+
+    /* Show print-only elements */
+    .print-header {
+      display: block !important;
+    }
+
+    /* Force all sections open */
+    [aria-expanded="false"] + div {
+      display: block !important;
+    }
+
+    /* Page breaks */
+    section {
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    h2,
+    h3 {
+      page-break-after: avoid;
+      break-after: avoid;
+    }
+
+    /* Page margins and headers/footers */
+    @page {
+      margin: 2cm;
+      @bottom-center {
+        content: counter(page) " / " counter(pages);
+        font-size: 10pt;
+        color: #999;
+      }
+    }
+  }
+
   /* Reduced-motion: kill spring/slide animations entirely.
      DESIGN_SYSTEM §10 + §11 mandate this. */
   @media (prefers-reduced-motion: reduce) {

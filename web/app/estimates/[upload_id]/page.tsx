@@ -19,16 +19,17 @@ import { toast } from "sonner";
 import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useEstimateStatus, useStartEstimation } from "@/lib/api";
+import { useEstimateStatus, useStartEstimation, useDocument } from "@/lib/api";
 import { challengePasskey } from "@/lib/auth";
 import {
   AaceClassificationSchema,
+  CostSchedulePackageSchema,
   isEstimateInFlight,
   type AaceClassification,
   type EstimateStatus,
   type EstimateUploadFileEntry,
 } from "@/lib/schemas";
-import { useDocument } from "@/lib/api";
+import { ArtifactView } from "@/components/artifacts/ArtifactView";
 import { cn } from "@/lib/utils";
 
 /**
@@ -63,6 +64,7 @@ export default function EstimateProgressPage() {
   const packageId = status?.package_artifact_id ?? null;
 
   const { data: classificationDoc } = useDocument(classificationId);
+  const { data: packageDoc } = useDocument(packageId);
   const classification = React.useMemo<AaceClassification | null>(() => {
     if (!classificationDoc) return null;
     const parsed = AaceClassificationSchema.safeParse({
@@ -175,26 +177,45 @@ export default function EstimateProgressPage() {
               />
             )}
 
-            {/* Done state */}
+            {/* Package artifact view — shown when package is published */}
             {packageId && (
               <section className="px-4 pt-6">
-                <Link
-                  href={`/documents/${encodeURIComponent(packageId)}`}
-                  className="flex items-center gap-3 rounded-xl bg-accent/10 px-4 py-4 active:opacity-70 no-tap-highlight"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-md bg-accent/20 text-accent">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-title-3 text-label-primary">Estimate package</h2>
+                  <Link
+                    href={`/documents/${encodeURIComponent(packageId)}`}
+                    className="inline-flex items-center gap-1 text-callout text-accent no-tap-highlight active:opacity-70"
+                  >
                     <Sparkles className="h-4 w-4" />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-headline text-accent">
-                      View estimate package
-                    </div>
-                    <div className="text-callout text-label-secondary">
-                      Cost rows, schedule, risks, and basis are ready.
-                    </div>
+                    <span>Full doc</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </Link>
+                </div>
+                {packageDoc ? (() => {
+                  // Build the best artifact we can from the document.
+                  // API returns body_markdown + title/summary; metadata may be absent.
+                  const artifactPayload = {
+                    artifact_type: packageDoc.artifact_type ?? "cost_schedule_package",
+                    artifact_id: packageDoc.artifact_id,
+                    title: packageDoc.title,
+                    summary: packageDoc.summary,
+                    body_markdown: packageDoc.body_markdown,
+                    metadata: (packageDoc.metadata as Record<string, unknown>) ?? {},
+                    citations: [],
+                    confidence: 0,
+                  };
+                  return (
+                    <ArtifactView
+                      artifact={artifactPayload}
+                      mode="view"
+                      approvalId={packageDoc.approval_id ?? undefined}
+                    />
+                  );
+                })() : (
+                  <div className="rounded-xl bg-bg-tertiary px-4 py-6 text-center text-callout text-label-secondary animate-shimmer">
+                    Loading estimate package…
                   </div>
-                  <ChevronRight className="h-4 w-4 text-accent" />
-                </Link>
+                )}
               </section>
             )}
           </>

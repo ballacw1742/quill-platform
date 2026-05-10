@@ -8,7 +8,6 @@ import {
   ChevronDown,
   Clock,
   ExternalLink,
-  Pencil,
   X,
   History as HistoryIcon,
   Loader2,
@@ -23,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { BiometricPrompt } from "@/components/ui/biometric-prompt";
 import { EditPayloadDialog } from "@/components/approval/EditPayloadDialog";
 import { JsonBlock } from "@/components/approval/JsonBlock";
+import { ArtifactView } from "@/components/artifacts/ArtifactView";
 import { useApproval, useAudit, useDecide } from "@/lib/api";
 import type { ApprovalItem } from "@/lib/schemas";
 import { getChainOutputs } from "@/lib/schemas";
@@ -183,7 +183,6 @@ export function ApprovalDetailSheet({
     setPendingMode("approve");
     setBiometricOpen(true);
   };
-  const startEdit = () => setEditOpen(true);
   const startReject = () => setReasonOpen("reject");
   // Escalate is in the kebab menu (not the primary action bar).
 
@@ -357,14 +356,6 @@ export function ApprovalDetailSheet({
               <X className="h-4 w-4" /> Send back
             </Button>
             <Button
-              variant="secondary"
-              onClick={startEdit}
-              className="h-[50px] flex-1 rounded-lg text-headline"
-              disabled={decide.isPending}
-            >
-              <Pencil className="h-4 w-4" /> Edit &amp; approve
-            </Button>
-            <Button
               variant="default"
               onClick={startApprove}
               className="h-[50px] flex-[1.4] rounded-lg text-headline"
@@ -504,6 +495,23 @@ function DetailContent({
           <FlagChips item={item} />
         )}
       </section>
+
+      {/* ── Artifact renderer ────────────────────────────────────── */}
+      {(() => {
+        const artifact = (
+          item.proposed_action.payload as Record<string, unknown>
+        )?.artifact as Record<string, unknown> | undefined;
+        if (artifact?.artifact_type) {
+          return (
+            <ArtifactView
+              artifact={artifact}
+              mode="view"
+              approvalId={item.approval_id}
+            />
+          );
+        }
+        return null;
+      })()}
 
       {/* ── Live draft (chained agent outputs) — Phase F.1 ───────── */}
       {(() => {
