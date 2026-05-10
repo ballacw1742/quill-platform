@@ -458,6 +458,181 @@ async def test_export_md_after_package_approved(
 
 
 # ---------------------------------------------------------------------------
+# List endpoint
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_list_estimates_empty(client, owner_token):
+    user_id, token = owner_token
+    r = await client.get("/v1/estimates", headers=auth_h(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["items"] == []
+    assert body["total"] == 0
+    assert body["limit"] == 50
+    assert body["offset"] == 0
+
+
+@pytest.mark.asyncio
+async def test_list_estimates_returns_uploads(client, owner_token):
+    user_id, token = owner_token
+    pdf = _tiny_pdf()
+    # Upload two estimates with distinct labels.
+    r1 = await client.post(
+        "/v1/estimates/upload",
+        files={"files": ("a.pdf", pdf, "application/pdf")},
+        data={"project_label": "alpha"},
+        headers=auth_h(token),
+    )
+    assert r1.status_code == 201
+    upload_a = r1.json()["upload_id"]
+
+    r2 = await client.post(
+        "/v1/estimates/upload",
+        files={"files": ("b.pdf", pdf, "application/pdf")},
+        data={"project_label": "beta"},
+        headers=auth_h(token),
+    )
+    assert r2.status_code == 201
+    upload_b = r2.json()["upload_id"]
+
+    r = await client.get("/v1/estimates", headers=auth_h(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 2
+    assert len(body["items"]) == 2
+    upload_ids = {it["upload_id"] for it in body["items"]}
+    assert upload_a in upload_ids and upload_b in upload_ids
+    # Newest first — beta was uploaded second.
+    assert body["items"][0]["upload_id"] == upload_b
+    # Required response fields are present.
+    first = body["items"][0]
+    for key in (
+        "upload_id",
+        "project_label",
+        "notes",
+        "status",
+        "created_at",
+        "updated_at",
+        "classification_artifact_id",
+        "package_artifact_id",
+        "error_message",
+    ):
+        assert key in first
+
+
+@pytest.mark.asyncio
+async def test_list_estimates_filters_by_status(
+    client, session_maker, owner_token
+):
+    user_id, token = owner_token
+    pdf = _tiny_pdf()
+    r1 = await client.post(
+        "/v1/estimates/upload",
+        files={"files": ("a.pdf", pdf, "application/pdf")},
+        data={"project_label": "only-failed"},
+        headers=auth_h(token),
+    )
+    upload_a = r1.json()["upload_id"]
+
+    r2 = await client.post(
+        "/v1/estimates/upload",
+        files={"files": ("b.pdf", pdf, "application/pdf")},
+        data={"project_label": "keep-queued"},
+        headers=auth_h(token),
+    )
+    upload_b = r2.json()["upload_id"]
+
+    # Force one of them into a deterministic status.
+    async with session_maker() as s:
+        await estimates_service.mark_status(
+            s, upload_a, status="failed", error_message="boom"
+        )
+
+    r = await client.get(
+        "/v1/estimates?status=failed", headers=auth_h(token)
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["total"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["upload_id"] == upload_a
+    assert body["items"][0]["status"] == "failed"
+    assert body["items"][0]["error_message"] == "boom"
+
+    # And the unfiltered list still has both.
+    r_all = await client.get("/v1/estimates", headers=auth_h(token))
+    assert r_all.status_code == 200
+    assert r_all.json()["total"] == 2
+
+    # Unrelated status — empty.
+    r_done = await client.get(
+        "/v1/estimates?status=done", headers=auth_h(token)
+    )
+    assert r_done.status_code == 200
+    assert r_done.json()["total"] == 0
+    assert r_done.json()["items"] == []
+
+    # Make sure upload_b wasn't accidentally mutated.
+    r_status = await client.get(
+        f"/v1/estimates/{upload_b}/status", headers=auth_h(token)
+    )
+    assert r_status.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_list_estimates_paginates(client, owner_token):
+    user_id, token = owner_token
+    pdf = _tiny_pdf()
+    upload_ids: list[str] = []
+    for i in range(3):
+        r = await client.post(
+            "/v1/estimates/upload",
+            files={"files": (f"plan{i}.pdf", pdf, "application/pdf")},
+            data={"project_label": f"p{i}"},
+            headers=auth_h(token),
+        )
+        assert r.status_code == 201
+        upload_ids.append(r.json()["upload_id"])
+
+    r = await client.get(
+        "/v1/estimates?limit=2&offset=0", headers=auth_h(token)
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 3
+    assert body["limit"] == 2
+    assert body["offset"] == 0
+    assert len(body["items"]) == 2
+    # Newest two first (DESC by created_at) — last uploaded is upload_ids[2].
+    assert body["items"][0]["upload_id"] == upload_ids[2]
+    assert body["items"][1]["upload_id"] == upload_ids[1]
+
+    r2 = await client.get(
+        "/v1/estimates?limit=2&offset=2", headers=auth_h(token)
+    )
+    assert r2.status_code == 200
+    body2 = r2.json()
+    assert body2["total"] == 3
+    assert len(body2["items"]) == 1
+    assert body2["items"][0]["upload_id"] == upload_ids[0]
+
+
+@pytest.mark.asyncio
+async def test_list_estimates_rejects_invalid_status(client, owner_token):
+    user_id, token = owner_token
+    r = await client.get(
+        "/v1/estimates?status=bogus", headers=auth_h(token)
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_list_estimates_requires_auth(client):
+    r = await client.get("/v1/estimates")
+    assert r.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
 @pytest.mark.asyncio

@@ -366,5 +366,91 @@ def cmd_triage_replay(log_path: str, from_cursor: bool) -> None:
     )
 
 
+# ----------------------------------------------------------------------
+# `quill-runtime classify` — classification dispatcher daemon (Phase G.5)
+# ----------------------------------------------------------------------
+@main.group("classify")
+def cmd_classify() -> None:
+    """Classification dispatcher — runs design-classifier on queued estimates."""
+
+
+@cmd_classify.command("start")
+@click.option(
+    "--poll-interval",
+    "poll_interval",
+    default=None,
+    type=float,
+    help="Seconds between polls. Defaults to CLASSIFY_POLL_INTERVAL_SECONDS or 10.",
+)
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to the JSON state file.",
+)
+def cmd_classify_start(
+    poll_interval: float | None,
+    state_file: str | None,
+) -> None:
+    """Boot the ClassificationDispatcher daemon (foreground)."""
+    import os as _os
+    from pathlib import Path as _Path
+
+    from runtime.classification_dispatcher import (
+        ClassificationDispatcher,
+        install_signal_handlers,
+    )
+
+    if poll_interval is None:
+        try:
+            poll_interval = float(
+                _os.environ.get("CLASSIFY_POLL_INTERVAL_SECONDS", "10")
+            )
+        except ValueError:
+            poll_interval = 10.0
+
+    cfg = get_config()
+    state_path = _Path(state_file) if state_file else None
+    dispatcher = ClassificationDispatcher(
+        config=cfg,
+        poll_interval_s=poll_interval,
+        state_file=state_path,
+    )
+    install_signal_handlers(dispatcher)
+
+    click.echo(
+        f"[classify] starting poll={poll_interval}s api={cfg.queue_api_url}",
+        err=True,
+    )
+
+    async def _run() -> None:
+        await dispatcher.start()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        click.echo("[classify] interrupted; shutting down", err=True)
+        sys.exit(0)
+
+
+@cmd_classify.command("status")
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to the JSON state file.",
+)
+def cmd_classify_status(state_file: str | None) -> None:
+    """Print the classification dispatcher state (dispatched count, recent errors)."""
+    from pathlib import Path as _Path
+
+    from runtime.classification_dispatcher import ClassificationDispatcher
+
+    state_path = _Path(state_file) if state_file else None
+    dispatcher = ClassificationDispatcher(state_file=state_path)
+    data = dispatcher.get_status_dict()
+    click.echo(json.dumps(data, indent=2, default=str))
+
+
 if __name__ == "__main__":
     main()
