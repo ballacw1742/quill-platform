@@ -8,13 +8,20 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { HelpHint } from "@/components/ui/help-hint";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
-import { ApprovalRow } from "@/components/queue/ApprovalRow";
 import { FilterSheet, DEFAULT_FILTERS, type QueueFilterValue } from "@/components/queue/FilterSheet";
 import { ApprovalDetailSheet } from "@/components/queue/ApprovalDetailSheet";
+import { QueueCategoryGroup } from "@/components/queue/QueueCategoryGroup";
 import { useApprovals } from "@/lib/api";
 import type { ApprovalItem, Lane } from "@/lib/schemas";
 import { sortItemsForLane, LANE_META } from "@/components/queue/laneMeta";
 import { laneTabLabel } from "@/lib/agent-meta";
+import {
+  groupItemsByCategory,
+  loadExpandedCategories,
+  saveExpandedCategories,
+  computeInitialExpansion,
+  type QueueCategory,
+} from "@/lib/queue-categories";
 import { OnboardingOverlay } from "@/components/onboarding/OnboardingOverlay";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { SkelList } from "@/components/ui/skeletons";
@@ -58,6 +65,13 @@ export default function QueuePage() {
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [filterOpen, setFilterOpen] = React.useState(false);
   const [openId, setOpenId] = React.useState<string | null>(null);
+
+  // Category expansion state — keyed by display label.
+  // Initialised on first render from localStorage + default-expansion logic.
+  const [expandedCategories, setExpandedCategories] = React.useState<Set<string>>(
+    () => new Set<string>(),
+  );
+  const expansionInitialized = React.useRef(false);
 
   const agents = React.useMemo(
     () => Array.from(new Set(items.map((i) => i.agent_id))).sort(),
@@ -103,6 +117,58 @@ export default function QueuePage() {
 
   const totalPending = items.filter((i) => i.status === "pending").length;
   const activeRows = lanes[lane];
+
+  // Group active rows into categories.
+  const activeCategories = React.useMemo<QueueCategory[]>(
+    () => groupItemsByCategory(activeRows),
+    [activeRows],
+  );
+
+  // Initialise expansion state from localStorage once we have categories.
+  // Re-run whenever the lane or categories change so newly-pending items
+  // force-expand even mid-session.
+  React.useEffect(() => {
+    const stored = loadExpandedCategories();
+    const initial = computeInitialExpansion(activeCategories, stored);
+    setExpandedCategories((prev) => {
+      // On first load: use computed initial.
+      // On subsequent changes (lane switch, filter): merge — keep any
+      // manually-expanded cats the user set this session, but force-expand
+      // anything with pending items.
+      if (!expansionInitialized.current) {
+        expansionInitialized.current = true;
+        return initial;
+      }
+      const merged = new Set(prev);
+      for (const cat of activeCategories) {
+        if (cat.hasPending) merged.add(cat.label);
+      }
+      // Drop labels for categories that no longer exist in this lane view.
+      const validLabels = new Set(activeCategories.map((c) => c.label));
+      for (const label of merged) {
+        if (!validLabels.has(label)) merged.delete(label);
+      }
+      return merged;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lane, activeCategories.length]);
+
+  const toggleCategory = React.useCallback(
+    (label: string) => {
+      setExpandedCategories((prev) => {
+        const next = new Set(prev);
+        if (next.has(label)) {
+          next.delete(label);
+        } else {
+          next.add(label);
+        }
+        // Persist updated expansion state.
+        saveExpandedCategories(Array.from(next));
+        return next;
+      });
+    },
+    [],
+  );
 
   // Pull-to-refresh: rely on browser overscroll + an explicit refresh handler.
   const refresh = React.useCallback(
@@ -210,24 +276,24 @@ export default function QueuePage() {
           ) : activeRows.length === 0 ? (
             <EmptyLaneState lane={lane} />
           ) : (
-            <ul className="divide-y divide-separator/40 bg-bg-tertiary">
-              {activeRows.map((item) => (
-                <li key={item.approval_id}>
-                  <ApprovalRow
-                    item={item}
-                    onOpen={(id) => setOpenId(id)}
-                    onApprove={(id) => {
-                      // Swipe-approve still requires biometric; route through the
-                      // detail sheet's approve flow rather than minting an
-                      // unauthenticated mutation here. We open the sheet pre-
-                      // armed for approve; the sheet auto-fires the biometric.
-                      setOpenId(id);
-                    }}
-                    onReject={(id) => setOpenId(id)}
-                  />
-                </li>
+            <div className="divide-y divide-separator/20">
+              {activeCategories.map((category) => (
+                <QueueCategoryGroup
+                  key={category.label}
+                  category={category}
+                  open={expandedCategories.has(category.label)}
+                  onToggle={() => toggleCategory(category.label)}
+                  onOpen={(id) => setOpenId(id)}
+                  onApprove={(id) => {
+                    // Swipe-approve still requires biometric; route through the
+                    // detail sheet's approve flow rather than minting an
+                    // unauthenticated mutation here.
+                    setOpenId(id);
+                  }}
+                  onReject={(id) => setOpenId(id)}
+                />
               ))}
-            </ul>
+            </div>
           )}
         </div>
       </div>

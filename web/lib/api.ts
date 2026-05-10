@@ -8,6 +8,7 @@ import {
   type UseMutationOptions,
   type UseQueryOptions,
 } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { z } from "zod";
 import {
   AgentSchema,
@@ -49,9 +50,10 @@ export const USE_MOCK =
 const API_BASE =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(public status: number, msg: string) {
     super(msg);
+    this.name = "ApiError";
   }
 }
 
@@ -237,6 +239,21 @@ export function useDecide(opts?: UseMutationOptions<ApprovalItem, Error, DecideI
       qc.invalidateQueries({ queryKey: ["approval", data.approval_id] });
       qc.invalidateQueries({ queryKey: ["audit"] });
       qc.invalidateQueries({ queryKey: ["health"] });
+    },
+    onError: (e) => {
+      if (e instanceof ApiError) {
+        if (e.status === 409) {
+          // Item was already decided by another session — refresh and tell user.
+          toast.info("Already decided. Refreshing…");
+          void qc.invalidateQueries({ queryKey: ["approvals"] });
+          return;
+        }
+        if (e.status === 401) {
+          toast.error("Re-authentication required. Try the passkey again.");
+          return;
+        }
+      }
+      toast.error("Couldn't save your decision. Try again.");
     },
     ...opts,
   });
