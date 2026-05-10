@@ -223,12 +223,22 @@ export function useDecide(opts?: UseMutationOptions<ApprovalItem, Error, DecideI
           mockStore.decide(id, decision, { reason, edited_payload }),
         );
       }
-      return apiFetch(`/api/v1/approvals/${id}/decision`, {
+      // API enum is action-verb (approve|reject|escalate|edit_then_approve);
+      // UI internally uses past-tense status form. Map at the wire boundary.
+      const wireDecision =
+        decision === "approved"
+          ? edited_payload
+            ? "edit_then_approve"
+            : "approve"
+          : decision === "rejected"
+            ? "reject"
+            : "escalate";
+      return apiFetch(`/api/v1/approvals/${id}/decide`, {
         method: "POST",
         body: JSON.stringify({
-          decision,
-          reason,
-          edited_payload,
+          decision: wireDecision,
+          rejection_reason: reason,
+          edits: edited_payload,
           auth_assertion: passkey_assertion,
         }),
         schema: ApprovalItemSchema,
