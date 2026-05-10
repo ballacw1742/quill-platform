@@ -1,4 +1,4 @@
-.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay classify-dispatcher
+.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay classify-dispatcher estimator-dispatcher
 
 PY ?= python3
 VENV ?= .venv
@@ -139,3 +139,16 @@ triage-replay:
 		QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
 		AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
 		exec $(VENV)/bin/quill-runtime triage replay $${LOG:-mock-data/_state/dispatch.log}'
+
+# ---------------------------------------------------------------------------
+# Estimator dispatcher (Phase G.6)
+# ---------------------------------------------------------------------------
+# Runs the EstimatorDispatcher in the foreground. Reads .env so
+# QUILL_API_URL / AGENT_SHARED_SECRET / ESTIMATE_POLL_INTERVAL_SECONDS
+# are honored.
+estimator-dispatcher:
+	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
+		QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
+		AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
+		ESTIMATE_POLL_INTERVAL_SECONDS=$${ESTIMATE_POLL_INTERVAL_SECONDS:-10} \
+		exec $(VENV)/bin/quill-runtime estimate start'
