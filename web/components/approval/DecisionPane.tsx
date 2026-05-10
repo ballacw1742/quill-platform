@@ -220,24 +220,26 @@ export function DecisionPane({ item }: { item: ApprovalItem }) {
             actionIntent={intent}
             destructive={mode === "reject"}
             onConfirm={async (assertion) => {
-              await decide.mutateAsync(
-                {
-                  id: item.approval_id,
-                  decision: wire,
-                  reason:
-                    wire === "approved" ? undefined : reason || undefined,
-                  edited_payload: editedPayload ?? undefined,
-                  passkey_assertion: assertion?.auth_assertion,
-                },
-                {
-                  onError: (e) => {
-                    // eslint-disable-next-line no-console
-                    console.error("decision failed", e);
-                    toast.error("Couldn't save your decision. Try again.");
+              try {
+                await decide.mutateAsync(
+                  {
+                    id: item.approval_id,
+                    decision: wire,
+                    reason:
+                      wire === "approved" ? undefined : reason || undefined,
+                    edited_payload: editedPayload ?? undefined,
+                    passkey_assertion: assertion?.auth_assertion,
                   },
-                },
-              );
-              finish(verb + "ed");
+                  {
+                    onSuccess: () => finish(verb + "ed"),
+                    // Error toast is handled centrally by useDecide's onError.
+                  },
+                );
+              } catch (e) {
+                // useDecide.onError already showed the differentiated toast.
+                // eslint-disable-next-line no-console
+                console.error("decision failed", e);
+              }
             }}
           />
         );

@@ -236,24 +236,27 @@ export function ApprovalDetailSheet({
           ? "rejected"
           : "escalated";
     try {
-      await decide.mutateAsync({
-        id: item.approval_id,
-        decision: wire,
-        reason:
-          wire === "approved" ? undefined : reason || undefined,
-        edited_payload: editedPayload ?? undefined,
-        passkey_assertion: assertion?.auth_assertion,
-      });
-      toast.success(
-        `${wire === "approved" ? "Approved" : wire === "rejected" ? "Rejected" : "Escalated"} ${item.approval_id.slice(0, 16)}…`,
+      await decide.mutateAsync(
+        {
+          id: item.approval_id,
+          decision: wire,
+          reason: wire === "approved" ? undefined : reason || undefined,
+          edited_payload: editedPayload ?? undefined,
+          passkey_assertion: assertion?.auth_assertion,
+        },
+        {
+          onSuccess: () => {
+            // Per COPY_GUIDE: brief, direct confirmation.
+            toast.success("Decision saved.");
+            onClose();
+          },
+          // Error toast is handled centrally by useDecide's onError in api.ts.
+        },
       );
-      onClose();
     } catch (e) {
-      // Plain-English (COPY_GUIDE): never surface raw API errors. Log the
-      // detail for the developer console; show the user a friendly line.
+      // useDecide.onError already showed a differentiated toast; just log.
       // eslint-disable-next-line no-console
       console.error("approval decision failed", e);
-      toast.error("Couldn't save your decision. Try again.");
     }
   };
 
