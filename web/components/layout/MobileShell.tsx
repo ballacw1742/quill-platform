@@ -121,15 +121,19 @@ export function TopBar({
           hero ? "min-h-[64px] pb-2 pt-3" : "min-h-[44px]",
         )}
       >
-        <div className="flex w-12 items-center justify-start">{left}</div>
-        <div className="flex flex-1 items-center justify-center min-w-0">
+        <div className="flex shrink-0 max-w-[40%] items-center justify-start min-w-[44px] overflow-hidden">
+          {left}
+        </div>
+        <div className="flex flex-1 items-center justify-center min-w-0 px-2">
           {!hero && title && (
-            <span className="truncate text-headline text-label-primary">
+            <span className="truncate text-headline text-label-primary text-center">
               {title}
             </span>
           )}
         </div>
-        <div className="flex w-12 items-center justify-end">{right}</div>
+        <div className="flex shrink-0 max-w-[40%] items-center justify-end min-w-[44px] overflow-hidden">
+          {right}
+        </div>
       </div>
       {hero && (title || subtitle) && (
         <div className="px-4 pb-3">
@@ -245,7 +249,7 @@ export function BackButton({
       type="button"
       onClick={handleClick}
       aria-label={label}
-      className="-ml-2 flex min-h-[44px] min-w-[44px] items-center gap-1 rounded-md px-2 text-accent active:opacity-60 no-tap-highlight"
+      className="-ml-2 flex min-h-[44px] min-w-[44px] max-w-full items-center gap-1 rounded-md px-2 text-accent active:opacity-60 no-tap-highlight"
     >
       <svg
         viewBox="0 0 12 22"
@@ -259,7 +263,7 @@ export function BackButton({
       >
         <polyline points="11,2 2,11 11,20" />
       </svg>
-      <span className="text-body">{label}</span>
+      <span className="text-body truncate">{label}</span>
     </button>
   );
 }

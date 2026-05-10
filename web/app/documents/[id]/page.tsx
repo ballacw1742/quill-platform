@@ -265,7 +265,6 @@ function ActionBar({
   onExport: () => void;
   onShare: () => void;
 }) {
-  const drivePending = !driveUrl;
   return (
     <div
       className={cn(
@@ -277,14 +276,15 @@ function ActionBar({
       )}
     >
       <div className="flex items-stretch gap-2 pb-3">
-        <ActionButton
-          icon={<ExternalLink className="h-4 w-4" />}
-          label={drivePending ? "Drive link uploading\u2026" : "Open in Drive"}
-          onClick={() => {
-            if (driveUrl) window.open(driveUrl, "_blank", "noopener,noreferrer");
-          }}
-          disabled={drivePending}
-        />
+        {driveUrl && (
+          <ActionButton
+            icon={<ExternalLink className="h-4 w-4" />}
+            label="Open in Drive"
+            onClick={() => {
+              window.open(driveUrl, "_blank", "noopener,noreferrer");
+            }}
+          />
+        )}
         <ActionButton
           icon={<Download className="h-4 w-4" />}
           label="Export"
