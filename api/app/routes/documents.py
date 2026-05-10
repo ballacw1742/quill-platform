@@ -66,6 +66,9 @@ def _to_full(d: Document) -> DocumentOut:
             "tags": list(d.tags or []),
             "drive_url": d.drive_url,
             "minio_path": d.minio_path,
+            # Sprint G.7: surface the full artifact payload. Document.meta is
+            # the Python attribute; DocumentOut.metadata is the schema field.
+            "metadata": d.meta,
         }
     )
 

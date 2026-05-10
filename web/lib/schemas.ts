@@ -340,7 +340,7 @@ export const DocumentSummarySchema = z
     tags: z.array(z.string()).optional().default([]),
     drive_url: z.string().nullable().optional(),
     // Some metadata may be carried for typing process docs (SOP / RACI / etc.)
-    metadata: z.record(z.any()).optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .passthrough();
 export type DocumentSummary = z.infer<typeof DocumentSummarySchema>;
@@ -366,7 +366,9 @@ export const DocumentSchema = z
     tags: z.array(z.string()).optional().default([]),
     drive_url: z.string().nullable().optional(),
     minio_path: z.string().nullable().optional(),
-    metadata: z.record(z.any()).optional(),
+    // Full artifact payload (Sprint G.7). Nullable because existing docs
+    // pre-dating this sprint have NULL metadata until backfilled.
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .passthrough();
 export type Document = z.infer<typeof DocumentSchema>;

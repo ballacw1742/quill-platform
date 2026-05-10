@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.enums import (
     Decision,
@@ -317,6 +317,36 @@ class DocumentOut(_Base):
     tags: list[str] = Field(default_factory=list)
     drive_url: str | None = None
     minio_path: str | None = None
+    # Full artifact payload (Sprint G.7). Sourced from Document.meta column.
+    # Kept out of DocumentSummary to avoid bloating list responses.
+    metadata: dict[str, Any] | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_meta_to_metadata(cls, data: Any) -> Any:  # noqa: ANN401
+        """Bridge Document.meta (ORM attr) → DocumentOut.metadata (schema field).
+
+        The ORM column is stored as `meta` because SQLAlchemy's DeclarativeBase
+        already uses `metadata` for the class-level MetaData object. This
+        validator transparently lifts it to `metadata` for API consumers.
+        """
+        if isinstance(data, dict):
+            return data
+        # ORM model instance or any object with a `meta` attribute.
+        if hasattr(data, "meta"):
+            # Build a plain dict from the mapper's column attributes, then
+            # inject `metadata` from `meta`.
+            try:
+                mapper = data.__class__.__mapper__  # type: ignore[attr-defined]
+                row: dict[str, Any] = {}
+                for attr in mapper.column_attrs:
+                    row[attr.key] = getattr(data, attr.key, None)
+                # `meta` is the Python attr; `metadata` is the schema field name.
+                row["metadata"] = row.pop("meta", None)
+                return row
+            except Exception:  # noqa: BLE001
+                pass
+        return data
 
 
 class DocumentSummary(_Base):
