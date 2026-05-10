@@ -714,7 +714,17 @@ export const CostSchedulePackageMetadataSchema = z
   .object({
     project_label: z.string().default(""),
     aace_class: AaceClassEnumSchema,
-    schedule_level: z.number().int().min(1).max(5).default(1),
+    // schedule_level may be either an integer (1..5) or a string like
+    // "Level 1" / "L1" depending on the agent run. Normalize to an int 1..5.
+    schedule_level: z
+      .union([z.number(), z.string()])
+      .transform((v) => {
+        if (typeof v === "number") return v;
+        const m = String(v).match(/(\d+)/);
+        return m ? parseInt(m[1], 10) : 1;
+      })
+      .pipe(z.number().int().min(1).max(5))
+      .default(1),
     currency: z.string().default("USD"),
     base_year: z.string().default("2026"),
     estimate: EstimateBlockSchema,

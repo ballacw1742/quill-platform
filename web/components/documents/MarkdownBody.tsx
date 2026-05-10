@@ -110,19 +110,33 @@ export function MarkdownBody({
           ),
           hr: () => <hr className="my-2 border-separator/40" />,
           table: ({ children }) => (
-            <div className="overflow-x-auto rounded-md border border-separator/40">
-              <table className="w-full border-collapse text-callout">
+            <div
+              className="overflow-x-auto overscroll-x-contain -mx-4 px-4 scrollbar-thin print:overflow-visible print:mx-0 print:px-0"
+              style={{ WebkitOverflowScrolling: "touch" as never }}
+            >
+              <table
+                className={
+                  "w-max border-separate border-spacing-0 text-callout print:w-full " +
+                  // Pin first column so the row label stays visible on swipe
+                  "[&_th:first-child]:sticky [&_th:first-child]:left-0 [&_th:first-child]:z-10 [&_th:first-child]:bg-bg " +
+                  "[&_th:first-child]:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)] print:[&_th:first-child]:shadow-none " +
+                  "[&_td:first-child]:sticky [&_td:first-child]:left-0 [&_td:first-child]:z-10 [&_td:first-child]:bg-bg " +
+                  "[&_td:first-child]:shadow-[2px_0_4px_-2px_rgba(0,0,0,0.06)] print:[&_td:first-child]:shadow-none " +
+                  "[&_td:first-child]:min-w-[160px] [&_td:first-child]:max-w-[260px] " +
+                  "[&_th:first-child]:min-w-[160px]"
+                }
+              >
                 {children}
               </table>
             </div>
           ),
           th: ({ children }) => (
-            <th className="border-b border-separator/40 bg-bg-elevated px-3 py-2 text-left text-footnote font-semibold uppercase tracking-wider text-label-secondary">
+            <th className="border-b border-separator/40 bg-bg-elevated px-3 py-2.5 text-left text-footnote font-semibold uppercase tracking-wider text-label-secondary whitespace-nowrap">
               {children}
             </th>
           ),
           td: ({ children }) => (
-            <td className="border-b border-separator/40 px-3 py-2 text-label-primary">
+            <td className="border-b border-separator/20 px-3 py-3 text-label-primary align-top whitespace-normal">
               {children}
             </td>
           ),
