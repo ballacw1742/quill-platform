@@ -272,38 +272,43 @@ export function CostSchedulePackageView({
 
 const COST_COLUMNS: DataTableColumn<Record<string, unknown>>[] = [
   {
+    key: "description",
+    label: "Description",
+    className: "min-w-[200px] max-w-[280px] whitespace-normal",
+    sticky: true,
+  },
+  {
     key: "csi_section",
     label: "CSI",
-    className: "w-20 font-mono text-label-tertiary",
+    className: "w-20 font-mono text-label-tertiary whitespace-nowrap",
   },
-  { key: "description", label: "Description", className: "min-w-[140px]" },
   {
     key: "quantity",
     label: "Qty",
-    className: "text-right tabular-nums",
+    className: "text-right tabular-nums whitespace-nowrap",
     render: (r) => (
       <span className="tabular-nums">
         {r.quantity != null ? Number(r.quantity).toLocaleString() : "—"}
       </span>
     ),
   },
-  { key: "unit", label: "Unit", className: "w-12" },
+  { key: "unit", label: "Unit", className: "w-14 whitespace-nowrap" },
   {
     key: "unit_rate_usd",
     label: "Rate",
-    className: "text-right tabular-nums",
+    className: "text-right tabular-nums whitespace-nowrap",
     render: (r) => formatUSD(r.unit_rate_usd as number),
   },
   {
     key: "extended_usd",
     label: "Total",
-    className: "text-right tabular-nums font-medium",
+    className: "text-right tabular-nums font-medium whitespace-nowrap",
     render: (r) => formatUSD(r.extended_usd as number),
   },
   {
     key: "confidence",
     label: "Conf.",
-    className: "text-right tabular-nums",
+    className: "text-right tabular-nums whitespace-nowrap",
     render: (r) =>
       r.confidence != null
         ? `${Math.round((r.confidence as number) * 100)}%`
