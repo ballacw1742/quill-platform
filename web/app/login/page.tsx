@@ -62,6 +62,10 @@ export default function LoginPage() {
 
   const [passkeyPending, setPasskeyPending] = React.useState(false);
   const [registerOpen, setRegisterOpen] = React.useState(false);
+  // After password sign-in, we force users without a passkey to register one
+  // before unlocking the rest of the app. This flag remembers we entered that
+  // forced flow so the dialog's onRegistered handler redirects on completion.
+  const [forcedEnroll, setForcedEnroll] = React.useState(false);
 
   React.useEffect(() => {
     if (session) router.replace("/queue");
@@ -128,8 +132,51 @@ export default function LoginPage() {
     passwordLogin.mutate(
       { email: values.email, password: values.password },
       {
-        onSuccess: () => {
+        onSuccess: async (result) => {
           rememberEmail(values.email);
+          // Persist the JWT so subsequent API calls (incl. the passkey
+          // credentials check below + the registration flow) carry auth.
+          const token = (result as { access_token?: string }).access_token;
+          if (typeof window !== "undefined") {
+            if (token) {
+              window.localStorage.setItem("quill_session_token", token);
+            }
+            window.localStorage.setItem("quill.session", JSON.stringify(result));
+          }
+
+          // Check if the user has any passkeys. If not, force enrollment
+          // before we let them into the app.
+          let needsEnroll = true;
+          try {
+            const apiBase =
+              (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
+            const resp = await fetch(
+              `${apiBase}/api/v1/auth/passkey/credentials`,
+              {
+                method: "GET",
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                credentials: "include",
+              },
+            );
+            if (resp.ok) {
+              const creds = (await resp.json()) as unknown[];
+              needsEnroll = Array.isArray(creds) ? creds.length === 0 : true;
+            }
+          } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn("passkey credentials check failed; forcing enrollment", e);
+          }
+
+          if (needsEnroll && isPasskeySupported()) {
+            toast.message(
+              "Set up a passkey to finish signing in.",
+              { description: "Passkeys replace the password on this device." },
+            );
+            setForcedEnroll(true);
+            setRegisterOpen(true);
+            return;
+          }
+
           toast.success("Signed in");
           router.replace("/queue");
         },
@@ -223,50 +270,73 @@ export default function LoginPage() {
           )}
 
           {DEV_FALLBACK && (
-            <details className="group rounded-lg bg-bg-elevated px-4 py-3">
-              <summary className="flex cursor-pointer list-none items-center justify-between text-footnote text-label-secondary">
-                <span>Developer sign-in</span>
-                <span className="text-label-tertiary group-open:rotate-90 transition-transform">
-                  ›
-                </span>
-              </summary>
-              <div className="mt-3 space-y-3">
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="password"
-                    className="block text-subhead text-label-secondary"
-                  >
-                    Password
-                  </label>
-                  <Input
-                    id="password"
-                    type="password"
-                    autoComplete="current-password"
-                    placeholder="quill-dev-password"
-                    className="h-11 rounded-md bg-bg-tertiary text-body"
-                    {...form.register("password")}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  variant="secondary"
-                  className="h-11 w-full rounded-md text-headline"
-                  disabled={passwordLogin.isPending}
-                >
-                  {passwordLogin.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : null}
-                  Sign in (dev)
-                </Button>
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-3">
+                <div className="h-px flex-1 bg-separator/40" aria-hidden="true" />
+                <span className="text-footnote text-label-tertiary">or</span>
+                <div className="h-px flex-1 bg-separator/40" aria-hidden="true" />
               </div>
-            </details>
+
+              <div className="space-y-1.5">
+                <label
+                  htmlFor="password"
+                  className="block text-subhead text-label-secondary"
+                >
+                  Password
+                </label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  placeholder="Enter your password"
+                  className="h-[50px] rounded-lg border-separator-opaque bg-bg-tertiary text-body"
+                  {...form.register("password")}
+                />
+              </div>
+              <Button
+                type="submit"
+                variant="secondary"
+                className="h-[50px] w-full rounded-lg text-headline"
+                disabled={passwordLogin.isPending}
+              >
+                {passwordLogin.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Signing in…
+                  </>
+                ) : (
+                  "Sign in with password"
+                )}
+              </Button>
+              <p className="text-caption-1 text-label-tertiary text-center">
+                After signing in, you’ll be asked to set up a passkey for future
+                logins.
+              </p>
+            </div>
           )}
         </form>
       </div>
 
       <RegisterPasskeyDialog
         open={registerOpen}
-        onOpenChange={setRegisterOpen}
+        onOpenChange={(v) => {
+          setRegisterOpen(v);
+          // If the user closes the forced-enroll dialog without registering,
+          // they're not actually signed in for production use — clear the
+          // session so they have to try again. (Stays in localStorage for the
+          // duration of the dialog so the registration call can authenticate.)
+          if (!v && forcedEnroll) {
+            setForcedEnroll(false);
+          }
+        }}
+        onRegistered={() => {
+          if (forcedEnroll) {
+            setForcedEnroll(false);
+            setRegisterOpen(false);
+            toast.success("Passkey set up. Signing you in…");
+            router.replace("/queue");
+          }
+        }}
       />
     </main>
   );
