@@ -191,10 +191,12 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen flex-col bg-bg pt-safe pb-safe">
-      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6 py-6">
-        {/* Quill mark — large, centered. Sized so it anchors the screen on
-            mobile without crowding the form. */}
-        <div className="mb-8 flex flex-col items-center gap-3">
+      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col px-6 pt-12 pb-8">
+        {/* Quill mark — anchored near the top with breathing room. We don't
+            vertically center the whole stack because on tall phones it ends up
+            floating in the bottom half; visually heavier near the top reads as
+            'app launching' (matches iOS app first-run UX). */}
+        <div className="mb-10 flex flex-col items-center gap-3">
           <QuillLogo size={120} className="drop-shadow-md" />
           <span className="text-title-1 font-semibold tracking-tight text-label-primary">
             Quill
