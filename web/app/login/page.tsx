@@ -192,7 +192,7 @@ export default function LoginPage() {
             type="button"
             onClick={onPasskey}
             disabled={!passkeyAvailable || passkeyPending}
-            className="h-[50px] w-full rounded-lg text-headline"
+            className="h-[50px] w-full rounded-lg text-headline text-white"
           >
             {passkeyPending ? (
               <>
