@@ -65,13 +65,18 @@ export function UploadEstimateSheet({
   const upload = useUploadEstimate();
 
   // Reset transient state when the sheet closes.
+  // NB: depending on the entire `upload` mutation object causes an infinite
+  // re-render loop — useMutation returns a new object identity each render,
+  // so listing it as a dep retriggers the effect every cycle. Pin to `open`
+  // only; the mutation's reset method is stable across renders.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   React.useEffect(() => {
     if (!open) {
       setExtensionError(null);
       setDragOver(false);
       upload.reset();
     }
-  }, [open, upload]);
+  }, [open]);
 
   const totalBytes = files.reduce((n, f) => n + (f.size || 0), 0);
   const hasUnsupportedFormatWarning = files.some(
