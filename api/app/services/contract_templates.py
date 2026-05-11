@@ -39,7 +39,22 @@ def _templates_dir() -> Path:
     env_val = os.environ.get("CONTRACTS_TEMPLATES_PATH")
     if env_val:
         return Path(env_val).resolve()
-    # Walk up from this file: api/app/services/ → api/app/ → api/ → quill-platform/
+    # The agentic-pmo-prompts repo is a SIBLING of quill-platform under
+    # the OpenClaw workspace, not a subdirectory. Walk up to the workspace
+    # parent so we resolve to .../.openclaw/workspace/agentic-pmo-prompts/.
+    # Path layout:
+    #   api/app/services/contract_templates.py
+    #     parents[0] = services/
+    #     parents[1] = app/
+    #     parents[2] = api/
+    #     parents[3] = quill-platform/  (repo root)
+    #     parents[4] = .openclaw/workspace/  (sibling of agentic-pmo-prompts)
+    workspace_root = Path(__file__).resolve().parents[4]
+    candidate = (workspace_root / "agentic-pmo-prompts" / "templates" / "contracts").resolve()
+    if candidate.exists():
+        return candidate
+    # Fallback: legacy expectation that the prompts repo is nested under the
+    # platform repo (kept for resilience in case of unusual layouts).
     repo_root = Path(__file__).resolve().parents[3]
     return (repo_root / "agentic-pmo-prompts" / "templates" / "contracts").resolve()
 

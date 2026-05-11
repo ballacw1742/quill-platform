@@ -248,6 +248,47 @@ async def list_contracts_route(
 
 
 # ---------------------------------------------------------------------------
+# Contracts.3 — GET /templates  (declared BEFORE /{upload_id} so FastAPI's
+# greedy path matcher doesn't route 'templates' as an upload_id)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/templates",
+    response_model=ContractTemplateListResponse,
+    summary="List available contract templates",
+)
+async def list_templates_route(
+    user: Any = Depends(get_current_user),  # noqa: ARG001
+) -> ContractTemplateListResponse:
+    """Return metadata for all available contract templates."""
+    from app.services.contract_templates import list_templates
+
+    items_raw = list_templates()
+    items = [ContractTemplateOut(**t) for t in items_raw]
+    return ContractTemplateListResponse(items=items, total=len(items))
+
+
+# ---------------------------------------------------------------------------
+# Contracts.3 — GET /templates/{template_id}
+# ---------------------------------------------------------------------------
+@router.get(
+    "/templates/{template_id}",
+    response_model=ContractTemplateOut,
+    summary="Get a single contract template",
+)
+async def get_template_route(
+    template_id: str,
+    user: Any = Depends(get_current_user),  # noqa: ARG001
+) -> ContractTemplateOut:
+    """Return frontmatter + body for a single template."""
+    from app.services.contract_templates import get_template
+
+    tmpl = get_template(template_id)
+    if tmpl is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, f"template {template_id!r} not found")
+    return ContractTemplateOut(**tmpl)
+
+
+# ---------------------------------------------------------------------------
 # GET /{upload_id}
 # ---------------------------------------------------------------------------
 @router.get(
@@ -637,46 +678,6 @@ async def list_interpretations_route(
         for r in rows
     ]
     return ContractInterpretationListPage(items=items, total=total)
-
-
-# ---------------------------------------------------------------------------
-# Contracts.3 — GET /templates
-# ---------------------------------------------------------------------------
-@router.get(
-    "/templates",
-    response_model=ContractTemplateListResponse,
-    summary="List available contract templates",
-)
-async def list_templates_route(
-    user: Any = Depends(get_current_user),  # noqa: ARG001
-) -> ContractTemplateListResponse:
-    """Return metadata for all available contract templates."""
-    from app.services.contract_templates import list_templates
-
-    items_raw = list_templates()
-    items = [ContractTemplateOut(**t) for t in items_raw]
-    return ContractTemplateListResponse(items=items, total=len(items))
-
-
-# ---------------------------------------------------------------------------
-# Contracts.3 — GET /templates/{template_id}
-# ---------------------------------------------------------------------------
-@router.get(
-    "/templates/{template_id}",
-    response_model=ContractTemplateOut,
-    summary="Get a single contract template",
-)
-async def get_template_route(
-    template_id: str,
-    user: Any = Depends(get_current_user),  # noqa: ARG001
-) -> ContractTemplateOut:
-    """Return frontmatter + body for a single template."""
-    from app.services.contract_templates import get_template
-
-    tmpl = get_template(template_id)
-    if tmpl is None:
-        raise HTTPException(http_status.HTTP_404_NOT_FOUND, f"template {template_id!r} not found")
-    return ContractTemplateOut(**tmpl)
 
 
 # ---------------------------------------------------------------------------

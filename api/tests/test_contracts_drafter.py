@@ -12,7 +12,7 @@ Covers:
 
 from __future__ import annotations
 
-import os
+import io
 import uuid
 from typing import Any
 
@@ -52,9 +52,10 @@ _DRAFT_REQUEST_BODY: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_list_templates_returns_at_least_10(client):
+async def test_list_templates_returns_at_least_10(client, owner_token):
     """List templates endpoint returns at least 10 entries with valid frontmatter."""
-    resp = await client.get("/api/v1/contracts/templates", headers=auth_h())
+    _, token = owner_token
+    resp = await client.get("/v1/contracts/templates", headers=auth_h(token))
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert "items" in data
@@ -68,8 +69,9 @@ async def test_list_templates_returns_at_least_10(client):
 
 
 @pytest.mark.asyncio
-async def test_list_templates_items_match_total(client):
-    resp = await client.get("/api/v1/contracts/templates", headers=auth_h())
+async def test_list_templates_items_match_total(client, owner_token):
+    _, token = owner_token
+    resp = await client.get("/v1/contracts/templates", headers=auth_h(token))
     assert resp.status_code == 200
     data = resp.json()
     assert data["total"] == len(data["items"])
@@ -80,28 +82,28 @@ async def test_list_templates_items_match_total(client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_get_template_found(client):
+async def test_get_template_found(client, owner_token):
     """Single-template endpoint returns frontmatter + body."""
-    # First get the list to find a real template_id
-    list_resp = await client.get("/api/v1/contracts/templates", headers=auth_h())
+    _, token = owner_token
+    list_resp = await client.get("/v1/contracts/templates", headers=auth_h(token))
     assert list_resp.status_code == 200
     items = list_resp.json()["items"]
     assert items, "No templates found"
 
     tid = items[0]["template_id"]
-    resp = await client.get(f"/api/v1/contracts/templates/{tid}", headers=auth_h())
+    resp = await client.get(f"/v1/contracts/templates/{tid}", headers=auth_h(token))
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["template_id"] == tid
-    # body should be present (may be empty string but key exists)
     assert "body" in data
 
 
 @pytest.mark.asyncio
-async def test_get_template_not_found(client):
+async def test_get_template_not_found(client, owner_token):
     """Returns 404 for unknown template_id."""
+    _, token = owner_token
     resp = await client.get(
-        "/api/v1/contracts/templates/does-not-exist-xyz", headers=auth_h()
+        "/v1/contracts/templates/does-not-exist-xyz", headers=auth_h(token)
     )
     assert resp.status_code == 404
 
@@ -111,12 +113,13 @@ async def test_get_template_not_found(client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_create_draft_request_201(client):
+async def test_create_draft_request_201(client, owner_token):
     """Draft creation returns 201 with correct fields."""
+    _, token = owner_token
     resp = await client.post(
-        "/api/v1/contracts/draft",
+        "/v1/contracts/draft",
         json=_DRAFT_REQUEST_BODY,
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert resp.status_code == 201, resp.text
     data = resp.json()
@@ -129,12 +132,13 @@ async def test_create_draft_request_201(client):
 
 
 @pytest.mark.asyncio
-async def test_create_draft_request_db_row(client, session_maker):
+async def test_create_draft_request_db_row(client, owner_token, session_maker):
     """Draft creation persists correct Contract row to DB."""
+    _, token = owner_token
     resp = await client.post(
-        "/api/v1/contracts/draft",
+        "/v1/contracts/draft",
         json=_DRAFT_REQUEST_BODY,
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert resp.status_code == 201
     upload_id = resp.json()["upload_id"]
@@ -153,13 +157,14 @@ async def test_create_draft_request_db_row(client, session_maker):
 
 
 @pytest.mark.asyncio
-async def test_create_draft_negotiated_mode(client):
+async def test_create_draft_negotiated_mode(client, owner_token):
     """Negotiated mode (no template_id) works too."""
+    _, token = owner_token
     body = {**_DRAFT_REQUEST_BODY, "mode": "negotiated", "template_id": None}
     resp = await client.post(
-        "/api/v1/contracts/draft",
+        "/v1/contracts/draft",
         json=body,
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert resp.status_code == 201
     data = resp.json()
@@ -172,27 +177,28 @@ async def test_create_draft_negotiated_mode(client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_redraft_creates_new_row(client, session_maker):
+async def test_redraft_creates_new_row(client, owner_token, session_maker):
     """Redraft creates a new Contract row linked by prior_contract_upload_id."""
+    _, token = owner_token
     # Create parent
     parent_resp = await client.post(
-        "/api/v1/contracts/draft",
+        "/v1/contracts/draft",
         json=_DRAFT_REQUEST_BODY,
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert parent_resp.status_code == 201
     parent_upload_id = parent_resp.json()["upload_id"]
 
     # Redraft
     resp = await client.post(
-        f"/api/v1/contracts/{parent_upload_id}/redraft",
+        f"/v1/contracts/{parent_upload_id}/redraft",
         json={
             "revision_notes": "Add liquidated damages clause",
             "key_terms_overrides": [
                 {"topic": "liquidated_damages", "requirement": "$500/day"},
             ],
         },
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert resp.status_code == 201, resp.text
     new_upload_id = resp.json()["upload_id"]
@@ -210,12 +216,13 @@ async def test_redraft_creates_new_row(client, session_maker):
 
 
 @pytest.mark.asyncio
-async def test_redraft_not_found(client):
+async def test_redraft_not_found(client, owner_token):
     """Redraft 404 on unknown upload_id."""
+    _, token = owner_token
     resp = await client.post(
-        f"/api/v1/contracts/{uuid.uuid4()}/redraft",
+        f"/v1/contracts/{uuid.uuid4()}/redraft",
         json={"revision_notes": "test"},
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert resp.status_code == 404
 
@@ -225,19 +232,20 @@ async def test_redraft_not_found(client):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_dispatch_draft_200(client):
+async def test_dispatch_draft_200(client, owner_token):
     """dispatch_draft returns 200 for a contract in 'drafting' status."""
+    _, token = owner_token
     create_resp = await client.post(
-        "/api/v1/contracts/draft",
+        "/v1/contracts/draft",
         json=_DRAFT_REQUEST_BODY,
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert create_resp.status_code == 201
     upload_id = create_resp.json()["upload_id"]
 
     resp = await client.post(
-        f"/api/v1/contracts/{upload_id}/dispatch_draft",
-        headers=auth_h(),
+        f"/v1/contracts/{upload_id}/dispatch_draft",
+        headers=auth_h(token),
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -246,49 +254,49 @@ async def test_dispatch_draft_200(client):
 
 
 @pytest.mark.asyncio
-async def test_dispatch_draft_409_wrong_source(client):
+async def test_dispatch_draft_409_wrong_source(client, owner_token, tmp_path, monkeypatch):
     """dispatch_draft returns 409 when source != 'drafted'."""
-    import io
+    _, token = owner_token
 
-    # Create an uploaded (not drafted) contract
-    from app.services.contracts import service as contracts_service
-    from app.db import SessionLocal
+    # Monkeypatch blob write to avoid filesystem side effects
+    import app.services.contracts as contracts_svc
+    monkeypatch.setattr(contracts_svc, "_write_blob", lambda *a, **kw: tmp_path / "f.bin")
 
-    # Use upload endpoint
     upload_resp = await client.post(
-        "/api/v1/contracts/upload",
+        "/v1/contracts/upload",
         files={"files": ("test.txt", io.BytesIO(b"contract text"), "text/plain")},
         data={"project_label": "Test Project"},
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert upload_resp.status_code == 201
     upload_id = upload_resp.json()["upload_id"]
 
     resp = await client.post(
-        f"/api/v1/contracts/{upload_id}/dispatch_draft",
-        headers=auth_h(),
+        f"/v1/contracts/{upload_id}/dispatch_draft",
+        headers=auth_h(token),
     )
     assert resp.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_dispatch_draft_404(client):
+async def test_dispatch_draft_404(client, owner_token):
     """dispatch_draft returns 404 for unknown upload_id."""
+    _, token = owner_token
     resp = await client.post(
-        f"/api/v1/contracts/{uuid.uuid4()}/dispatch_draft",
-        headers=auth_h(),
+        f"/v1/contracts/{uuid.uuid4()}/dispatch_draft",
+        headers=auth_h(token),
     )
     assert resp.status_code == 404
 
 
 @pytest.mark.asyncio
-async def test_dispatch_draft_409_wrong_status(client, session_maker):
+async def test_dispatch_draft_409_wrong_status(client, owner_token, session_maker):
     """dispatch_draft returns 409 when status is 'drafted' (already done)."""
-    # Create a draft contract and manually set it to 'drafted'
+    _, token = owner_token
     create_resp = await client.post(
-        "/api/v1/contracts/draft",
+        "/v1/contracts/draft",
         json=_DRAFT_REQUEST_BODY,
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert create_resp.status_code == 201
     upload_id = create_resp.json()["upload_id"]
@@ -302,8 +310,8 @@ async def test_dispatch_draft_409_wrong_status(client, session_maker):
         await s.commit()
 
     resp = await client.post(
-        f"/api/v1/contracts/{upload_id}/dispatch_draft",
-        headers=auth_h(),
+        f"/v1/contracts/{upload_id}/dispatch_draft",
+        headers=auth_h(token),
     )
     assert resp.status_code == 409
 
@@ -313,31 +321,34 @@ async def test_dispatch_draft_409_wrong_status(client, session_maker):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_list_filter_source_drafted(client):
+async def test_list_filter_source_drafted(client, owner_token, tmp_path, monkeypatch):
     """Listing with source=drafted returns only drafted contracts."""
-    import io
+    _, token = owner_token
+
+    import app.services.contracts as contracts_svc
+    monkeypatch.setattr(contracts_svc, "_write_blob", lambda *a, **kw: tmp_path / "f.bin")
 
     # Create one drafted contract
     draft_resp = await client.post(
-        "/api/v1/contracts/draft",
+        "/v1/contracts/draft",
         json=_DRAFT_REQUEST_BODY,
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert draft_resp.status_code == 201
     drafted_id = draft_resp.json()["upload_id"]
 
     # Create one uploaded contract
     upload_resp = await client.post(
-        "/api/v1/contracts/upload",
+        "/v1/contracts/upload",
         files={"files": ("test.txt", io.BytesIO(b"contract text"), "text/plain")},
         data={"project_label": "Uploaded"},
-        headers=auth_h(),
+        headers=auth_h(token),
     )
     assert upload_resp.status_code == 201
 
     resp = await client.get(
-        "/api/v1/contracts?source=drafted",
-        headers=auth_h(),
+        "/v1/contracts?source=drafted",
+        headers=auth_h(token),
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -358,15 +369,13 @@ async def test_on_draft_approved_flips_status(session_maker):
     """on_draft_approved stamps draft_artifact_id and flips status to 'drafted'."""
     from app.services.contracts import service as contracts_service
     from app.schemas import ContractDraftRequest
+    from app.models import User
+    from app.enums import UserRole
+    from app.security import hash_password
 
     req = ContractDraftRequest(**_DRAFT_REQUEST_BODY)
 
     async with session_maker() as s:
-        # Create a fake user
-        from app.models import User
-        from app.enums import UserRole
-        from app.security import hash_password
-
         user = User(
             email=f"drafter-test-{uuid.uuid4()}@example.com",
             display_name="Test User",
@@ -379,7 +388,6 @@ async def test_on_draft_approved_flips_status(session_maker):
         contract = await contracts_service.create_draft_request(s, request=req, user=user)
         upload_id = contract.upload_id
 
-        # Create a fake Document artifact
         doc = Document(
             artifact_id=str(uuid.uuid4()),
             artifact_type="contract_draft",
@@ -392,7 +400,6 @@ async def test_on_draft_approved_flips_status(session_maker):
         s.add(doc)
         await s.flush()
 
-        # Call the hook
         result = await contracts_service.on_draft_approved(
             s,
             upload_id=upload_id,
@@ -449,9 +456,8 @@ async def test_on_draft_approved_appends_uploaded_files(session_maker):
         )
 
         # Re-fetch to verify
-        from sqlalchemy import select as _select
         result = await s.execute(
-            _select(Contract).where(Contract.upload_id == upload_id)
+            select(Contract).where(Contract.upload_id == upload_id)
         )
         updated = result.scalar_one()
         kinds = [f.get("kind") for f in (updated.uploaded_files or [])]
