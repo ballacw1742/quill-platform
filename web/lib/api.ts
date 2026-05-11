@@ -1213,16 +1213,7 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 // ─── Dev Chat (Sprint DC.1) ──────────────────────────────────────────────────
-import {
-  DevChatMessageSchema,
-  DevChatSendResponseSchema,
-  DevChatStatusSchema,
-  DevChatThreadPageSchema,
-  type DevChatMessage,
-  type DevChatSendResponse,
-  type DevChatStatus,
-  type DevChatThreadPage,
-} from "@/lib/schemas";
+// (DevChat schema imports hoisted to the top-level import block above.)
 
 export function useDevChatThread(opts?: { before?: string; limit?: number }) {
   const params = new URLSearchParams();
