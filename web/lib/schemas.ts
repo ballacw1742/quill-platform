@@ -848,3 +848,221 @@ export const DevChatSendResponseSchema = z.object({
   thread_state: z.string(),
 });
 export type DevChatSendResponse = z.infer<typeof DevChatSendResponseSchema>;
+
+// ─── Contracts (Sprint Contracts.1) ──────────────────────────────────────────
+
+export const CONTRACT_DISCLAIMER =
+  "AI-generated analysis. This is not legal advice. Review with qualified counsel before relying on it for any binding decision.";
+
+export const ContractTypeSchema = z.union([
+  z.enum([
+    "owner_gc",
+    "subcontract",
+    "change_order",
+    "purchase_order",
+    "letter_of_intent",
+    "nda",
+    "msa",
+    "equipment_lease",
+    "insurance_certificate",
+    "lien_waiver",
+    "other",
+    "unknown",
+  ]),
+  z.string(),
+]);
+export type ContractType = z.infer<typeof ContractTypeSchema>;
+
+export const ContractStatusEnumSchema = z.union([
+  z.enum([
+    "uploaded",
+    "extracting",
+    "extracted",
+    "reviewing",
+    "reviewed",
+    "drafting",
+    "drafted",
+    "failed",
+  ]),
+  z.string(),
+]);
+export type ContractStatusEnum = z.infer<typeof ContractStatusEnumSchema>;
+
+export const ContractUploadedFileEntrySchema = z
+  .object({
+    filename: z.string(),
+    kind: z.string(),
+    size_bytes: z.number().int().min(0).default(0),
+    extraction_status: z.string().default("pending"),
+    extraction_summary: z.string().default(""),
+    minio_key: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type ContractUploadedFileEntry = z.infer<typeof ContractUploadedFileEntrySchema>;
+
+/** POST /v1/contracts/upload response. */
+export const ContractUploadResponseSchema = z
+  .object({
+    upload_id: z.string(),
+    file_count: z.number().int().min(0).default(0),
+    total_bytes: z.number().int().min(0).default(0),
+    extraction_started: z.boolean().default(true),
+  })
+  .passthrough();
+export type ContractUploadResponse = z.infer<typeof ContractUploadResponseSchema>;
+
+/** GET /v1/contracts/{upload_id}/status */
+export const ContractStatusSchema = z
+  .object({
+    upload_id: z.string(),
+    status: ContractStatusEnumSchema,
+    contract_type: ContractTypeSchema.nullable().optional(),
+    effective_date: z.string().nullable().optional(),
+    expiration_date: z.string().nullable().optional(),
+    error_message: z.string().nullable().optional(),
+    created_at: z.string().optional(),
+    updated_at: z.string().optional(),
+  })
+  .passthrough();
+export type ContractStatus = z.infer<typeof ContractStatusSchema>;
+
+/** Lightweight item used in list responses. */
+export const ContractListItemSchema = z
+  .object({
+    upload_id: z.string(),
+    project_label: z.string().default(""),
+    contract_type: ContractTypeSchema.nullable().optional(),
+    status: ContractStatusEnumSchema,
+    source: z.string().default("upload"),
+    effective_date: z.string().nullable().optional(),
+    expiration_date: z.string().nullable().optional(),
+    total_value_usd: z.number().nullable().optional(),
+    created_at: z.string().optional(),
+    updated_at: z.string().optional(),
+    error_message: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type ContractListItem = z.infer<typeof ContractListItemSchema>;
+
+/** Full contract record. */
+export const ContractSchema = z
+  .object({
+    upload_id: z.string(),
+    project_label: z.string().default(""),
+    contract_type: ContractTypeSchema.nullable().optional(),
+    status: ContractStatusEnumSchema,
+    source: z.string().default("upload"),
+    uploaded_files: z.array(ContractUploadedFileEntrySchema).default([]),
+    extracted_fields: z.record(z.any()).nullable().optional(),
+    parties: z.array(z.record(z.any())).default([]),
+    effective_date: z.string().nullable().optional(),
+    expiration_date: z.string().nullable().optional(),
+    total_value_usd: z.number().nullable().optional(),
+    notes: z.string().default(""),
+    error_message: z.string().nullable().optional(),
+    classification_artifact_id: z.string().nullable().optional(),
+    review_artifact_id: z.string().nullable().optional(),
+    created_at: z.string().optional(),
+    updated_at: z.string().optional(),
+    disclaimer: z.string(),
+  })
+  .passthrough();
+export type Contract = z.infer<typeof ContractSchema>;
+
+/** GET /v1/contracts list page. */
+export const ContractListPageSchema = z
+  .object({
+    items: z.array(ContractListItemSchema),
+    total: z.number().int().min(0),
+    limit: z.number().int().min(1),
+    offset: z.number().int().min(0),
+  })
+  .passthrough();
+export type ContractListPage = z.infer<typeof ContractListPageSchema>;
+
+// ── Contract extraction metadata (mirrors contract_extraction.schema.json 1:1) ──
+
+export const ContractPartySchema = z
+  .object({
+    role: z.string(),
+    name: z.string(),
+    address: z.string().nullable().optional(),
+    contact: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type ContractParty = z.infer<typeof ContractPartySchema>;
+
+export const ContractClauseEntrySchema = z
+  .union([
+    z.null(),
+    z
+      .object({
+        verbatim: z.string(),
+        paraphrase: z.string(),
+      })
+      .passthrough(),
+  ]);
+export type ContractClauseEntry = z.infer<typeof ContractClauseEntrySchema>;
+
+export const ContractNotableClausesSchema = z
+  .object({
+    indemnification: ContractClauseEntrySchema.optional(),
+    termination: ContractClauseEntrySchema.optional(),
+    dispute_resolution: ContractClauseEntrySchema.optional(),
+    insurance_requirements: ContractClauseEntrySchema.optional(),
+    limitation_of_liability: ContractClauseEntrySchema.optional(),
+    change_orders: ContractClauseEntrySchema.optional(),
+    payment_terms: ContractClauseEntrySchema.optional(),
+  })
+  .passthrough();
+export type ContractNotableClauses = z.infer<typeof ContractNotableClausesSchema>;
+
+export const ContractExtractionMetadataSchema = z
+  .object({
+    artifact_type: z.literal("contract_extraction"),
+    contract_type: ContractTypeSchema,
+    confidence: z.number().min(0).max(1),
+    parties: z.array(ContractPartySchema).default([]),
+    effective_date: z.string().nullable().optional(),
+    expiration_date: z.string().nullable().optional(),
+    total_value_usd: z.number().nullable().optional(),
+    payment_terms: z.string().nullable().optional(),
+    payment_schedule: z
+      .array(
+        z
+          .object({
+            description: z.string(),
+            amount_usd: z.number().nullable().optional(),
+            due: z.string(),
+            condition: z.string().nullable().optional(),
+          })
+          .passthrough(),
+      )
+      .default([]),
+    key_milestones: z
+      .array(
+        z
+          .object({
+            description: z.string(),
+            date: z.string(),
+          })
+          .passthrough(),
+      )
+      .default([]),
+    obligations: z.record(z.array(z.string())).default({}),
+    notable_clauses: ContractNotableClausesSchema.optional(),
+    notes: z.string().default(""),
+    disclaimer: z.string(),
+    citations: z
+      .array(
+        z
+          .object({
+            quote: z.string(),
+            location: z.string(),
+          })
+          .passthrough(),
+      )
+      .default([]),
+  })
+  .passthrough();
+export type ContractExtractionMetadata = z.infer<typeof ContractExtractionMetadataSchema>;

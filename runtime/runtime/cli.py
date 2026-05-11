@@ -672,5 +672,91 @@ def cmd_devchat_bridge_start() -> None:
     sys.exit(_bridge_main())
 
 
+# ----------------------------------------------------------------------
+# `quill-runtime contract` — contract dispatcher daemon (Sprint Contracts.1)
+# ----------------------------------------------------------------------
+@main.group("contract")
+def cmd_contract() -> None:
+    """Contract dispatcher — runs contract-extractor on extracted contracts."""
+
+
+@cmd_contract.command("start")
+@click.option(
+    "--poll-interval",
+    "poll_interval",
+    default=None,
+    type=float,
+    help="Seconds between polls. Defaults to CONTRACT_POLL_INTERVAL_SECONDS or 10.",
+)
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to the JSON state file.",
+)
+def cmd_contract_start(
+    poll_interval: float | None,
+    state_file: str | None,
+) -> None:
+    """Boot the ContractDispatcher daemon (foreground)."""
+    import os as _os
+    from pathlib import Path as _Path
+
+    from runtime.contract_dispatcher import (
+        ContractDispatcher,
+        install_signal_handlers,
+    )
+
+    if poll_interval is None:
+        try:
+            poll_interval = float(
+                _os.environ.get("CONTRACT_POLL_INTERVAL_SECONDS", "10")
+            )
+        except ValueError:
+            poll_interval = 10.0
+
+    cfg = get_config()
+    state_path = _Path(state_file) if state_file else None
+    dispatcher = ContractDispatcher(
+        config=cfg,
+        poll_interval_s=poll_interval,
+        state_file=state_path,
+    )
+    install_signal_handlers(dispatcher)
+
+    click.echo(
+        f"[contract] starting poll={poll_interval}s api={cfg.queue_api_url}",
+        err=True,
+    )
+
+    async def _run() -> None:
+        await dispatcher.start()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        click.echo("[contract] interrupted; shutting down", err=True)
+        sys.exit(0)
+
+
+@cmd_contract.command("status")
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to the JSON state file.",
+)
+def cmd_contract_status(state_file: str | None) -> None:
+    """Print the contract dispatcher state (dispatched count, recent errors)."""
+    from pathlib import Path as _Path
+
+    from runtime.contract_dispatcher import ContractDispatcher
+
+    state_path = _Path(state_file) if state_file else None
+    dispatcher = ContractDispatcher(state_file=state_path)
+    data = dispatcher.get_status_dict()
+    click.echo(json.dumps(data, indent=2, default=str))
+
+
 if __name__ == "__main__":
     main()

@@ -260,6 +260,11 @@ _ESTIMATE_PUBLISH_WORKFLOWS: frozenset[str] = frozenset({
     "cost_schedule_package.publish",
 })
 
+# Sprint Contracts.1: contract extraction workflow
+_CONTRACT_PUBLISH_WORKFLOWS: frozenset[str] = frozenset({
+    "contract_extraction.publish",
+})
+
 
 def _is_publish_artifact(item: ApprovalItem) -> bool:
     """True if this approval should produce a Document on execute.
@@ -290,6 +295,24 @@ def _extract_estimate_artifact_kind(item: ApprovalItem) -> str | None:
         at = artifact.get("artifact_type")
         if at in ("aace_classification", "cost_schedule_package"):
             return at
+    return None
+
+
+def _extract_contract_upload_id(item: ApprovalItem) -> str | None:
+    """Pull upload_id out of a contract-extraction approval payload.
+
+    The upload_id is placed in:
+      payload.contract_upload_id, or
+      payload.context.contract_upload_id
+    """
+    payload = item.payload or {}
+    if not isinstance(payload, dict):
+        return None
+    if "contract_upload_id" in payload:
+        return str(payload["contract_upload_id"])
+    ctx = payload.get("context")
+    if isinstance(ctx, dict) and "contract_upload_id" in ctx:
+        return str(ctx["contract_upload_id"])
     return None
 
 
@@ -339,6 +362,9 @@ async def execute_approval(
     estimate_upload_id = _extract_estimate_upload_id(item) if estimate_kind else None
 
     # ---- Phase D.1: artifact publication path ----
+    is_contract_extraction = item.workflow in _CONTRACT_PUBLISH_WORKFLOWS
+    contract_upload_id = _extract_contract_upload_id(item) if is_contract_extraction else None
+
     if _is_publish_artifact(item):
         from app.services.documents import service as docs_service
 
@@ -394,13 +420,33 @@ async def execute_approval(
                     actor=actor,
                 )
         except Exception as exc:  # noqa: BLE001
-            # Estimate stamping is best-effort: a failure here should not
-            # roll back the document publication. We log and continue.
+            # Estimate stamping is best-effort.
             import logging
 
             logging.getLogger("quill.approvals").warning(
                 "approvals.estimate_hook_failed kind=%s upload_id=%s err=%s",
                 estimate_kind, estimate_upload_id, exc,
+            )
+
+    # Sprint Contracts.1: stamp Contract row when a contract_extraction is approved.
+    if is_contract_extraction and contract_upload_id is not None:
+        from app.services.contracts import service as contracts_service
+
+        try:
+            payload_artifact = (item.payload or {}).get("artifact") or {}
+            artifact_id = str(payload_artifact.get("id") or document_id or item.id)
+            await contracts_service.on_extraction_approved(
+                session,
+                upload_id=contract_upload_id,
+                artifact_id=artifact_id,
+                actor=actor,
+            )
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("quill.approvals").warning(
+                "approvals.contract_hook_failed upload_id=%s err=%s",
+                contract_upload_id, exc,
             )
 
     if document_id is not None:

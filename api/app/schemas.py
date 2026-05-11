@@ -476,6 +476,90 @@ class DevChatStatusOut(_Base):
     started_at: datetime | None = None
 
 
+# ---------------------------------------------------------------------------
+# Contracts — Sprint Contracts.1
+# ---------------------------------------------------------------------------
+
+_CONTRACT_DISCLAIMER = (
+    "AI-generated analysis. This is not legal advice. "
+    "Review with qualified counsel before relying on it for any binding decision."
+)
+
+
+class ContractUploadedFileEntry(_Base):
+    filename: str
+    kind: str
+    size_bytes: int = 0
+    extraction_status: str = "pending"
+    extraction_summary: str = ""
+    minio_key: str | None = None
+
+
+class ContractListItem(_Base):
+    """Lightweight projection used in list responses."""
+
+    upload_id: str
+    project_label: str = ""
+    contract_type: str | None = None
+    status: str
+    source: str = "upload"
+    effective_date: datetime | None = None
+    expiration_date: datetime | None = None
+    total_value_usd: float | None = None
+    created_at: datetime
+    updated_at: datetime
+    error_message: str | None = None
+
+
+class ContractOut(_Base):
+    """Full contract record returned for single-resource calls."""
+
+    upload_id: str
+    project_label: str = ""
+    contract_type: str | None = None
+    status: str
+    source: str = "upload"
+    uploaded_files: list[Any] = Field(default_factory=list)
+    extracted_fields: dict[str, Any] | None = None
+    parties: list[Any] = Field(default_factory=list)
+    effective_date: datetime | None = None
+    expiration_date: datetime | None = None
+    total_value_usd: float | None = None
+    notes: str = ""
+    error_message: str | None = None
+    classification_artifact_id: str | None = None
+    review_artifact_id: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    # AI-output disclaimer — always populated programmatically
+    disclaimer: str = _CONTRACT_DISCLAIMER
+
+
+class ContractListPage(_Base):
+    items: list[ContractListItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class ContractUploadOut(_Base):
+    upload_id: str
+    file_count: int
+    total_bytes: int
+    extraction_started: bool
+
+
+class ContractStatusOut(_Base):
+    upload_id: str
+    status: str
+    contract_type: str | None = None
+    effective_date: datetime | None = None
+    expiration_date: datetime | None = None
+    error_message: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
 __all__ = [
     "ApprovalCreate",
     "ApprovalOut",
@@ -510,6 +594,12 @@ __all__ = [
     "DocumentSearchResult",
     "DocumentDriveLinkOut",
     "DocumentReindexResult",
+    # Contracts (Sprint Contracts.1)
+    "ContractOut",
+    "ContractListPage",
+    "ContractListItem",
+    "ContractUploadOut",
+    "ContractStatusOut",
     # Dev Chat (Sprint DC.1)
     "DevChatMessageOut",
     "DevChatThreadOut",
