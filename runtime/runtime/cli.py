@@ -844,5 +844,91 @@ def cmd_contract_review_status(state_file: str | None) -> None:
     click.echo(json.dumps(data, indent=2, default=str))
 
 
+# ---------------------------------------------------------------------------
+# `quill-runtime contract-draft` — contract draft dispatcher daemon (Sprint Contracts.3)
+# ---------------------------------------------------------------------------
+@main.group("contract-draft")
+def cmd_contract_draft() -> None:
+    """Contract draft dispatcher — runs contract-drafter on drafted contracts."""
+
+
+@cmd_contract_draft.command("start")
+@click.option(
+    "--poll-interval",
+    "poll_interval",
+    default=None,
+    type=float,
+    help="Seconds between polls. Defaults to CONTRACT_DRAFT_POLL_INTERVAL_SECONDS or 15.",
+)
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to the JSON state file.",
+)
+def cmd_contract_draft_start(
+    poll_interval: float | None,
+    state_file: str | None,
+) -> None:
+    """Boot the ContractDraftDispatcher daemon (foreground)."""
+    import os as _os
+    from pathlib import Path as _Path
+
+    from runtime.contract_draft_dispatcher import (
+        ContractDraftDispatcher,
+        install_draft_signal_handlers,
+    )
+
+    if poll_interval is None:
+        try:
+            poll_interval = float(
+                _os.environ.get("CONTRACT_DRAFT_POLL_INTERVAL_SECONDS", "15")
+            )
+        except ValueError:
+            poll_interval = 15.0
+
+    cfg = get_config()
+    state_path = _Path(state_file) if state_file else None
+    dispatcher = ContractDraftDispatcher(
+        config=cfg,
+        poll_interval_s=poll_interval,
+        state_file=state_path,
+    )
+    install_draft_signal_handlers(dispatcher)
+
+    click.echo(
+        f"[contract-draft] starting poll={poll_interval}s api={cfg.queue_api_url}",
+        err=True,
+    )
+
+    async def _run() -> None:
+        await dispatcher.start()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        click.echo("[contract-draft] interrupted; shutting down", err=True)
+        sys.exit(0)
+
+
+@cmd_contract_draft.command("status")
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to the JSON state file.",
+)
+def cmd_contract_draft_status(state_file: str | None) -> None:
+    """Print the contract draft dispatcher state."""
+    from pathlib import Path as _Path
+
+    from runtime.contract_draft_dispatcher import ContractDraftDispatcher
+
+    state_path = _Path(state_file) if state_file else None
+    dispatcher = ContractDraftDispatcher(state_file=state_path)
+    data = dispatcher.get_status_dict()
+    click.echo(json.dumps(data, indent=2, default=str))
+
+
 if __name__ == "__main__":
     main()
