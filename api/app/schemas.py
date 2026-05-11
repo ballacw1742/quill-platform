@@ -560,6 +560,58 @@ class ContractStatusOut(_Base):
     updated_at: datetime
 
 
+# ---------------------------------------------------------------------------
+# Contracts — Sprint Contracts.2
+# ---------------------------------------------------------------------------
+
+class _DispatchReviewOut(_Base):
+    ok: bool
+    upload_id: str
+    audit_hash: str
+
+
+class _InterpretRequest(_Base):
+    question: str
+
+
+class ContractInterpretationOut(_Base):
+    """Response from POST /v1/contracts/{upload_id}/interpret."""
+
+    contract_upload_id: str
+    question: str
+    answer: str
+    supporting_clauses: list[Any] = Field(default_factory=list)
+    confidence: float
+    caveats: list[Any] = Field(default_factory=list)
+    disclaimer: str = _CONTRACT_DISCLAIMER
+    created_at: datetime | None = None
+    interpretation_id: str | None = None
+
+
+class ContractReviewSeverityCounts(_Base):
+    critical: int = 0
+    high: int = 0
+    medium: int = 0
+    low: int = 0
+    info: int = 0
+
+
+class ContractReviewListItem(_Base):
+    review_artifact_id: str
+    created_at: datetime
+    severity_counts: ContractReviewSeverityCounts
+
+
+class ContractReviewListPage(_Base):
+    items: list[ContractReviewListItem]
+    total: int
+
+
+class ContractInterpretationListPage(_Base):
+    items: list[ContractInterpretationOut]
+    total: int
+
+
 __all__ = [
     "ApprovalCreate",
     "ApprovalOut",
@@ -600,6 +652,14 @@ __all__ = [
     "ContractListItem",
     "ContractUploadOut",
     "ContractStatusOut",
+    # Contracts (Sprint Contracts.2)
+    "_DispatchReviewOut",
+    "_InterpretRequest",
+    "ContractInterpretationOut",
+    "ContractReviewSeverityCounts",
+    "ContractReviewListItem",
+    "ContractReviewListPage",
+    "ContractInterpretationListPage",
     # Dev Chat (Sprint DC.1)
     "DevChatMessageOut",
     "DevChatThreadOut",

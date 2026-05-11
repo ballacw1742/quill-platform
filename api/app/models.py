@@ -512,6 +512,34 @@ class Contract(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# ContractInterpretation — Contracts.2
+# Stores each Q&A pair from the /interpret endpoint.
+# ---------------------------------------------------------------------------
+class ContractInterpretation(Base):
+    """A single plain-English Q&A exchange about a contract clause."""
+
+    __tablename__ = "contract_interpretations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    contract_upload_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("contracts.upload_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    answer_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    asked_by: Mapped[str] = mapped_column(String(100), nullable=False, default="system")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+
+    __table_args__ = (
+        Index("ix_contract_interp_upload_created", "contract_upload_id", "created_at"),
+    )
+
+
 # Import dev-chat models to ensure they're registered with Base.metadata
 # before any create_all call (tests and migrations both need this).
 from app.models_dev_chat import DevChatThread, DevChatMessage, DevChatTask  # noqa: F401, E402
@@ -531,4 +559,5 @@ __all__ = [
     "Decision",
     "ExecutionResult",
     "Contract",
+    "ContractInterpretation",
 ]

@@ -265,6 +265,11 @@ _CONTRACT_PUBLISH_WORKFLOWS: frozenset[str] = frozenset({
     "contract_extraction.publish",
 })
 
+# Sprint Contracts.2: contract review workflow
+_CONTRACT_REVIEW_WORKFLOWS: frozenset[str] = frozenset({
+    "contract_review.publish",
+})
+
 
 def _is_publish_artifact(item: ApprovalItem) -> bool:
     """True if this approval should produce a Document on execute.
@@ -363,7 +368,12 @@ async def execute_approval(
 
     # ---- Phase D.1: artifact publication path ----
     is_contract_extraction = item.workflow in _CONTRACT_PUBLISH_WORKFLOWS
-    contract_upload_id = _extract_contract_upload_id(item) if is_contract_extraction else None
+    is_contract_review = item.workflow in _CONTRACT_REVIEW_WORKFLOWS
+    contract_upload_id = (
+        _extract_contract_upload_id(item)
+        if (is_contract_extraction or is_contract_review)
+        else None
+    )
 
     if _is_publish_artifact(item):
         from app.services.documents import service as docs_service
@@ -446,6 +456,27 @@ async def execute_approval(
 
             logging.getLogger("quill.approvals").warning(
                 "approvals.contract_hook_failed upload_id=%s err=%s",
+                contract_upload_id, exc,
+            )
+
+    # Sprint Contracts.2: stamp Contract.review_artifact_id when a contract_review is approved.
+    if is_contract_review and contract_upload_id is not None:
+        from app.services.contracts import service as contracts_service
+
+        try:
+            payload_artifact = (item.payload or {}).get("artifact") or {}
+            artifact_id = str(payload_artifact.get("id") or document_id or item.id)
+            await contracts_service.on_review_approved(
+                session,
+                upload_id=contract_upload_id,
+                artifact_id=artifact_id,
+                actor=actor,
+            )
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("quill.approvals").warning(
+                "approvals.contract_review_hook_failed upload_id=%s err=%s",
                 contract_upload_id, exc,
             )
 

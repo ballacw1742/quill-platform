@@ -1,4 +1,4 @@
-"""Contracts HTTP surface — Sprint Contracts.1.
+"""Contracts HTTP surface — Sprint Contracts.1 + Contracts.2.
 
 POST   /v1/contracts/upload                         multipart, returns upload_id
 GET    /v1/contracts                                list with optional filters
@@ -6,6 +6,12 @@ GET    /v1/contracts/{upload_id}                    full record
 GET    /v1/contracts/{upload_id}/status             lightweight status
 POST   /v1/contracts/{upload_id}/dispatch_extraction schedule agent extraction
 POST   /v1/contracts/{upload_id}/cancel             idempotent cancel
+
+# Contracts.2 additions:
+POST   /v1/contracts/{upload_id}/dispatch_review    schedule contract-reviewer agent
+POST   /v1/contracts/{upload_id}/interpret          sync Q&A about a contract clause
+GET    /v1/contracts/{upload_id}/reviews            list past reviews
+GET    /v1/contracts/{upload_id}/interpretations    Q&A history
 """
 
 from __future__ import annotations
@@ -34,6 +40,13 @@ from app.schemas import (
     ContractOut,
     ContractStatusOut,
     ContractUploadOut,
+    ContractInterpretationOut,
+    ContractReviewListPage,
+    ContractReviewListItem,
+    ContractReviewSeverityCounts,
+    ContractInterpretationListPage,
+    _DispatchReviewOut,
+    _InterpretRequest,
     _CONTRACT_DISCLAIMER,
 )
 from app.security import get_current_user, get_current_user_or_agent
@@ -49,6 +62,7 @@ from app.services.contracts import (
 router = APIRouter(prefix="/v1/contracts", tags=["contracts"])
 
 _DISPATCH_STATUSES = {"uploaded", "extracted", "failed"}
+_REVIEW_DISPATCH_STATUSES = {"extracted", "reviewed", "failed"}
 
 
 # ---------------------------------------------------------------------------
@@ -395,3 +409,218 @@ async def cancel_contract_route(
         actor=getattr(user, "id", "system"),
     )
     return _CancelOut(ok=True, upload_id=upload_id)
+
+
+# ---------------------------------------------------------------------------
+# Contracts.2 — POST /{upload_id}/dispatch_review
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{upload_id}/dispatch_review",
+    response_model=_DispatchReviewOut,
+    summary="Request contract-reviewer agent dispatch",
+)
+async def dispatch_review_route(
+    upload_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user),
+) -> _DispatchReviewOut:
+    """Signal that the contract-reviewer daemon should pick up this contract.
+
+    - 404 if not found.
+    - 409 if extracted_fields is NULL (must run extraction first) or status
+      not in (extracted, reviewed, failed).
+    - Writes a priority marker for the contract-review-dispatcher daemon.
+    - Records an audit event.
+    """
+    contract = await contracts_service.get_status(db, upload_id)
+    if contract is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "contract not found")
+
+    if contract.extracted_fields is None:
+        raise HTTPException(
+            http_status.HTTP_409_CONFLICT,
+            "extraction not yet complete; run dispatch_extraction first",
+        )
+    if contract.status not in _REVIEW_DISPATCH_STATUSES:
+        raise HTTPException(
+            http_status.HTTP_409_CONFLICT,
+            f"contract is not in a reviewable status (current: {contract.status}); "
+            f"must be one of {sorted(_REVIEW_DISPATCH_STATUSES)}",
+        )
+
+    # Write a priority marker for the review daemon.
+    try:
+        repo_root = Path(__file__).resolve().parents[3]
+        marker_dir = repo_root / "_state" / "contract_review_requests"
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        marker = marker_dir / f"{upload_id}.json"
+        marker.write_text(
+            json.dumps(
+                {
+                    "upload_id": upload_id,
+                    "requested_at": datetime.now(UTC).isoformat(),
+                    "requested_by": getattr(user, "id", str(user)),
+                }
+            ),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001
+        import logging as _logging
+        _logging.getLogger("quill.contracts").warning(
+            "dispatch_review.marker_write_failed upload_id=%s err=%s",
+            upload_id, exc,
+        )
+        # Non-fatal — the daemon polls all extracted contracts anyway.
+
+    entry = await audit_svc.record_event(
+        db,
+        event_type="contract.review_dispatch_requested",
+        actor=getattr(user, "id", "system"),
+        approval_item_id=None,
+        payload={
+            "upload_id": upload_id,
+            "contract_id": contract.id,
+            "project_label": contract.project_label,
+        },
+    )
+    await db.commit()
+
+    return _DispatchReviewOut(
+        ok=True,
+        upload_id=upload_id,
+        audit_hash=entry.hash,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Contracts.2 — POST /{upload_id}/interpret
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{upload_id}/interpret",
+    response_model=ContractInterpretationOut,
+    summary="Ask a plain-English question about a contract clause (synchronous)",
+)
+async def interpret_contract_route(
+    upload_id: str,
+    body: _InterpretRequest,
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user),
+) -> ContractInterpretationOut:
+    """Synchronous plain-English Q&A about a contract clause.
+
+    - 404 if contract not found.
+    - 409 if extraction not yet complete (extracted_fields is NULL).
+    - 400 if question is empty or > 500 chars.
+    - Invokes contract-interpreter agent in-process, persists Q&A row.
+    """
+    question = (body.question or "").strip()
+    if not question:
+        raise HTTPException(http_status.HTTP_400_BAD_REQUEST, "question is required")
+    if len(question) > 500:
+        raise HTTPException(
+            http_status.HTTP_400_BAD_REQUEST,
+            f"question too long: {len(question)} chars > 500",
+        )
+
+    contract = await contracts_service.get_status(db, upload_id)
+    if contract is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "contract not found")
+    if contract.extracted_fields is None:
+        raise HTTPException(
+            http_status.HTTP_409_CONFLICT,
+            "extraction not yet complete for this contract; run dispatch_extraction first",
+        )
+
+    try:
+        result = await contracts_service.interpret_clause(
+            db,
+            upload_id=upload_id,
+            question=question,
+            user=user,
+        )
+    except LookupError as e:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(http_status.HTTP_409_CONFLICT, str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(http_status.HTTP_502_BAD_GATEWAY, f"agent error: {e}") from e
+
+    return ContractInterpretationOut(
+        contract_upload_id=upload_id,
+        question=result.get("question", question),
+        answer=result.get("answer", ""),
+        supporting_clauses=result.get("supporting_clauses", []),
+        confidence=result.get("confidence", 0.0),
+        caveats=result.get("caveats", []),
+        disclaimer=result.get("disclaimer", _CONTRACT_DISCLAIMER),
+        created_at=result.get("created_at"),
+        interpretation_id=result.get("interpretation_id"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Contracts.2 — GET /{upload_id}/reviews
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{upload_id}/reviews",
+    response_model=ContractReviewListPage,
+    summary="List past contract reviews (published Document artifacts)",
+)
+async def list_reviews_route(
+    upload_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user_or_agent),  # noqa: ARG001
+) -> ContractReviewListPage:
+    contract = await contracts_service.get_status(db, upload_id)
+    if contract is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "contract not found")
+
+    items_raw = await contracts_service.list_reviews(db, upload_id=upload_id, limit=limit)
+    items = [
+        ContractReviewListItem(
+            review_artifact_id=r["review_artifact_id"],
+            created_at=r["created_at"],
+            severity_counts=ContractReviewSeverityCounts(**r["severity_counts"]),
+        )
+        for r in items_raw
+    ]
+    return ContractReviewListPage(items=items, total=len(items))
+
+
+# ---------------------------------------------------------------------------
+# Contracts.2 — GET /{upload_id}/interpretations
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{upload_id}/interpretations",
+    response_model=ContractInterpretationListPage,
+    summary="Q&A history for a contract",
+)
+async def list_interpretations_route(
+    upload_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user_or_agent),  # noqa: ARG001
+) -> ContractInterpretationListPage:
+    contract = await contracts_service.get_status(db, upload_id)
+    if contract is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "contract not found")
+
+    rows, total = await contracts_service.list_interpretations(
+        db, upload_id=upload_id, limit=limit
+    )
+    items = [
+        ContractInterpretationOut(
+            contract_upload_id=upload_id,
+            question=r.question,
+            answer=r.answer_json.get("answer", ""),
+            supporting_clauses=r.answer_json.get("supporting_clauses", []),
+            confidence=r.answer_json.get("confidence", 0.0),
+            caveats=r.answer_json.get("caveats", []),
+            disclaimer=r.answer_json.get("disclaimer", _CONTRACT_DISCLAIMER),
+            created_at=r.created_at,
+            interpretation_id=r.id,
+        )
+        for r in rows
+    ]
+    return ContractInterpretationListPage(items=items, total=total)

@@ -38,7 +38,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models import Contract
+from app.models import Contract, ContractInterpretation, Document
 from app.services import audit as audit_svc
 
 log = logging.getLogger("quill.contracts")
@@ -582,6 +582,219 @@ class ContractsService:
                 log.warning("contracts.audit_event_failed err=%s", exc)
 
             await s.commit()
+
+
+    # ---- Contracts.2: Review hook -----------------------------------------
+    async def on_review_approved(
+        self,
+        session: AsyncSession,
+        *,
+        upload_id: str | None,
+        artifact_id: str,
+        actor: str = "system",
+    ) -> Contract | None:
+        """Called by approvals.execute_approval when a contract_review artifact
+        is approved + executed. Stamps Contract.review_artifact_id and flips
+        status to 'reviewed'.
+        """
+        if upload_id is None:
+            return None
+        contract = await self.get_status(session, upload_id)
+        if contract is None:
+            log.warning("contracts.review_no_contract upload_id=%s", upload_id)
+            return None
+        contract.review_artifact_id = artifact_id
+        contract.status = "reviewed"
+        contract.updated_at = _utcnow()
+        await audit_svc.record_event(
+            session,
+            event_type="contract.review_approved",
+            actor=actor,
+            approval_item_id=None,
+            payload={
+                "upload_id": upload_id,
+                "contract_id": contract.id,
+                "review_artifact_id": artifact_id,
+            },
+        )
+        await session.commit()
+        return contract
+
+    # ---- Contracts.2: Interpret clause -------------------------------------
+    async def interpret_clause(
+        self,
+        session: AsyncSession,
+        *,
+        upload_id: str,
+        question: str,
+        user: Any,
+    ) -> dict[str, Any]:
+        """Synchronous agent call: answer a plain-English question about this
+        contract. Persists the Q&A row, audits, and returns the response dict.
+        """
+        from pathlib import Path as _Path
+        import json as _json
+
+        contract = await self.get_status(session, upload_id)
+        if contract is None:
+            raise LookupError(f"contract {upload_id!r} not found")
+        if contract.extracted_fields is None:
+            raise ValueError("extraction not yet complete for this contract")
+
+        # Build raw text from blob (best-effort)
+        blob_root = _blob_root()
+        raw_text_parts: list[str] = []
+        for entry in (contract.uploaded_files or []):
+            ext_key = entry.get("extracted_text_key")
+            if ext_key:
+                key_path = (blob_root / ext_key).resolve()
+                if str(key_path).startswith(str(blob_root)) and key_path.exists():
+                    try:
+                        raw_text_parts.append(key_path.read_text("utf-8"))
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning(
+                            "contracts.interpret_read_text_blob err=%s", exc
+                        )
+        raw_text = "\n\n".join(raw_text_parts) or (
+            contract.extracted_fields.get("plain_english_summary", "")
+        )
+
+        agent_input: dict[str, Any] = {
+            "contract_extraction": contract.extracted_fields,
+            "raw_text_excerpt": raw_text[:20000],  # cap to avoid token overrun
+            "question": question,
+        }
+
+        # Run the interpreter agent synchronously.
+        try:
+            from runtime.agent import Agent  # type: ignore
+            from runtime.config import get_config  # type: ignore
+
+            cfg = get_config()
+            agent = Agent("contract-interpreter", config=cfg)
+            run = await agent.run(agent_input, submit_to_queue=False, prompt_cache=False)
+        except Exception as exc:  # noqa: BLE001
+            log.error("contracts.interpret_agent_failed upload_id=%s err=%s", upload_id, exc)
+            raise RuntimeError(f"agent invocation failed: {exc}") from exc
+
+        if run.output is None:
+            raise RuntimeError(f"interpreter agent returned no output (error={run.error!r})")
+
+        output: dict[str, Any] = run.output
+        # Ensure disclaimer is present.
+        output.setdefault(
+            "disclaimer",
+            "AI-generated analysis. This is not legal advice. "
+            "Review with qualified counsel before relying on it for any binding decision.",
+        )
+
+        # Persist the interpretation row.
+        row_id = str(uuid.uuid4())
+        interp_row = ContractInterpretation(
+            id=row_id,
+            contract_upload_id=upload_id,
+            question=question,
+            answer_json=output,
+            asked_by=getattr(user, "id", str(user)),
+        )
+        session.add(interp_row)
+
+        await audit_svc.record_event(
+            session,
+            event_type="contract.interpreted",
+            actor=getattr(user, "id", "system"),
+            approval_item_id=None,
+            payload={
+                "upload_id": upload_id,
+                "interpretation_id": row_id,
+                "question_len": len(question),
+            },
+        )
+        await session.commit()
+
+        return {
+            **output,
+            "contract_upload_id": upload_id,
+            "interpretation_id": row_id,
+            "created_at": interp_row.created_at,
+        }
+
+    # ---- Contracts.2: List reviews -----------------------------------------
+    async def list_reviews(
+        self,
+        session: AsyncSession,
+        *,
+        upload_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Return past contract_review.publish artifacts for this contract.
+
+        Each review is stored as a Document once approved; we look up
+        Documents by artifact_type + contract_upload_id in their metadata.
+        Returns a lightweight list of {review_artifact_id, created_at,
+        severity_counts} dicts.
+        """
+        from sqlalchemy import text as _text
+
+        # Look for published Document rows whose extra_metadata contains
+        # a 'contract_upload_id' matching our upload_id and artifact_type
+        # of 'contract_review'.
+        stmt = (
+            select(Document)
+            .where(
+                Document.agent_id == "contract-reviewer",
+            )
+            .order_by(Document.created_at.desc())
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        docs = result.scalars().all()
+
+        # Filter in Python to avoid JSON query portability issues.
+        out: list[dict[str, Any]] = []
+        for doc in docs:
+            meta = doc.meta or {}
+            if meta.get("contract_upload_id") != upload_id:
+                continue
+            artifact = meta.get("artifact") or {}
+            risk_flags = artifact.get("risk_flags") or []
+            counts = {"critical": 0, "high": 0, "medium": 0, "low": 0, "info": 0}
+            for flag in risk_flags:
+                sev = flag.get("severity", "info")
+                if sev in counts:
+                    counts[sev] += 1
+            out.append({
+                "review_artifact_id": doc.id,
+                "created_at": doc.created_at,
+                "severity_counts": counts,
+            })
+        return out
+
+    # ---- Contracts.2: List interpretations --------------------------------
+    async def list_interpretations(
+        self,
+        session: AsyncSession,
+        *,
+        upload_id: str,
+        limit: int = 50,
+    ) -> tuple[list[ContractInterpretation], int]:
+        """Return Q&A history for a contract (newest first)."""
+        stmt = (
+            select(ContractInterpretation)
+            .where(ContractInterpretation.contract_upload_id == upload_id)
+            .order_by(ContractInterpretation.created_at.desc())
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        rows = list(result.scalars().all())
+
+        count_stmt = select(func.count()).where(
+            ContractInterpretation.contract_upload_id == upload_id
+        )
+        total_result = await session.execute(count_stmt)
+        total = total_result.scalar_one()
+
+        return rows, total
 
 
 # Module-level singleton.
