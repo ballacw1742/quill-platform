@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -134,18 +135,18 @@ export const ListRow = React.forwardRef<HTMLDivElement, ListRowProps>(function L
   );
 
   if (href) {
-    // Use plain <a> so swipe-row container's pointer events still work; <Link>
-    // would not break this but a real <a> is fine for client-side nav too via
-    // Next's enhancement.
+    // Use Next.js Link for client-side nav so the page doesn't fully reload
+    // — a hard <a> navigation can leave the page in an unresponsive state
+    // (e.g. the tab bar stops responding) until the new bundle compiles.
     return (
-      <a
+      <Link
         ref={ref as unknown as React.Ref<HTMLAnchorElement>}
         href={href}
         aria-label={ariaLabel}
         className={cn("block no-tap-highlight", className)}
       >
         {inner}
-      </a>
+      </Link>
     );
   }
   if (onClick) {
