@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Fingerprint, Loader2, ShieldCheck } from "lucide-react";
+import { Fingerprint, Loader2 } from "lucide-react";
+import { QuillLogo } from "@/components/QuillLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useLogin, useSession } from "@/lib/api";
@@ -146,9 +147,10 @@ export default function LoginPage() {
       <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6 py-10">
         {/* Quill mark — large, centered */}
         <div className="mb-12 flex flex-col items-center gap-4">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-accent text-white shadow-card">
-            <ShieldCheck className="h-9 w-9" strokeWidth={1.75} />
-          </div>
+          <QuillLogo size={72} className="drop-shadow-md" />
+          <span className="text-title-2 font-semibold tracking-tight text-label-primary">
+            Quill
+          </span>
         </div>
 
         <div className="mb-8 space-y-1">
