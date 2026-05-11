@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Calculator, FileText, Inbox, Sparkles, Terminal, User } from "lucide-react";
+import { Calculator, ClipboardList, FileText, Inbox, Sparkles, Terminal, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useSession } from "@/lib/api";
@@ -47,11 +47,17 @@ import type { Session } from "@/lib/schemas";
 // a power-user tool for Charles; the dev-chat surface is a core workflow.
 // If the 6-tab layout proves problematic on smaller screens, the fix is to
 // move "Dev" behind a "More" tab — tracked in KNOWN_ISSUES.md.
+//
+// Sprint Contracts.2: "Contracts" tab added as 5th slot (after Documents).
+// This makes 7 tabs — two over Apple's HIG max of 5.
+// KNOWN CAVEAT (visible-tolerable): On narrow screens (< 375px) tab labels
+// may overflow. A "More" tab consolidation is tracked for a future sprint.
 const TABS = [
   { href: "/queue", label: "Queue", icon: Inbox },
   { href: "/today", label: "Today", icon: Sparkles },
   { href: "/estimates", label: "Estimates", icon: Calculator },
   { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/contracts", label: "Contracts", icon: ClipboardList },
   { href: "/dev-chat", label: "Dev", icon: Terminal },
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
