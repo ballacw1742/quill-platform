@@ -14,3 +14,4 @@ DEV-CHAT-SIM: smoke test 2 - first
 ## 2026-05-11T01:40:21.946054+00:00
 
 DEV-CHAT-SIM: smoke test from main agent — verify full loop
+bridge smoke OK at 2026-05-11T01:54:34Z
