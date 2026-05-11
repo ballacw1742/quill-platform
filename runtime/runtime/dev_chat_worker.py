@@ -128,7 +128,12 @@ _DISALLOWED_PATHS: list[str] = [
 # ---------------------------------------------------------------------------
 
 class _ApiClient:
-    """Thin async HTTP wrapper around the Quill API."""
+    """Thin async HTTP wrapper around the Quill API.
+
+    All critical writes are wrapped with retry-with-backoff so transient
+    connection failures during a backend restart (e.g. the deploy watcher
+    bouncing the API) don't permanently strand a task.
+    """
 
     def __init__(self, base_url: str, secret: str) -> None:
         self._base = base_url.rstrip("/")
@@ -140,6 +145,40 @@ class _ApiClient:
             "Content-Type": "application/json",
         }
 
+    @staticmethod
+    async def _with_retry(coro_factory, *, attempts: int = 6, base_delay: float = 1.0) -> Any:
+        """Call coro_factory() with exponential backoff on connection errors.
+
+        coro_factory is a zero-arg callable that returns a fresh coroutine
+        each attempt (we need a fresh request per attempt; httpx requests
+        aren't reusable).
+
+        Retries on httpx.ConnectError / TransportError / 5xx. Bubbles other
+        errors immediately.
+        """
+        delay = base_delay
+        last_exc: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                return await coro_factory()
+            except (httpx.ConnectError, httpx.ConnectTimeout, httpx.TransportError) as exc:
+                last_exc = exc
+                if attempt == attempts - 1:
+                    break
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 15.0)
+            except httpx.HTTPStatusError as exc:
+                # 5xx is retryable; 4xx is a real error.
+                if 500 <= exc.response.status_code < 600 and attempt < attempts - 1:
+                    last_exc = exc
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, 15.0)
+                    continue
+                raise
+        # Exhausted retries
+        assert last_exc is not None
+        raise last_exc
+
     async def get_queued_tasks(self) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(f"{self._base}/v1/dev-chat/worker/queued", headers=self._headers())
@@ -147,21 +186,29 @@ class _ApiClient:
             return r.json()
 
     async def mark_running(self, task_id: str) -> None:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.patch(
-                f"{self._base}/v1/dev-chat/worker/tasks/{task_id}/running",
-                headers=self._headers(),
-            )
-            r.raise_for_status()
+        async def _do() -> None:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.patch(
+                    f"{self._base}/v1/dev-chat/worker/tasks/{task_id}/running",
+                    headers=self._headers(),
+                )
+                r.raise_for_status()
+
+        await self._with_retry(_do)
 
     async def complete_task(self, task_id: str, payload: dict[str, Any]) -> None:
-        async with httpx.AsyncClient(timeout=10) as c:
-            r = await c.patch(
-                f"{self._base}/v1/dev-chat/worker/tasks/{task_id}/complete",
-                headers=self._headers(),
-                content=json.dumps(payload),
-            )
-            r.raise_for_status()
+        body = json.dumps(payload)
+
+        async def _do() -> None:
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.patch(
+                    f"{self._base}/v1/dev-chat/worker/tasks/{task_id}/complete",
+                    headers=self._headers(),
+                    content=body,
+                )
+                r.raise_for_status()
+
+        await self._with_retry(_do)
 
     async def add_progress_message(self, task_id: str, thread_id: str, message: str) -> None:
         async with httpx.AsyncClient(timeout=10) as c:
