@@ -77,3 +77,7 @@ Just tell me what you want built or fixed — feature, bug fix, UI change, new e
 Request: "test response shape"
 
 Did NOT make a code change. The request is too ambiguous to act on safely — it does not specify which endpoint, which response field(s), or what "shape" means in this context (e.g. write a test, log output, add a schema validator). Please clarify the target endpoint and what you want verified or asserted.
+
+## 2026-05-11T02:53:43Z — Q&A: what can you change
+
+Request: "What can you change in quill for me"
