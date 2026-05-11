@@ -191,11 +191,12 @@ export default function LoginPage() {
 
   return (
     <main className="flex min-h-screen flex-col bg-bg pt-safe pb-safe">
-      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6 py-10">
-        {/* Quill mark — large, centered */}
-        <div className="mb-12 flex flex-col items-center gap-4">
-          <QuillLogo size={72} className="drop-shadow-md" />
-          <span className="text-title-2 font-semibold tracking-tight text-label-primary">
+      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center px-6 py-6">
+        {/* Quill mark — large, centered. Sized so it anchors the screen on
+            mobile without crowding the form. */}
+        <div className="mb-8 flex flex-col items-center gap-3">
+          <QuillLogo size={120} className="drop-shadow-md" />
+          <span className="text-title-1 font-semibold tracking-tight text-label-primary">
             Quill
           </span>
         </div>
