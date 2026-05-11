@@ -1292,7 +1292,7 @@ export function useDevChatCancel() {
 
 /** GET /v1/contracts — list with optional filters. */
 export function useContractsList(
-  params?: { status?: string; contract_type?: string; limit?: number; offset?: number },
+  params?: { status?: string; contract_type?: string; source?: string; limit?: number; offset?: number },
   opts?: UseQueryOptions<ContractListPage | undefined>,
 ) {
   return useQuery<ContractListPage | undefined>({
@@ -1301,6 +1301,7 @@ export function useContractsList(
       const qp = new URLSearchParams();
       if (params?.status) qp.set("status", params.status);
       if (params?.contract_type) qp.set("contract_type", params.contract_type);
+      if (params?.source) qp.set("source", params.source);
       if (params?.limit != null) qp.set("limit", String(params.limit));
       if (params?.offset != null) qp.set("offset", String(params.offset));
       const qs = qp.toString() ? `?${qp.toString()}` : "";

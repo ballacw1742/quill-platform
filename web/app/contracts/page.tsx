@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { FileText, Plus } from "lucide-react";
+import { FileText, Plus, PenLine } from "lucide-react";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { ListRow } from "@/components/ui/list-row";
 import { UploadContractSheet } from "@/components/contracts/UploadContractSheet";
+import { DraftContractSheet } from "@/components/contracts/DraftContractSheet";
 import { useContractsList } from "@/lib/api";
 import type { ContractListItem } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
@@ -109,9 +110,12 @@ function ContractRow({ contract }: { contract: ContractListItem }) {
 export default function ContractsPage() {
   const [filter, setFilter] = React.useState<FilterValue>("all");
   const [uploadOpen, setUploadOpen] = React.useState(false);
+  const [draftOpen, setDraftOpen] = React.useState(false);
 
-  const statusParam = filter === "all" ? undefined : filter;
-  const { data, isLoading, error } = useContractsList({ status: statusParam, limit: 50 });
+  // For "drafted" filter, use source=drafted rather than status
+  const statusParam = filter === "all" || filter === "drafted" ? undefined : filter;
+  const sourceParam = filter === "drafted" ? "drafted" : undefined;
+  const { data, isLoading, error } = useContractsList({ status: statusParam, source: sourceParam, limit: 50 } as any);
 
   const items = data?.items ?? [];
 
@@ -120,15 +124,26 @@ export default function ContractsPage() {
       <TopBar
         title="Contracts"
         right={
-          <button
-            type="button"
-            onClick={() => setUploadOpen(true)}
-            className="flex items-center gap-1 rounded-lg bg-accent px-3 py-2 min-h-[36px] text-caption font-semibold text-white active:bg-accent/80 no-tap-highlight"
-            aria-label="Upload new contract"
-          >
-            <Plus className="h-4 w-4" />
-            New
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDraftOpen(true)}
+              className="flex items-center gap-1 rounded-lg border border-accent px-3 py-2 min-h-[36px] text-caption font-semibold text-accent active:bg-accent/5 no-tap-highlight"
+              aria-label="Draft a new contract"
+            >
+              <PenLine className="h-4 w-4" />
+              Draft
+            </button>
+            <button
+              type="button"
+              onClick={() => setUploadOpen(true)}
+              className="flex items-center gap-1 rounded-lg bg-accent px-3 py-2 min-h-[36px] text-caption font-semibold text-white active:bg-accent/80 no-tap-highlight"
+              aria-label="Upload new contract"
+            >
+              <Plus className="h-4 w-4" />
+              New
+            </button>
+          </div>
         }
       />
 
@@ -140,17 +155,7 @@ export default function ContractsPage() {
         />
       </div>
 
-      {filter === "drafted" && (
-        <div className="px-4 py-6">
-          <EmptyState
-            icon={<FileText className="h-8 w-8 text-label-tertiary" />}
-            title="No drafted contracts yet"
-            subtitle="Contract drafting is coming in a future sprint."
-          />
-        </div>
-      )}
-
-      {filter !== "drafted" && (
+      {(
         <div className="flex-1 overflow-y-auto">
           {error && (
             <div className="px-4 pt-2">
@@ -204,6 +209,7 @@ export default function ContractsPage() {
       )}
 
       <UploadContractSheet open={uploadOpen} onOpenChange={setUploadOpen} />
+      <DraftContractSheet open={draftOpen} onOpenChange={setDraftOpen} />
     </MobileShell>
   );
 }
