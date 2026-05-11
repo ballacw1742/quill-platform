@@ -57,7 +57,17 @@ export function DevChatInput({
   }
 
   return (
-    <div className="border-t border-separator/40 bg-chrome pb-safe">
+    <div
+      className={cn(
+        // Fixed above the bottom tab bar (49px tall + safe-area).
+        // This mirrors the ActionBar pattern used on the /documents detail page,
+        // and ensures the input is never hidden behind the tab bar regardless
+        // of how the parent page lays out its content.
+        "fixed left-0 right-0 z-30",
+        "border-t border-separator/40 bg-chrome backdrop-blur-md pb-safe",
+        "bottom-[calc(49px+env(safe-area-inset-bottom,0px))]",
+      )}
+    >
       {/* In-progress banner */}
       {isLocked && (
         <div className="flex items-center justify-between px-4 py-2 bg-fill-secondary">

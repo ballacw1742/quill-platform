@@ -235,16 +235,17 @@ export default function DevChatPage() {
 
   return (
     <MobileShell>
-      <div className="flex flex-col h-screen">
+      <div className="flex flex-col min-h-screen">
         <TopBar
           title="Chat with Axe"
           left={<Terminal className="h-5 w-5 text-accent" aria-hidden />}
         />
 
-        {/* Message list */}
+        {/* Message list — bottom padding leaves room for the fixed input bar
+            (~76px input + 49px tab bar + safe area). */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto py-4 space-y-1"
+          className="flex-1 overflow-y-auto py-4 space-y-1 pb-[140px]"
           aria-label="Dev chat messages"
           aria-live="polite"
         >
