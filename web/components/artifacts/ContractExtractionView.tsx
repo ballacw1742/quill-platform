@@ -80,9 +80,13 @@ export function ContractExtractionView({
 }) {
   const isPrint = mode === "print";
   const disclaimer = typeof artifact.disclaimer === "string" ? artifact.disclaimer : _DISCLAIMER;
-  const parties = Array.isArray(artifact.parties) ? artifact.parties : [];
-  const dates = Array.isArray(artifact.key_dates) ? artifact.key_dates : [];
-  const clauses = Array.isArray(artifact.notable_clauses) ? artifact.notable_clauses : [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = artifact as any;
+  const parties: any[] = Array.isArray(a.parties) ? a.parties : [];
+  const dates: any[] = Array.isArray(a.key_dates) ? a.key_dates : (Array.isArray(a.key_milestones) ? a.key_milestones : []);
+  const clauses: any[] = Array.isArray(a.notable_clauses) ? a.notable_clauses : (Array.isArray(a.notable_clauses) ? [] : []);
+  const paymentTermsSummary: string = a.payment_terms_summary || a.payment_terms || "";
+  const totalValue: number | null = a.total_value_usd ?? null;
 
   return (
     <div className="space-y-3">
@@ -94,13 +98,13 @@ export function ContractExtractionView({
         <ArtifactCardHeader>
           <div className="flex items-center gap-2 flex-wrap mb-2">
             <ContractTypeChip type={artifact.contract_type} />
-            {artifact.total_value_usd != null && (
-              <StatPill label="Value" value={formatUSD(artifact.total_value_usd)} />
+            {totalValue != null && (
+              <StatPill label="Value" value={formatUSD(totalValue)} />
             )}
           </div>
-          {artifact.plain_english_summary && (
+          {a.plain_english_summary && (
             <p className="text-footnote text-label-secondary mt-1 leading-relaxed">
-              {artifact.plain_english_summary}
+              {String(a.plain_english_summary)}
             </p>
           )}
         </ArtifactCardHeader>
@@ -110,16 +114,16 @@ export function ContractExtractionView({
       {parties.length > 0 && (
         <Section title="Parties" defaultOpen printForceOpen={isPrint}>
           <div className="space-y-0">
-            {parties.map((p: any, i: number) => (
+            {parties.map((p, i) => (
               <KeyValueRow
                 key={i}
-                label={p.role ?? `Party ${i + 1}`}
+                label={String(p.role ?? `Party ${i + 1}`)}
                 value={
                   <>
-                    <span className="block font-medium">{p.name ?? "—"}</span>
+                    <span className="block font-medium">{String(p.name ?? "—")}</span>
                     {p.address && (
                       <span className="block text-label-tertiary text-caption">
-                        {p.address}
+                        {String(p.address)}
                       </span>
                     )}
                   </>
@@ -131,28 +135,26 @@ export function ContractExtractionView({
       )}
 
       {/* ── Key Dates ── */}
-      {(dates.length > 0 ||
-        artifact.effective_date ||
-        artifact.expiration_date) && (
+      {(dates.length > 0 || a.effective_date || a.expiration_date) && (
         <Section title="Key Dates" defaultOpen printForceOpen={isPrint}>
           <div className="space-y-0">
-            {artifact.effective_date && (
+            {a.effective_date && (
               <KeyValueRow
                 label="Effective Date"
-                value={formatDate(artifact.effective_date)}
+                value={formatDate(a.effective_date as string)}
               />
             )}
-            {artifact.expiration_date && (
+            {a.expiration_date && (
               <KeyValueRow
                 label="Expiration Date"
-                value={formatDate(artifact.expiration_date)}
+                value={formatDate(a.expiration_date as string)}
               />
             )}
-            {dates.map((d: any, i: number) => (
+            {(dates as Array<Record<string, unknown>>).map((d, i) => (
               <KeyValueRow
                 key={i}
-                label={d.label ?? d.date_type ?? "Date"}
-                value={formatDate(d.date)}
+                label={String(d["label"] ?? d["date_type"] ?? "Date")}
+                value={formatDate(d["date"] as string | undefined)}
               />
             ))}
           </div>
@@ -160,20 +162,19 @@ export function ContractExtractionView({
       )}
 
       {/* ── Money ── */}
-      {(artifact.total_value_usd != null ||
-        artifact.payment_terms_summary) && (
+      {(totalValue != null || paymentTermsSummary) && (
         <Section title="Money" defaultOpen={false} printForceOpen={isPrint}>
           <div className="space-y-0">
-            {artifact.total_value_usd != null && (
+            {totalValue != null && (
               <KeyValueRow
                 label="Total Contract Value"
-                value={formatUSD(artifact.total_value_usd)}
+                value={formatUSD(totalValue)}
               />
             )}
-            {artifact.payment_terms_summary && (
+            {paymentTermsSummary && (
               <div className="pt-2">
                 <p className="text-caption text-label-secondary leading-relaxed">
-                  {artifact.payment_terms_summary}
+                  {paymentTermsSummary}
                 </p>
               </div>
             )}
@@ -182,30 +183,30 @@ export function ContractExtractionView({
       )}
 
       {/* ── Obligations ── */}
-      {artifact.obligations &&
-        Object.keys(artifact.obligations).length > 0 && (
+      {a.obligations &&
+        Object.keys(a.obligations as Record<string, unknown>).length > 0 && (
           <Section title="Obligations" defaultOpen={false} printForceOpen={isPrint}>
             <div className="space-y-2">
-              {Object.entries(artifact.obligations as Record<string, string[]>).map(
-                ([party, items]) => (
-                  <div key={party}>
-                    <p className="text-caption font-semibold text-label-primary mb-1">
-                      {party}
-                    </p>
-                    <ul className="space-y-1 pl-3">
-                      {items.map((item, i) => (
-                        <li
-                          key={i}
-                          className="text-caption text-label-secondary flex gap-1"
-                        >
-                          <span className="text-label-tertiary">•</span>
-                          <span>{item}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )
-              )}
+              {Object.entries(
+                (a.obligations ?? {}) as Record<string, string[]>
+              ).map(([party, items]) => (
+                <div key={party}>
+                  <p className="text-caption font-semibold text-label-primary mb-1">
+                    {party}
+                  </p>
+                  <ul className="space-y-1 pl-3">
+                    {(items as string[]).map((item, i) => (
+                      <li
+                        key={i}
+                        className="text-caption text-label-secondary flex gap-1"
+                      >
+                        <span className="text-label-tertiary">•</span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           </Section>
         )}

@@ -119,7 +119,7 @@ describe("ContractReviewMetadataSchema", () => {
     for (const severity of ["critical", "high", "medium", "low", "info"]) {
       const withSev = {
         ...VALID_REVIEW,
-        risk_flags: [{ ...VALID_REVIEW.risk_flags![0], severity }],
+        risk_flags: [{ ...(VALID_REVIEW.risk_flags as any[])[0], severity }],
       };
       const parsed = ContractReviewMetadataSchema.parse(withSev);
       expect(parsed.risk_flags[0].severity).toBe(severity);
