@@ -1232,7 +1232,7 @@ export function useDevChatThread(opts?: { before?: string; limit?: number }) {
   return useQuery<DevChatThreadPage>({
     queryKey: ["dev-chat", "thread", qs],
     queryFn: () =>
-      apiFetch(`/v1/dev-chat/thread${qs ? "?" + qs : ""}`, {
+      apiFetch(`/api/v1/dev-chat/thread${qs ? "?" + qs : ""}`, {
         schema: DevChatThreadPageSchema,
       }),
     staleTime: 10_000,
@@ -1243,7 +1243,7 @@ export function useDevChatStatus() {
   return useQuery<DevChatStatus>({
     queryKey: ["dev-chat", "status"],
     queryFn: () =>
-      apiFetch("/v1/dev-chat/status", { schema: DevChatStatusSchema }),
+      apiFetch("/api/v1/dev-chat/status", { schema: DevChatStatusSchema }),
     refetchInterval: 5_000,
   });
 }
@@ -1252,7 +1252,7 @@ export function useDevChatSend() {
   const qc = useQueryClient();
   return useMutation<DevChatSendResponse, Error, { content: string; auth_assertion?: string }>({
     mutationFn: ({ content, auth_assertion }) =>
-      apiFetch("/v1/dev-chat/messages", {
+      apiFetch("/api/v1/dev-chat/messages", {
         method: "POST",
         body: JSON.stringify({ content, auth_assertion: auth_assertion ?? "" }),
         schema: DevChatSendResponseSchema,
@@ -1267,7 +1267,7 @@ export function useDevChatCancel() {
   const qc = useQueryClient();
   return useMutation<DevChatStatus, Error, { task_id: string; auth_assertion?: string }>({
     mutationFn: ({ task_id, auth_assertion }) =>
-      apiFetch(`/v1/dev-chat/cancel/${task_id}`, {
+      apiFetch(`/api/v1/dev-chat/cancel/${task_id}`, {
         method: "POST",
         body: JSON.stringify({ auth_assertion: auth_assertion ?? "" }),
         schema: DevChatStatusSchema,

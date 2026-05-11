@@ -208,11 +208,22 @@ export default function DevChatPage() {
           // Roll back optimistic update
           setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
           setThreadState("idle");
-          if (err.message.includes("409")) {
+          // Don't dump multi-line zod / fetch error walls into a toast.
+          // Pull a short reason and log the rest to console for debugging.
+          const raw = (err?.message ?? "").trim();
+          const firstLine = raw.split(/\n|\. /)[0].slice(0, 160);
+          if (raw.includes("409")) {
             toast.error("Axe is already working on something. Wait for it to finish.");
+          } else if (raw.includes("401")) {
+            toast.error("Re-authentication required. Try the passkey again.");
+          } else if (firstLine.length > 0) {
+            toast.error(`Failed to send: ${firstLine}`);
           } else {
-            toast.error(`Failed to send: ${err.message}`);
+            toast.error("Failed to send. Try again.");
           }
+          // Full error preserved in console for postmortems
+          // eslint-disable-next-line no-console
+          console.error("[dev-chat] send failed:", err);
         },
       },
     );

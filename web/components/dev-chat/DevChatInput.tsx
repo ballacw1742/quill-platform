@@ -70,7 +70,7 @@ export function DevChatInput({
     >
       {/* In-progress banner */}
       {isLocked && (
-        <div className="flex items-center justify-between px-4 py-2 bg-fill-secondary">
+        <div className="flex items-center justify-between px-4 py-2 bg-bg-elevated">
           <div className="flex items-center gap-2 text-body text-label-secondary">
             <Loader2 className="h-4 w-4 animate-spin" />
             <span>Axe is working…</span>
@@ -99,7 +99,7 @@ export function DevChatInput({
           rows={1}
           placeholder={isLocked ? "" : "Tell Axe what to change…"}
           className={cn(
-            "flex-1 resize-none rounded-2xl border border-separator bg-fill-secondary px-4 py-2.5",
+            "flex-1 resize-none rounded-2xl border border-separator bg-bg-elevated px-4 py-2.5",
             "text-body text-label-primary placeholder:text-label-tertiary",
             "focus:outline-none focus:ring-2 focus:ring-accent/50",
             "min-h-[44px] max-h-[120px] overflow-y-auto",

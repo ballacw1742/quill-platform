@@ -20,7 +20,7 @@ export function DevChatMessageBubble({ message }: { message: DevChatMessage }) {
   if (isSystem) {
     return (
       <div className="flex justify-center my-2">
-        <span className="text-caption-1 text-label-secondary bg-fill-tertiary rounded-full px-3 py-1">
+        <span className="text-caption-1 text-label-secondary bg-bg-elevated rounded-full px-3 py-1">
           {message.content}
         </span>
       </div>
@@ -34,7 +34,7 @@ export function DevChatMessageBubble({ message }: { message: DevChatMessage }) {
           "max-w-[80%] rounded-2xl px-4 py-3 min-w-[44px]",
           isUser
             ? "bg-accent text-white rounded-br-sm"
-            : "bg-fill-secondary text-label-primary rounded-bl-sm",
+            : "bg-bg-elevated text-label-primary rounded-bl-sm",
         )}
       >
         {/* Streaming state */}
