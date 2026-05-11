@@ -653,5 +653,24 @@ def cmd_deploy_watch_start(
         sys.exit(0)
 
 
+# ----------------------------------------------------------------------
+# `quill-runtime dev-chat-bridge` — OpenClaw bridge daemon (Phase DC.2)
+# ----------------------------------------------------------------------
+# Translates dev-chat queue tasks into real `openclaw agent` invocations,
+# enforcing disallowed-path safety post-hoc.
+@main.group("dev-chat-bridge")
+def cmd_devchat_bridge() -> None:
+    """OpenClaw bridge — turns queued dev-chat tasks into real agent runs."""
+
+
+@cmd_devchat_bridge.command("start")
+def cmd_devchat_bridge_start() -> None:
+    """Boot the OpenClawBridge daemon (foreground)."""
+    from runtime.openclaw_bridge import main as _bridge_main
+
+    click.echo("[dev-chat-bridge] starting", err=True)
+    sys.exit(_bridge_main())
+
+
 if __name__ == "__main__":
     main()
