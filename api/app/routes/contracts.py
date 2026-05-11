@@ -48,6 +48,11 @@ from app.schemas import (
     _DispatchReviewOut,
     _InterpretRequest,
     _CONTRACT_DISCLAIMER,
+    # Contracts.3
+    ContractTemplateOut,
+    ContractTemplateListResponse,
+    ContractDraftRequest,
+    RedraftRequest,
 )
 from app.security import get_current_user, get_current_user_or_agent
 from app.services import audit as audit_svc
@@ -85,6 +90,10 @@ def _to_out(c: Any) -> ContractOut:
         error_message=c.error_message,
         classification_artifact_id=c.classification_artifact_id,
         review_artifact_id=c.review_artifact_id,
+        # Contracts.3 fields
+        draft_request=c.draft_request,
+        draft_artifact_id=c.draft_artifact_id,
+        mode=c.mode,
         created_at=c.created_at,
         updated_at=c.updated_at,
         disclaimer=_CONTRACT_DISCLAIMER,
@@ -210,6 +219,9 @@ async def list_contracts_route(
     contract_type: str | None = Query(
         default=None, description="Optional contract_type filter"
     ),
+    source: str | None = Query(
+        default=None, description="Optional source filter (upload | drafted)"
+    ),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -220,6 +232,7 @@ async def list_contracts_route(
             db,
             status=status_filter,
             contract_type=contract_type,
+            source=source,
             limit=limit,
             offset=offset,
         )
@@ -624,3 +637,173 @@ async def list_interpretations_route(
         for r in rows
     ]
     return ContractInterpretationListPage(items=items, total=total)
+
+
+# ---------------------------------------------------------------------------
+# Contracts.3 — GET /templates
+# ---------------------------------------------------------------------------
+@router.get(
+    "/templates",
+    response_model=ContractTemplateListResponse,
+    summary="List available contract templates",
+)
+async def list_templates_route(
+    user: Any = Depends(get_current_user),  # noqa: ARG001
+) -> ContractTemplateListResponse:
+    """Return metadata for all available contract templates."""
+    from app.services.contract_templates import list_templates
+
+    items_raw = list_templates()
+    items = [ContractTemplateOut(**t) for t in items_raw]
+    return ContractTemplateListResponse(items=items, total=len(items))
+
+
+# ---------------------------------------------------------------------------
+# Contracts.3 — GET /templates/{template_id}
+# ---------------------------------------------------------------------------
+@router.get(
+    "/templates/{template_id}",
+    response_model=ContractTemplateOut,
+    summary="Get a single contract template",
+)
+async def get_template_route(
+    template_id: str,
+    user: Any = Depends(get_current_user),  # noqa: ARG001
+) -> ContractTemplateOut:
+    """Return frontmatter + body for a single template."""
+    from app.services.contract_templates import get_template
+
+    tmpl = get_template(template_id)
+    if tmpl is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, f"template {template_id!r} not found")
+    return ContractTemplateOut(**tmpl)
+
+
+# ---------------------------------------------------------------------------
+# Contracts.3 — POST /draft
+# ---------------------------------------------------------------------------
+@router.post(
+    "/draft",
+    response_model=ContractOut,
+    status_code=http_status.HTTP_201_CREATED,
+    summary="Create a new AI-drafted contract request",
+)
+async def create_draft_route(
+    body: ContractDraftRequest,
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user),
+) -> ContractOut:
+    """Passkey-gated. Creates a Contract row with source='drafted', status='drafting'."""
+    from app.services.contracts import service as _contracts_service
+
+    contract = await _contracts_service.create_draft_request(db, request=body, user=user)
+    return _to_out(contract)
+
+
+# ---------------------------------------------------------------------------
+# Contracts.3 — POST /{upload_id}/dispatch_draft
+# ---------------------------------------------------------------------------
+class _DispatchDraftOut(BaseModel):
+    ok: bool
+    upload_id: str
+    audit_hash: str
+
+
+@router.post(
+    "/{upload_id}/dispatch_draft",
+    response_model=_DispatchDraftOut,
+    summary="Request contract-drafter agent dispatch",
+)
+async def dispatch_draft_route(
+    upload_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user),
+) -> _DispatchDraftOut:
+    """Signal that the contract-draft-dispatcher should pick up this contract.
+
+    - 404 if not found.
+    - 409 if status not in (drafting, failed) or source != 'drafted'.
+    """
+    _DRAFT_DISPATCH_STATUSES = {"drafting", "failed"}
+
+    contract = await contracts_service.get_status(db, upload_id)
+    if contract is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "contract not found")
+    if contract.source != "drafted":
+        raise HTTPException(
+            http_status.HTTP_409_CONFLICT,
+            "contract source is not 'drafted'; dispatch_draft only applies to AI-drafted contracts",
+        )
+    if contract.status not in _DRAFT_DISPATCH_STATUSES:
+        raise HTTPException(
+            http_status.HTTP_409_CONFLICT,
+            f"contract is not in a dispatchable status (current: {contract.status}); "
+            f"must be one of {sorted(_DRAFT_DISPATCH_STATUSES)}",
+        )
+
+    # Write a priority marker for the draft dispatcher.
+    try:
+        repo_root = Path(__file__).resolve().parents[3]
+        marker_dir = repo_root / "_state" / "contract_draft_requests"
+        marker_dir.mkdir(parents=True, exist_ok=True)
+        marker_file = marker_dir / f"{upload_id}.json"
+        marker_file.write_text(
+            json.dumps(
+                {
+                    "upload_id": upload_id,
+                    "requested_at": datetime.now(UTC).isoformat(),
+                    "requested_by": getattr(user, "id", str(user)),
+                }
+            ),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001
+        import logging as _logging
+        _logging.getLogger("quill.contracts").warning(
+            "dispatch_draft.marker_write_failed upload_id=%s err=%s", upload_id, exc
+        )
+
+    entry = await audit_svc.record_event(
+        db,
+        event_type="contract.draft_dispatch_requested",
+        actor=getattr(user, "id", "system"),
+        approval_item_id=None,
+        payload={"upload_id": upload_id, "contract_id": contract.id},
+    )
+    await db.commit()
+
+    return _DispatchDraftOut(ok=True, upload_id=upload_id, audit_hash=entry.hash)
+
+
+# ---------------------------------------------------------------------------
+# Contracts.3 — POST /{upload_id}/redraft
+# ---------------------------------------------------------------------------
+@router.post(
+    "/{upload_id}/redraft",
+    response_model=ContractOut,
+    status_code=http_status.HTTP_201_CREATED,
+    summary="Create a revised draft from an existing contract",
+)
+async def redraft_route(
+    upload_id: str,
+    body: RedraftRequest,
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user),
+) -> ContractOut:
+    """Passkey-gated. Creates a new Contract row derived from the parent."""
+    from app.services.contracts import service as _contracts_service
+
+    try:
+        contract = await _contracts_service.request_redraft(
+            db,
+            parent_upload_id=upload_id,
+            revision_notes=body.revision_notes,
+            key_terms_overrides=body.key_terms_overrides,
+            user=user,
+        )
+    except LookupError as e:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, str(e)) from e
+    except ValueError as e:
+        raise HTTPException(http_status.HTTP_409_CONFLICT, str(e)) from e
+
+    return _to_out(contract)
