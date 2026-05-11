@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Calculator, FileText, Inbox, Sparkles, User } from "lucide-react";
+import { Calculator, FileText, Inbox, Sparkles, Terminal, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useSession } from "@/lib/api";
@@ -41,11 +41,18 @@ import type { Session } from "@/lib/schemas";
 // Phase G.5: Estimates is its own first-class tab (slot 3) for the
 // drawing-driven cost + schedule flow. We're now at the iOS HIG max of 5
 // tabs; labels are kept short to render cleanly at 375px.
+//
+// Sprint DC.1: "Dev" tab added as 6th slot (between Documents and Profile).
+// This deliberately exceeds Apple's HIG max of 5 tabs. Rationale: Quill is
+// a power-user tool for Charles; the dev-chat surface is a core workflow.
+// If the 6-tab layout proves problematic on smaller screens, the fix is to
+// move "Dev" behind a "More" tab — tracked in KNOWN_ISSUES.md.
 const TABS = [
   { href: "/queue", label: "Queue", icon: Inbox },
   { href: "/today", label: "Today", icon: Sparkles },
   { href: "/estimates", label: "Estimates", icon: Calculator },
   { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/dev-chat", label: "Dev", icon: Terminal },
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
 

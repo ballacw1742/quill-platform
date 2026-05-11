@@ -543,5 +543,115 @@ def cmd_estimate_status(state_file: str | None) -> None:
     click.echo(json.dumps(data, indent=2, default=str))
 
 
+# ----------------------------------------------------------------------
+# `quill-runtime dev-chat` — dev-chat worker daemon (Sprint DC.1)
+# ----------------------------------------------------------------------
+@main.group("dev-chat")
+def cmd_dev_chat() -> None:
+    """Dev-chat worker — dispatches OpenClaw sub-agent tasks for /dev-chat."""
+
+
+@cmd_dev_chat.command("start")
+@click.option(
+    "--simulate-agent",
+    "simulate",
+    is_flag=True,
+    default=False,
+    help="Simulate agent run locally (commits to origin/main; no OpenClaw calls).",
+)
+@click.option(
+    "--poll-interval",
+    "poll_interval",
+    default=None,
+    type=float,
+    help="Seconds between polls. Defaults to DEV_CHAT_POLL_INTERVAL_SECONDS or 5.",
+)
+def cmd_dev_chat_start(simulate: bool, poll_interval: float | None) -> None:
+    """Boot the DevChatWorker daemon (foreground)."""
+    import os as _os
+
+    from runtime.dev_chat_worker import DevChatWorker
+
+    if poll_interval is None:
+        try:
+            poll_interval = float(_os.environ.get("DEV_CHAT_POLL_INTERVAL_SECONDS", "5"))
+        except ValueError:
+            poll_interval = 5.0
+
+    api_url = _os.environ.get("QUILL_API_URL", "http://localhost:8000")
+    secret = _os.environ.get("AGENT_SHARED_SECRET", "dev-agent-secret-change-me")
+
+    click.echo(
+        f"[dev-chat] starting simulate={simulate} poll={poll_interval}s api={api_url}",
+        err=True,
+    )
+
+    worker = DevChatWorker(
+        api_url=api_url,
+        agent_secret=secret,
+        simulate=simulate,
+        poll_interval_s=poll_interval,
+    )
+
+    async def _run() -> None:
+        await worker.start()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        click.echo("[dev-chat] interrupted; shutting down", err=True)
+        sys.exit(0)
+
+
+# ----------------------------------------------------------------------
+# `quill-runtime deploy-watch` — auto-deploy watcher (Sprint DC.1)
+# ----------------------------------------------------------------------
+@main.group("deploy-watch")
+def cmd_deploy_watch() -> None:
+    """Auto-deploy watcher — redeploys when origin/main gets a new commit."""
+
+
+@cmd_deploy_watch.command("start")
+@click.option(
+    "--poll-interval",
+    "poll_interval",
+    default=None,
+    type=float,
+    help="Seconds between git fetches. Defaults to REDEPLOY_POLL_INTERVAL_SECONDS or 30.",
+)
+@click.option(
+    "--state-file",
+    "state_file",
+    default=None,
+    help="Override path to last_deployed_sha.txt state file.",
+)
+def cmd_deploy_watch_start(
+    poll_interval: float | None,
+    state_file: str | None,
+) -> None:
+    """Boot the RedeployWatcher daemon (foreground)."""
+    from pathlib import Path as _Path
+
+    from runtime.redeploy_watcher import RedeployWatcher, install_signal_handlers
+
+    state_path = _Path(state_file) if state_file else None
+    watcher = RedeployWatcher(poll_interval_s=poll_interval, state_file=state_path)
+    install_signal_handlers(watcher)
+
+    click.echo(
+        f"[deploy-watch] starting poll={poll_interval or 'default'}s",
+        err=True,
+    )
+
+    async def _run() -> None:
+        await watcher.start()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        click.echo("[deploy-watch] interrupted; shutting down", err=True)
+        sys.exit(0)
+
+
 if __name__ == "__main__":
     main()

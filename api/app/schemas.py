@@ -403,6 +403,79 @@ class DocumentReindexResult(_Base):
     backend: Literal["postgres-tsvector", "sqlite-like"]
 
 
+# ---------------------------------------------------------------------------
+# Dev Chat — Sprint DC.1
+# ---------------------------------------------------------------------------
+
+class DevChatMessageOut(_Base):
+    id: str
+    thread_id: str
+    role: str
+    content: str
+    metadata: dict[str, Any] | None = Field(default=None, alias="metadata_")
+    status: str
+    commit_sha: str | None = None
+    files_changed: list[Any] | None = None
+    cost_usd: float | None = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+
+class DevChatTaskOut(_Base):
+    id: str
+    message_id: str
+    thread_id: str
+    user_id: str
+    branch: str
+    status: str
+    budget_usd_cap: float
+    disallowed_paths: list[str] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error: str | None = None
+
+
+class DevChatThreadOut(_Base):
+    id: str
+    user_id: str
+    state: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class DevChatThreadPage(_Base):
+    thread: DevChatThreadOut
+    messages: list[DevChatMessageOut]
+    total: int
+    limit: int
+
+
+class DevChatSendRequest(_Base):
+    content: str = Field(..., min_length=1, max_length=8000)
+    auth_assertion: str | None = None
+
+
+class DevChatCancelRequest(_Base):
+    """Body for passkey-gated cancel endpoint."""
+    auth_assertion: str | None = None
+
+
+class DevChatSendResponse(_Base):
+    task_id: str
+    message_id: str
+    thread_state: str
+
+
+class DevChatStatusOut(_Base):
+    state: str
+    current_task_id: str | None = None
+    current_message_id: str | None = None
+    started_at: datetime | None = None
+
+
 __all__ = [
     "ApprovalCreate",
     "ApprovalOut",
@@ -437,4 +510,12 @@ __all__ = [
     "DocumentSearchResult",
     "DocumentDriveLinkOut",
     "DocumentReindexResult",
+    # Dev Chat (Sprint DC.1)
+    "DevChatMessageOut",
+    "DevChatThreadOut",
+    "DevChatTaskOut",
+    "DevChatSendRequest",
+    "DevChatSendResponse",
+    "DevChatStatusOut",
+    "DevChatThreadPage",
 ]

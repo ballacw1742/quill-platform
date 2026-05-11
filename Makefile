@@ -1,4 +1,4 @@
-.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay classify-dispatcher estimator-dispatcher
+.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay classify-dispatcher estimator-dispatcher restart-all dev-chat-worker deploy-watcher
 
 PY ?= python3
 VENV ?= .venv
@@ -146,6 +146,29 @@ triage-replay:
 # Runs the EstimatorDispatcher in the foreground. Reads .env so
 # QUILL_API_URL / AGENT_SHARED_SECRET / ESTIMATE_POLL_INTERVAL_SECONDS
 # are honored.
+# ---------------------------------------------------------------------------
+# Dev-chat worker + auto-deploy watcher (Sprint DC.1)
+# ---------------------------------------------------------------------------
+
+restart-all:
+	@echo "[restart-all] backend..."
+	-@kill $$(cat logs/backend.pid 2>/dev/null) 2>/dev/null || true
+	@sleep 1
+	@nohup .venv/bin/uvicorn app.main:app --app-dir api --host 0.0.0.0 --port 8000 > logs/backend.log 2>&1 & echo $$! > logs/backend.pid
+	@echo "[restart-all] frontend hot-reloads via Next dev; nothing to restart"
+	@echo "[restart-all] done"
+
+dev-chat-worker:
+	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
+	  QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
+	  AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
+	  exec $(VENV)/bin/quill-runtime dev-chat start $${DEV_CHAT_FLAGS}'
+
+deploy-watcher:
+	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
+	  exec $(VENV)/bin/quill-runtime deploy-watch start'
+
+# ---------------------------------------------------------------------------
 estimator-dispatcher:
 	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
 		QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \

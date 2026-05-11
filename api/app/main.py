@@ -15,7 +15,8 @@ from app import __version__
 from app.config import get_settings
 from app.db import connect, disconnect
 from app.logging_setup import configure_logging
-from app.routes import admin, approvals, audit, auth, documents, estimates, realtime
+from app import models_dev_chat as _models_dev_chat  # noqa: F401 — registers dev-chat ORM models with Base.metadata
+from app.routes import admin, approvals, audit, auth, dev_chat, documents, estimates, realtime
 from app.services import sentry as sentry_svc
 from app.services.audit_mirror import get_mirror
 from app.services.sla import run_forever as sla_run_forever
@@ -105,3 +106,5 @@ app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(estimates.router)
 app.include_router(realtime.router)
+app.include_router(dev_chat.router)     # Sprint DC.1 dev-chat REST
+app.include_router(dev_chat.ws_router)  # Sprint DC.1 dev-chat WS (/ws/dev-chat)

@@ -433,6 +433,10 @@ class CostLibraryRow(Base):
     )
 
 
+# Import dev-chat models to ensure they're registered with Base.metadata
+# before any create_all call (tests and migrations both need this).
+from app.models_dev_chat import DevChatThread, DevChatMessage, DevChatTask  # noqa: F401, E402
+
 __all__ = [
     "ApprovalItem",
     "ApprovalRecord",

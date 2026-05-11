@@ -798,3 +798,53 @@ export function isEstimateInFlight(status: string | undefined): boolean {
   ].includes(status);
 }
 
+
+// ─── Dev Chat (Sprint DC.1) ──────────────────────────────────────────────────
+
+export const DevChatMessageSchema = z.object({
+  id: z.string(),
+  thread_id: z.string(),
+  role: z.enum(["user", "agent", "system"]),
+  content: z.string(),
+  metadata: z.record(z.any()).nullable().optional(),
+  status: z.enum(["queued", "streaming", "completed", "failed", "cancelled"]),
+  commit_sha: z.string().nullable().optional(),
+  files_changed: z.array(z.string()).nullable().optional(),
+  cost_usd: z.number().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  completed_at: z.string().nullable().optional(),
+});
+export type DevChatMessage = z.infer<typeof DevChatMessageSchema>;
+
+export const DevChatThreadSchema = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  state: z.enum(["idle", "in_progress"]),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type DevChatThread = z.infer<typeof DevChatThreadSchema>;
+
+export const DevChatThreadPageSchema = z.object({
+  thread: DevChatThreadSchema,
+  messages: z.array(DevChatMessageSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+});
+export type DevChatThreadPage = z.infer<typeof DevChatThreadPageSchema>;
+
+export const DevChatStatusSchema = z.object({
+  state: z.enum(["idle", "in_progress"]),
+  current_task_id: z.string().nullable().optional(),
+  current_message_id: z.string().nullable().optional(),
+  started_at: z.string().nullable().optional(),
+});
+export type DevChatStatus = z.infer<typeof DevChatStatusSchema>;
+
+export const DevChatSendResponseSchema = z.object({
+  task_id: z.string(),
+  message_id: z.string(),
+  thread_state: z.string(),
+});
+export type DevChatSendResponse = z.infer<typeof DevChatSendResponseSchema>;
