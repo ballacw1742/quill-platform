@@ -1,4 +1,4 @@
-.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay classify-dispatcher estimator-dispatcher restart-all dev-chat-worker deploy-watcher contract-dispatcher contract-review-dispatcher
+.PHONY: install dev test lint migrate seed smoke clean docker-up docker-down bot-install bot-dev bot-test bot-mint-pair audit-verify audit-replay mock-install mock-bootstrap mock-start mock-stop mock-status mock-test daily-brief-now triage-dispatcher triage-replay classify-dispatcher estimator-dispatcher restart-all dev-chat-worker deploy-watcher contract-dispatcher contract-review-dispatcher contract-draft-dispatcher
 
 PY ?= python3
 VENV ?= .venv
@@ -189,3 +189,9 @@ contract-review-dispatcher:
 	  AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
 	  CONTRACT_REVIEW_POLL_INTERVAL_SECONDS=$${CONTRACT_REVIEW_POLL_INTERVAL_SECONDS:-15} \
 	  exec $(VENV)/bin/quill-runtime contract-review start'
+
+contract-draft-dispatcher:
+	@bash -c 'set -a; [ -f .env ] && source .env; set +a; \
+	  QUILL_API_URL=$${QUILL_API_URL:-http://localhost:8000} \
+	  AGENT_SHARED_SECRET=$${AGENT_SHARED_SECRET:-dev-agent-secret-change-me} \
+	  exec $(VENV)/bin/quill-runtime contract-draft start'

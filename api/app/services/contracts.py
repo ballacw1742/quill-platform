@@ -342,6 +342,7 @@ class ContractsService:
         *,
         status: str | None = None,
         contract_type: str | None = None,
+        source: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[Contract], int]:
@@ -362,6 +363,9 @@ class ContractsService:
         if contract_type:
             q = q.where(Contract.contract_type == contract_type)
             cq = cq.where(Contract.contract_type == contract_type)
+        if source:
+            q = q.where(Contract.source == source)
+            cq = cq.where(Contract.source == source)
         q = q.order_by(Contract.created_at.desc()).limit(limit).offset(offset)
 
         res = await session.execute(q)
@@ -795,6 +799,190 @@ class ContractsService:
         total = total_result.scalar_one()
 
         return rows, total
+
+
+    # ---- Contracts.3: Draft request -----------------------------------------
+    async def create_draft_request(
+        self,
+        session: AsyncSession,
+        *,
+        request: Any,  # ContractDraftRequest (avoid circular at import time)
+        user: Any,
+    ) -> Contract:
+        """Create a new Contract row for a drafting workflow.
+
+        Does NOT kick off an async extraction — the contract-draft-dispatcher
+        polls for status='drafting' and dispatches the agent.
+        """
+        import json as _json
+
+        upload_id = str(uuid.uuid4())
+        req_dict = request.dict() if hasattr(request, "dict") else dict(request)
+
+        contract = Contract(
+            upload_id=upload_id,
+            project_label=(req_dict.get("scope_summary") or "")[:200],
+            contract_type=req_dict.get("contract_type"),
+            status="drafting",
+            source="drafted",
+            mode=req_dict.get("mode"),
+            draft_request=req_dict,
+            parties=list(req_dict.get("parties") or []),
+            notes=req_dict.get("notes") or "",
+            uploaded_files=[],
+        )
+        session.add(contract)
+        await session.flush()
+
+        # Write a priority-marker file for the dispatcher to find
+        try:
+            state_root = Path(__file__).resolve().parents[3] / "_state" / "contract_draft_requests"
+            state_root.mkdir(parents=True, exist_ok=True)
+            marker = {
+                "upload_id": upload_id,
+                "mode": req_dict.get("mode"),
+                "contract_type": req_dict.get("contract_type"),
+                "created_at": _utcnow().isoformat(),
+            }
+            (state_root / f"{upload_id}.json").write_text(
+                _json.dumps(marker, indent=2), encoding="utf-8"
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "contracts.draft_marker_write_failed upload_id=%s err=%s",
+                upload_id, exc,
+            )
+
+        await audit_svc.record_event(
+            session,
+            event_type="contract.draft_request_created",
+            actor=getattr(user, "id", "system"),
+            approval_item_id=None,
+            payload={
+                "upload_id": upload_id,
+                "mode": req_dict.get("mode"),
+                "contract_type": req_dict.get("contract_type"),
+            },
+        )
+        await session.commit()
+        return contract
+
+    # ---- Contracts.3: Redraft -------------------------------------------------
+    async def request_redraft(
+        self,
+        session: AsyncSession,
+        *,
+        parent_upload_id: str,
+        revision_notes: str,
+        key_terms_overrides: list[dict] | None,
+        user: Any,
+    ) -> Contract:
+        """Clone a draft request with revisions and create a new Contract row."""
+        from app.schemas import ContractDraftRequest as _Schema
+
+        parent = await self.get_status(session, parent_upload_id)
+        if parent is None:
+            raise LookupError(f"contract upload_id={parent_upload_id!r} not found")
+        if parent.source != "drafted" or parent.draft_request is None:
+            raise ValueError("parent contract is not a drafted contract or has no draft_request")
+
+        new_req = dict(parent.draft_request)
+        # Append revision_notes to notes
+        existing_notes = new_req.get("notes") or ""
+        new_req["notes"] = (existing_notes + "\n\nRevision: " + revision_notes).strip()
+        # Merge key_terms_overrides
+        if key_terms_overrides:
+            existing_terms = list(new_req.get("key_terms_requested") or [])
+            override_topics = {o.get("topic") for o in key_terms_overrides if o.get("topic")}
+            existing_terms = [t for t in existing_terms if t.get("topic") not in override_topics]
+            existing_terms.extend(key_terms_overrides)
+            new_req["key_terms_requested"] = existing_terms
+        # Mark the parent in the request
+        new_req["prior_contract_upload_id"] = parent_upload_id
+
+        # Build a schema instance for reuse
+        try:
+            draft_req = _Schema(**new_req)
+        except Exception:  # noqa: BLE001
+            # If schema parse fails, use a passthrough approach
+            class _FallbackReq:
+                def dict(self):
+                    return new_req
+                def __getattr__(self, name):
+                    return new_req.get(name)
+            draft_req = _FallbackReq()  # type: ignore[assignment]
+
+        return await self.create_draft_request(session, request=draft_req, user=user)
+
+    # ---- Contracts.3: Draft approved hook ------------------------------------
+    async def on_draft_approved(
+        self,
+        session: AsyncSession,
+        *,
+        upload_id: str | None,
+        artifact_id: str,
+        actor: str = "system",
+    ) -> Contract | None:
+        """Called when a contract_draft.publish approval is executed.
+
+        - Loads the Document artifact
+        - Writes body_markdown to blob
+        - Appends blob entry to uploaded_files
+        - Stamps draft_artifact_id
+        - Flips status to 'drafted'
+        """
+        if upload_id is None:
+            return None
+        contract = await self.get_status(session, upload_id)
+        if contract is None:
+            log.warning("contracts.draft_no_contract upload_id=%s", upload_id)
+            return None
+
+        # Load the Document to get body_markdown
+        from app.models import Document
+        from sqlalchemy import select as _select
+        doc_res = await session.execute(
+            _select(Document).where(Document.id == artifact_id)
+        )
+        doc = doc_res.scalar_one_or_none()
+        if doc is not None and doc.body_markdown:
+            try:
+                draft_key = f"contracts/{upload_id}/raw/draft.md"
+                _write_blob(draft_key, doc.body_markdown.encode("utf-8"))
+                # Append to uploaded_files manifest
+                manifest = list(contract.uploaded_files or [])
+                manifest.append({
+                    "filename": "draft.md",
+                    "kind": "md",
+                    "size_bytes": len(doc.body_markdown.encode("utf-8")),
+                    "extraction_status": "ok",
+                    "extraction_summary": "AI-drafted contract markdown",
+                    "minio_key": draft_key,
+                })
+                contract.uploaded_files = manifest
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "contracts.draft_blob_write_failed upload_id=%s err=%s",
+                    upload_id, exc,
+                )
+
+        contract.draft_artifact_id = artifact_id
+        contract.status = "drafted"
+        contract.updated_at = _utcnow()
+
+        await audit_svc.record_event(
+            session,
+            event_type="contract.draft_approved",
+            actor=actor,
+            approval_item_id=None,
+            payload={
+                "upload_id": upload_id,
+                "contract_id": contract.id,
+                "draft_artifact_id": artifact_id,
+            },
+        )
+        await session.commit()
+        return contract
 
 
 # Module-level singleton.

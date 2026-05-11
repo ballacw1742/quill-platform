@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Download, FileText, Loader2, Send } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Download, FileText, Loader2, PenLine, Send } from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell";
 import { ErrorBanner } from "@/components/ui/error-banner";
@@ -11,24 +11,22 @@ import { SegmentedControl } from "@/components/ui/segmented-control";
 import { ContractExtractionView } from "@/components/artifacts/ContractExtractionView";
 import { ContractReviewView } from "@/components/artifacts/ContractReviewView";
 import { ContractInterpretationView } from "@/components/artifacts/ContractInterpretationView";
+import { ContractDraftView } from "@/components/artifacts/ContractDraftView";
+import { DraftAttorneyBanner } from "@/components/contracts/DraftAttorneyBanner";
+import { RedraftSheet } from "@/components/contracts/RedraftSheet";
 import {
   useContract,
   useContractReviews,
   useContractInterpretations,
   useDispatchContractReview,
   useInterpretContract,
+  useContractDraft,
 } from "@/lib/api";
-import { ContractExtractionMetadataSchema, ContractReviewMetadataSchema } from "@/lib/schemas";
+import { ContractExtractionMetadataSchema, ContractReviewMetadataSchema, ContractDraftMetadataSchema } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
 // ── Tab types ──────────────────────────────────────────────────────────────
-type TabValue = "summary" | "review" | "ask" | "original";
-const TABS: { label: string; value: TabValue }[] = [
-  { label: "Summary", value: "summary" },
-  { label: "Review", value: "review" },
-  { label: "Ask", value: "ask" },
-  { label: "Original", value: "original" },
-];
+type TabValue = "summary" | "draft" | "review" | "ask" | "original";
 
 // ── Status banner ──────────────────────────────────────────────────────────
 function StatusBanner({
@@ -360,12 +358,103 @@ function OriginalTab({ contract }: { contract: any }) {
   );
 }
 
+// ── Draft Tab ──────────────────────────────────────────────────────────────
+function DraftTab({
+  uploadId,
+  contract,
+  onRedraft,
+}: {
+  uploadId: string;
+  contract: any;
+  onRedraft: () => void;
+}) {
+  const { isLoading, draftArtifact, draftArtifactId } = useContractDraft(uploadId);
+
+  // Drafting in progress
+  if (contract.status === "drafting") {
+    return (
+      <div className="space-y-4">
+        <DraftAttorneyBanner />
+        <div className="flex items-center gap-3 rounded-xl bg-bg-elevated border border-separator px-4 py-4">
+          <Loader2 className="h-5 w-5 animate-spin text-accent shrink-0" />
+          <div>
+            <p className="text-callout font-medium text-label-primary">
+              Axe is drafting your contract…
+            </p>
+            <p className="text-caption text-label-secondary mt-0.5">
+              This usually takes a few minutes. Check back shortly.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Draft is ready
+  if (contract.status === "drafted" && draftArtifactId) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-5 w-5 animate-spin text-label-tertiary" />
+        </div>
+      );
+    }
+
+    if (!draftArtifact) {
+      return (
+        <div className="space-y-4">
+          <DraftAttorneyBanner />
+          <div className="rounded-xl bg-bg-elevated px-4 py-6 text-center text-callout text-label-secondary">
+            Draft artifact not found.
+          </div>
+        </div>
+      );
+    }
+
+    const parsed = ContractDraftMetadataSchema.safeParse(draftArtifact);
+    return (
+      <div className="space-y-3">
+        <DraftAttorneyBanner />
+        {parsed.success ? (
+          <ContractDraftView artifact={parsed.data} />
+        ) : (
+          <div className="rounded-xl bg-bg-elevated px-4 py-4 text-caption text-label-secondary">
+            Could not render draft data.
+          </div>
+        )}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onRedraft}
+            className="flex items-center gap-1.5 rounded-xl border border-accent px-4 py-2.5 min-h-[44px] text-callout font-medium text-accent active:bg-accent/5 no-tap-highlight"
+          >
+            <PenLine className="h-4 w-4" />
+            Revise this draft
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback
+  return (
+    <div className="space-y-4">
+      <DraftAttorneyBanner />
+      <div className="rounded-xl bg-bg-elevated px-4 py-6 text-center text-callout text-label-secondary">
+        Draft not yet available. Status: {contract.status}
+      </div>
+    </div>
+  );
+}
+
+
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function ContractDetailPage() {
   const params = useParams();
   const uploadId = typeof params.upload_id === "string" ? params.upload_id : "";
 
   const [activeTab, setActiveTab] = React.useState<TabValue>("summary");
+  const [redraftOpen, setRedraftOpen] = React.useState(false);
 
   const { data: contract, isLoading, error } = useContract(uploadId);
   const { data: reviewsData } = useContractReviews(uploadId);
@@ -382,8 +471,19 @@ export default function ContractDetailPage() {
     }
   };
 
+  const isDrafted = (contract as any)?.source === "drafted";
+
+  // Build dynamic tabs — Draft tab only visible for drafted contracts
+  const TABS: { label: string; value: TabValue }[] = [
+    { label: "Summary", value: "summary" },
+    ...(isDrafted ? [{ label: "Draft", value: "draft" as TabValue }] : []),
+    { label: "Review", value: "review" },
+    { label: "Ask", value: "ask" },
+    { label: "Original", value: "original" },
+  ];
+
   const title = contract
-    ? contract.project_label ||
+    ? (contract as any).project_label ||
       `Contract ${uploadId.slice(0, 8)}…`
     : "Contract";
 
@@ -414,7 +514,7 @@ export default function ContractDetailPage() {
             {/* Status banner */}
             <div className="px-4 pt-3 pb-2">
               <StatusBanner
-                status={contract.status}
+                status={(contract as any).status}
                 onRunReview={handleRunReview}
                 reviewPending={dispatchReview.isPending}
               />
@@ -434,6 +534,13 @@ export default function ContractDetailPage() {
               {activeTab === "summary" && (
                 <SummaryTab contract={contract} />
               )}
+              {activeTab === "draft" && isDrafted && (
+                <DraftTab
+                  uploadId={uploadId}
+                  contract={contract}
+                  onRedraft={() => setRedraftOpen(true)}
+                />
+              )}
               {activeTab === "review" && (
                 <ReviewTab
                   contract={contract}
@@ -452,6 +559,12 @@ export default function ContractDetailPage() {
           </>
         )}
       </div>
+
+      <RedraftSheet
+        uploadId={uploadId}
+        open={redraftOpen}
+        onOpenChange={setRedraftOpen}
+      />
     </MobileShell>
   );
 }

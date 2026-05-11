@@ -498,6 +498,11 @@ class Contract(Base):
         String(36), nullable=True
     )
 
+    # Contracts.3 — drafter workflow
+    draft_request: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    draft_artifact_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     # Lifecycle
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, index=True

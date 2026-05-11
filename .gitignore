@@ -62,3 +62,9 @@ _state/classification_dispatched.json
 _state/dispatch_requests/
 runtime/_state/
 _state/
+
+# Local blob storage (estimate uploads, contract uploads — kept in DB)
+_local_estimates/
+_local_contracts/
+api/_local_estimates/
+api/_local_contracts/

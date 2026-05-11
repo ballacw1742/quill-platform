@@ -1292,7 +1292,7 @@ export function useDevChatCancel() {
 
 /** GET /v1/contracts — list with optional filters. */
 export function useContractsList(
-  params?: { status?: string; contract_type?: string; limit?: number; offset?: number },
+  params?: { status?: string; contract_type?: string; source?: string; limit?: number; offset?: number },
   opts?: UseQueryOptions<ContractListPage | undefined>,
 ) {
   return useQuery<ContractListPage | undefined>({
@@ -1301,6 +1301,7 @@ export function useContractsList(
       const qp = new URLSearchParams();
       if (params?.status) qp.set("status", params.status);
       if (params?.contract_type) qp.set("contract_type", params.contract_type);
+      if (params?.source) qp.set("source", params.source);
       if (params?.limit != null) qp.set("limit", String(params.limit));
       if (params?.offset != null) qp.set("offset", String(params.offset));
       const qs = qp.toString() ? `?${qp.toString()}` : "";
@@ -1539,4 +1540,175 @@ export function useContractInterpretations(
     enabled: !!uploadId,
     ...opts,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Contracts.3 — Drafter hooks
+// ---------------------------------------------------------------------------
+import {
+  ContractTemplate,
+  ContractTemplateListResponse,
+  ContractDraftRequest,
+  ContractDraft,
+  ContractTemplateSchema,
+  ContractTemplateListResponseSchema,
+  ContractDraftMetadataSchema,
+  ContractDraftSchema,
+} from "@/lib/schemas";
+
+/** GET /v1/contracts/templates — list all available templates */
+export function useContractTemplates(
+  opts?: UseQueryOptions<ContractTemplateListResponse | undefined>,
+) {
+  return useQuery<ContractTemplateListResponse | undefined>({
+    queryKey: ["contracts", "templates"],
+    queryFn: async (): Promise<ContractTemplateListResponse | undefined> => {
+      return apiFetch("/api/v1/contracts/templates", {
+        schema: ContractTemplateListResponseSchema,
+      });
+    },
+    ...opts,
+  });
+}
+
+/** GET /v1/contracts/templates/{templateId} — single template detail */
+export function useContractTemplate(
+  templateId: string | null | undefined,
+  opts?: UseQueryOptions<ContractTemplate | undefined>,
+) {
+  return useQuery<ContractTemplate | undefined>({
+    queryKey: ["contracts", "templates", templateId],
+    queryFn: async (): Promise<ContractTemplate | undefined> => {
+      if (!templateId) return undefined;
+      try {
+        return apiFetch(
+          `/api/v1/contracts/templates/${encodeURIComponent(templateId)}`,
+          { schema: ContractTemplateSchema },
+        );
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return undefined;
+        throw e;
+      }
+    },
+    enabled: !!templateId,
+    ...opts,
+  });
+}
+
+/** POST /v1/contracts/draft — create a new draft contract request */
+export function useCreateContractDraft(
+  opts?: UseMutationOptions<
+    Record<string, unknown>,
+    Error,
+    ContractDraftRequest
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<Record<string, unknown>, Error, ContractDraftRequest>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/contracts/draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contracts"] });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/contracts/{uploadId}/redraft — create a revised draft */
+export function useRedraftContract(
+  uploadId: string,
+  opts?: UseMutationOptions<
+    Record<string, unknown>,
+    Error,
+    { revision_notes: string; key_terms_overrides?: Array<Record<string, string>> }
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<
+    Record<string, unknown>,
+    Error,
+    { revision_notes: string; key_terms_overrides?: Array<Record<string, string>> }
+  >({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/contracts/${encodeURIComponent(uploadId)}/redraft`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contracts"] });
+      qc.invalidateQueries({ queryKey: ["contracts", "detail", uploadId] });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/contracts/{uploadId}/dispatch_draft — trigger the drafter daemon */
+export function useDispatchContractDraft(
+  uploadId: string,
+  opts?: UseMutationOptions<
+    { ok: boolean; upload_id: string; audit_hash: string },
+    Error,
+    void
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: boolean; upload_id: string; audit_hash: string },
+    Error,
+    void
+  >({
+    mutationFn: async () =>
+      apiFetch(
+        `/api/v1/contracts/${encodeURIComponent(uploadId)}/dispatch_draft`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contracts", "detail", uploadId] });
+    },
+    ...opts,
+  });
+}
+
+/** Composite hook: reads draft_artifact_id from contract, fetches the Document */
+export function useContractDraft(uploadId: string) {
+  const contractQuery = useContract(uploadId);
+  const contractData = contractQuery.data as
+    | (Record<string, unknown> & { draft_artifact_id?: string | null })
+    | undefined;
+  const draftArtifactId = contractData?.draft_artifact_id ?? null;
+
+  const documentQuery = useDocument(draftArtifactId);
+  const rawDoc = documentQuery.data;
+
+  // Parse the document's metadata field as ContractDraftMetadata
+  let draftArtifact: ContractDraft | undefined;
+  if (rawDoc) {
+    const meta = (rawDoc as Record<string, unknown>).metadata ?? {};
+    const payload = {
+      ...(meta as Record<string, unknown>),
+      artifact_type: "contract_draft",
+      artifact_id: rawDoc.id,
+      title: rawDoc.title ?? "",
+      summary: rawDoc.summary ?? "",
+      body_markdown: rawDoc.body_markdown ?? "",
+    };
+    const parsed = ContractDraftSchema.safeParse(payload);
+    if (parsed.success) {
+      draftArtifact = parsed.data;
+    }
+  }
+
+  return {
+    isLoading: contractQuery.isLoading || documentQuery.isLoading,
+    isError: contractQuery.isError || documentQuery.isError,
+    draftArtifact,
+    draftArtifactId,
+    contractQuery,
+    documentQuery,
+  };
 }

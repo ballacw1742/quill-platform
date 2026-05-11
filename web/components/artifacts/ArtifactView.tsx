@@ -9,12 +9,14 @@ import {
   ContractReviewMetadataSchema,
   ContractExtractionMetadataSchema,
   ContractInterpretationSchema,
+  ContractDraftMetadataSchema,
 } from "@/lib/schemas";
 import { AaceClassificationView } from "./AaceClassificationView";
 import { CostSchedulePackageView } from "./CostSchedulePackageView";
 import { ContractExtractionView } from "./ContractExtractionView";
 import { ContractReviewView } from "./ContractReviewView";
 import { ContractInterpretationView } from "./ContractInterpretationView";
+import { ContractDraftView } from "./ContractDraftView";
 import { GenericKeyValueView } from "./GenericKeyValueView";
 
 export interface ArtifactViewProps {
@@ -125,6 +127,20 @@ export function ArtifactView({ artifact, mode = "view", approvalId }: ArtifactVi
         <>
           {printButton}
           <ContractInterpretationView item={parsed.data} mode={mode} />
+        </>
+      );
+    }
+    // Schema parse failed — fall through to generic
+  }
+
+  // ── Contract Draft (Contracts.3) ──────────────────────────
+  if (artifactType === "contract_draft") {
+    const parsed = ContractDraftMetadataSchema.safeParse(artifact);
+    if (parsed.success) {
+      return (
+        <>
+          {printButton}
+          <ContractDraftView artifact={parsed.data} mode={mode} />
         </>
       );
     }

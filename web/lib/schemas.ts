@@ -1224,3 +1224,125 @@ export const ContractInterpretationListResponseSchema = z.object({
 export type ContractInterpretationListResponse = z.infer<
   typeof ContractInterpretationListResponseSchema
 >;
+
+// ── Contracts.3 — Drafter ─────────────────────────────────────────────────
+
+// ── Template metadata ──────────────────────────────────────────────────────
+export const ContractTemplateSchema = z
+  .object({
+    template_id: z.string(),
+    contract_type: z.string(),
+    display_name: z.string(),
+    version: z.string().default("0.1.0"),
+    required_variables: z.array(z.string()).default([]),
+    optional_variables: z.array(z.string()).default([]),
+    jurisdiction_notes: z.string().default(""),
+    suitable_for: z.string().default(""),
+    body: z.string().default(""),
+  })
+  .passthrough();
+export type ContractTemplate = z.infer<typeof ContractTemplateSchema>;
+
+export const ContractTemplateListResponseSchema = z.object({
+  items: z.array(ContractTemplateSchema),
+  total: z.number(),
+});
+export type ContractTemplateListResponse = z.infer<
+  typeof ContractTemplateListResponseSchema
+>;
+
+// ── Draft request ──────────────────────────────────────────────────────────
+export const ContractDraftPartySchema = z
+  .object({
+    role: z.string(),
+    name: z.string(),
+    address: z.string().optional(),
+    contact: z.string().optional(),
+  })
+  .passthrough();
+
+export const ContractDraftKeyTermSchema = z
+  .object({
+    topic: z.string(),
+    requirement: z.string(),
+  })
+  .passthrough();
+
+export const ContractDraftRequestSchema = z.object({
+  mode: z.enum(["template", "negotiated"]),
+  contract_type: z.string(),
+  template_id: z.string().nullable().optional(),
+  parties: z.array(ContractDraftPartySchema).default([]),
+  effective_date: z.string().nullable().optional(),
+  expiration_date: z.string().nullable().optional(),
+  total_value_usd: z.number().nullable().optional(),
+  payment_terms: z.string().nullable().optional(),
+  scope_summary: z.string().default(""),
+  key_terms_requested: z.array(ContractDraftKeyTermSchema).default([]),
+  jurisdiction: z.string().default("Ohio"),
+  notes: z.string().default(""),
+  prior_contract_upload_id: z.string().nullable().optional(),
+});
+export type ContractDraftRequest = z.infer<typeof ContractDraftRequestSchema>;
+
+// ── Draft metadata (matches contract_draft.schema.json) ───────────────────
+export const ContractDraftSectionSchema = z
+  .object({
+    heading: z.string(),
+    anchor: z.string(),
+    summary: z.string(),
+  })
+  .passthrough();
+
+export const ContractDraftAttorneyFocusSchema = z
+  .object({
+    topic: z.string(),
+    why: z.string(),
+    suggested_question: z.string(),
+  })
+  .passthrough();
+
+export const ContractDraftAssumptionSchema = z
+  .object({
+    topic: z.string(),
+    assumption: z.string(),
+    why_made: z.string(),
+  })
+  .passthrough();
+
+export const ContractDraftMetadataSchema = z
+  .object({
+    artifact_type: z.literal("contract_draft").optional(),
+    contract_type: z.string(),
+    mode: z.enum(["template", "negotiated"]),
+    template_id: z.string().nullable().optional(),
+    parties: z.array(ContractDraftPartySchema).default([]),
+    effective_date: z.string().nullable().optional(),
+    expiration_date: z.string().nullable().optional(),
+    total_value_usd: z.number().nullable().optional(),
+    title: z.string(),
+    summary: z.string(),
+    body_markdown: z.string(),
+    sections: z.array(ContractDraftSectionSchema).default([]),
+    variables_used: z.record(z.unknown()).default({}),
+    key_terms_addressed: z.record(z.string()).default({}),
+    assumptions_made: z.array(ContractDraftAssumptionSchema).default([]),
+    attorney_review_focus: z.array(ContractDraftAttorneyFocusSchema).default([]),
+    disclaimer: z.string().default(CANONICAL_DISCLAIMER),
+    citations: z.array(z.unknown()).default([]),
+  })
+  .passthrough();
+export type ContractDraftMetadata = z.infer<typeof ContractDraftMetadataSchema>;
+
+// ── Full draft artifact wrapper (mirrors CostSchedulePackageSchema pattern) ─
+export const ContractDraftSchema = z
+  .object({
+    artifact_type: z.literal("contract_draft").or(z.string()).optional(),
+    artifact_id: z.string().optional(),
+    title: z.string().default(""),
+    summary: z.string().default(""),
+    body_markdown: z.string().default(""),
+    ...ContractDraftMetadataSchema.shape,
+  })
+  .passthrough();
+export type ContractDraft = z.infer<typeof ContractDraftSchema>;
