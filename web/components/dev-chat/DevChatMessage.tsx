@@ -82,12 +82,20 @@ function AgentCompletedContent({ message }: { message: DevChatMessage }) {
   const files = message.files_changed ?? [];
   const cost = message.cost_usd;
 
+  // Conversational replies (questions, ambiguous requests) commit only
+  // DEV_CHAT_LOG.md as an audit-trail entry. The user doesn't need to see
+  // the commit SHA / file list / "Done" for these — it's just noise. Hide
+  // the footer in that case so the bubble reads like a normal chat reply.
+  const auditTrailOnly =
+    files.length > 0 &&
+    files.every((f) => f === "DEV_CHAT_LOG.md" || f === "web/DEV_CHAT_LOG.md");
+
   return (
     <div className="space-y-2">
       {message.content && (
         <p className="text-body whitespace-pre-wrap break-words">{message.content}</p>
       )}
-      {sha && (
+      {!auditTrailOnly && sha && (
         <div className="flex items-center gap-1.5 text-caption-1 text-label-secondary">
           <GitCommit className="h-3.5 w-3.5 shrink-0" />
           <a
@@ -101,7 +109,7 @@ function AgentCompletedContent({ message }: { message: DevChatMessage }) {
           </a>
         </div>
       )}
-      {files.length > 0 && (
+      {!auditTrailOnly && files.length > 0 && (
         <div className="text-caption-1 text-label-secondary">
           <span className="font-medium">{files.length} file{files.length !== 1 ? "s" : ""} changed</span>
           <ul className="mt-1 list-disc list-inside space-y-0.5">
@@ -112,13 +120,15 @@ function AgentCompletedContent({ message }: { message: DevChatMessage }) {
           </ul>
         </div>
       )}
-      {cost != null && cost > 0 && (
+      {!auditTrailOnly && cost != null && cost > 0 && (
         <div className="text-caption-2 text-label-tertiary">${cost.toFixed(4)}</div>
       )}
-      <div className="flex items-center gap-1 text-caption-1 text-green-600 dark:text-green-400">
-        <CheckCircle className="h-3.5 w-3.5" />
-        <span>Done</span>
-      </div>
+      {!auditTrailOnly && (
+        <div className="flex items-center gap-1 text-caption-1 text-green-600 dark:text-green-400">
+          <CheckCircle className="h-3.5 w-3.5" />
+          <span>Done</span>
+        </div>
+      )}
     </div>
   );
 }
