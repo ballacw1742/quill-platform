@@ -529,6 +529,10 @@ class ContractOut(_Base):
     error_message: str | None = None
     classification_artifact_id: str | None = None
     review_artifact_id: str | None = None
+    # Contracts.3 fields
+    draft_request: dict[str, Any] | None = None
+    draft_artifact_id: str | None = None
+    mode: str | None = None
     created_at: datetime
     updated_at: datetime
     # AI-output disclaimer — always populated programmatically
@@ -612,6 +616,95 @@ class ContractInterpretationListPage(_Base):
     total: int
 
 
+# ---------------------------------------------------------------------------
+# Contracts — Sprint Contracts.3 (drafter)
+# ---------------------------------------------------------------------------
+
+class ContractTemplateOut(_Base):
+    """A single contract template's metadata (frontmatter) + body."""
+
+    template_id: str
+    contract_type: str
+    display_name: str
+    version: str = "0.1.0"
+    required_variables: list[str] = Field(default_factory=list)
+    optional_variables: list[str] = Field(default_factory=list)
+    jurisdiction_notes: str = ""
+    suitable_for: str = ""
+    body: str = ""  # included only in single-template detail response
+
+
+class ContractTemplateListResponse(_Base):
+    items: list[ContractTemplateOut]
+    total: int
+
+
+class ContractDraftRequest(_Base):
+    """Request body for POST /v1/contracts/draft."""
+
+    mode: Literal["template", "negotiated"]
+    contract_type: str
+    template_id: str | None = None
+    parties: list[dict[str, Any]] = Field(default_factory=list)
+    effective_date: str | None = None
+    expiration_date: str | None = None
+    total_value_usd: float | None = None
+    payment_terms: str | None = None
+    scope_summary: str = ""
+    key_terms_requested: list[dict[str, Any]] = Field(default_factory=list)
+    jurisdiction: str = "Ohio"
+    notes: str = ""
+    prior_contract_upload_id: str | None = None
+
+
+class _DraftSection(_Base):
+    heading: str
+    anchor: str
+    summary: str
+
+
+class _DraftAttorneyFocus(_Base):
+    topic: str
+    why: str
+    suggested_question: str
+
+
+class _DraftAssumption(_Base):
+    topic: str
+    assumption: str
+    why_made: str
+
+
+class ContractDraftMetadataOut(_Base):
+    """Pydantic equivalent of contract_draft.schema.json agent output."""
+
+    artifact_type: Literal["contract_draft"] = "contract_draft"
+    contract_type: str
+    mode: str
+    template_id: str | None = None
+    parties: list[dict[str, Any]] = Field(default_factory=list)
+    effective_date: str | None = None
+    expiration_date: str | None = None
+    total_value_usd: float | None = None
+    title: str
+    summary: str
+    body_markdown: str
+    sections: list[_DraftSection] = Field(default_factory=list)
+    variables_used: dict[str, Any] = Field(default_factory=dict)
+    key_terms_addressed: dict[str, str] = Field(default_factory=dict)
+    assumptions_made: list[_DraftAssumption] = Field(default_factory=list)
+    attorney_review_focus: list[_DraftAttorneyFocus] = Field(default_factory=list)
+    disclaimer: str = _CONTRACT_DISCLAIMER
+    citations: list[Any] = Field(default_factory=list)
+
+
+class RedraftRequest(_Base):
+    """Body for POST /v1/contracts/{upload_id}/redraft."""
+
+    revision_notes: str
+    key_terms_overrides: list[dict[str, Any]] | None = None
+
+
 __all__ = [
     "ApprovalCreate",
     "ApprovalOut",
@@ -660,6 +753,12 @@ __all__ = [
     "ContractReviewListItem",
     "ContractReviewListPage",
     "ContractInterpretationListPage",
+    # Contracts (Sprint Contracts.3)
+    "ContractTemplateOut",
+    "ContractTemplateListResponse",
+    "ContractDraftRequest",
+    "ContractDraftMetadataOut",
+    "RedraftRequest",
     # Dev Chat (Sprint DC.1)
     "DevChatMessageOut",
     "DevChatThreadOut",

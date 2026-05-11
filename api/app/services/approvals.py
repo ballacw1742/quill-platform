@@ -270,6 +270,11 @@ _CONTRACT_REVIEW_WORKFLOWS: frozenset[str] = frozenset({
     "contract_review.publish",
 })
 
+# Sprint Contracts.3: contract draft workflow
+_CONTRACT_DRAFT_WORKFLOWS: frozenset[str] = frozenset({
+    "contract_draft.publish",
+})
+
 
 def _is_publish_artifact(item: ApprovalItem) -> bool:
     """True if this approval should produce a Document on execute.
@@ -283,6 +288,9 @@ def _is_publish_artifact(item: ApprovalItem) -> bool:
 
     wf = item.workflow or ""
     if wf in ARTIFACT_PUBLISH_WORKFLOWS or wf in _ESTIMATE_PUBLISH_WORKFLOWS:
+        return True
+    # Sprint Contracts.3: contract drafts also publish a Document on approval
+    if wf in _CONTRACT_DRAFT_WORKFLOWS:
         return True
     payload = item.payload or {}
     proposed = payload.get("proposed_action") if isinstance(payload, dict) else None
@@ -369,9 +377,10 @@ async def execute_approval(
     # ---- Phase D.1: artifact publication path ----
     is_contract_extraction = item.workflow in _CONTRACT_PUBLISH_WORKFLOWS
     is_contract_review = item.workflow in _CONTRACT_REVIEW_WORKFLOWS
+    is_contract_draft = item.workflow in _CONTRACT_DRAFT_WORKFLOWS
     contract_upload_id = (
         _extract_contract_upload_id(item)
-        if (is_contract_extraction or is_contract_review)
+        if (is_contract_extraction or is_contract_review or is_contract_draft)
         else None
     )
 
@@ -477,6 +486,27 @@ async def execute_approval(
 
             logging.getLogger("quill.approvals").warning(
                 "approvals.contract_review_hook_failed upload_id=%s err=%s",
+                contract_upload_id, exc,
+            )
+
+    # Sprint Contracts.3: stamp Contract.draft_artifact_id when a contract_draft is approved.
+    if is_contract_draft and contract_upload_id is not None:
+        from app.services.contracts import service as contracts_service
+
+        try:
+            payload_artifact = (item.payload or {}).get("artifact") or {}
+            artifact_id = str(payload_artifact.get("id") or document_id or item.id)
+            await contracts_service.on_draft_approved(
+                session,
+                upload_id=contract_upload_id,
+                artifact_id=artifact_id,
+                actor=actor,
+            )
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger("quill.approvals").warning(
+                "approvals.contract_draft_hook_failed upload_id=%s err=%s",
                 contract_upload_id, exc,
             )
 
