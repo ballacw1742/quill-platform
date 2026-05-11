@@ -196,9 +196,14 @@ def _run_openclaw_agent(
 ) -> tuple[bool, str]:
     """Shell out to openclaw agent. Returns (succeeded, summary_or_error)."""
     prompt = _build_agent_prompt(task)
+    # Target the main agent context (Axe). Without --agent the CLI requires
+    # --to or --session-id; we want a fresh, isolated turn each time.
+    agent_id = os.environ.get("DEV_CHAT_BRIDGE_AGENT_ID", "main")
     cmd = [
         "openclaw",
         "agent",
+        "--agent",
+        agent_id,
         "--json",
         "--thinking",
         "medium",
@@ -227,16 +232,65 @@ def _run_openclaw_agent(
         err = (proc.stderr or proc.stdout or "").strip()[:2000]
         return False, f"openclaw agent exit={proc.returncode}: {err}"
 
-    summary = (proc.stdout or "").strip()[-2000:]
-    # The agent might emit JSON; try to pull out a 'response' field for cleaner UX.
-    try:
-        parsed = json.loads(summary)
-        if isinstance(parsed, dict):
-            summary = str(parsed.get("response") or parsed.get("text") or summary)
-    except Exception:
-        pass
-
+    # The agent emits a JSON envelope; extract just the assistant's visible
+    # reply for display. Never truncate before parsing or the JSON breaks.
+    stdout_raw = (proc.stdout or "").strip()
+    summary = _extract_visible_text(stdout_raw)
     return True, summary
+
+
+def _extract_visible_text(stdout_raw: str) -> str:
+    """Pull the assistant's human-readable reply out of openclaw's JSON envelope.
+
+    The envelope can be nested (e.g. `{ result: { run: { finalAssistantVisibleText } } }`)
+    so we walk the structure recursively looking for the canonical key. Fall
+    back to other common shapes and finally to a clamped slice of stdout.
+    """
+    if not stdout_raw:
+        return ""
+    try:
+        parsed = json.loads(stdout_raw)
+    except Exception:
+        # Not JSON — just clamp the raw text.
+        return stdout_raw[-1500:]
+
+    candidate_keys = (
+        "finalAssistantVisibleText",
+        "finalAssistantRawText",
+        "assistantVisibleText",
+        "response",
+        "text",
+    )
+
+    def _walk(node: Any) -> str | None:
+        if isinstance(node, dict):
+            for k in candidate_keys:
+                v = node.get(k)
+                if isinstance(v, str) and v.strip():
+                    return v.strip()
+            for v in node.values():
+                found = _walk(v)
+                if found:
+                    return found
+        elif isinstance(node, list):
+            for v in node:
+                found = _walk(v)
+                if found:
+                    return found
+        return None
+
+    extracted = _walk(parsed)
+    if extracted:
+        # Strip the trailing DEV-CHAT-DONE marker we ask the agent to emit.
+        cleaned = extracted
+        for marker in ("DEV-CHAT-DONE", "DEV_CHAT_DONE"):
+            idx = cleaned.find(marker)
+            if idx != -1:
+                cleaned = cleaned[:idx].rstrip()
+        return cleaned[-3000:]
+
+    # No recognizable text field — give up gracefully.
+    return "(agent finished but produced no visible text)"
 
 
 def _append_progress(progress_path: Path, kind: str, message: str) -> None:
