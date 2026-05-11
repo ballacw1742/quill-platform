@@ -433,6 +433,85 @@ class CostLibraryRow(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Contract — Sprint Contracts.1
+# ---------------------------------------------------------------------------
+class Contract(Base):
+    """A contract document upload that flows through extraction → field-extraction
+    → (Contracts.2) review.
+
+    State machine:
+        uploaded → extracting → extracted → reviewing → reviewed → drafting → drafted
+                                                                              ↓
+                                                                           failed
+    """
+
+    __tablename__ = "contracts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    upload_id: Mapped[str] = mapped_column(
+        String(36), unique=True, index=True, default=_uuid
+    )
+    project_label: Mapped[str] = mapped_column(String(200), default="")
+    contract_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    """owner_gc | subcontract | change_order | purchase_order | letter_of_intent
+       | nda | msa | equipment_lease | insurance_certificate | lien_waiver
+       | other | unknown
+    """
+
+    status: Mapped[str] = mapped_column(String(32), default="uploaded", index=True)
+    """uploaded | extracting | extracted | reviewing | reviewed | drafting | drafted | failed"""
+
+    source: Mapped[str] = mapped_column(String(16), default="upload")
+    """'upload' | 'drafted' (from Contracts.3)"""
+
+    # Manifest of uploaded files — same shape as Estimate.uploaded_files:
+    # [{filename, kind, size_bytes, minio_key, extraction_status, extraction_summary}]
+    uploaded_files: Mapped[list[Any]] = mapped_column(JSONType, default=list)
+
+    # Structured fields produced by contract-extractor (Contracts.1 agent)
+    extracted_fields: Mapped[dict[str, Any] | None] = mapped_column(JSONType, nullable=True)
+
+    # Denormalized for fast filter/search: [{role, name, address}]
+    parties: Mapped[list[Any]] = mapped_column(JSONType, default=list)
+
+    effective_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expiration_date: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    from sqlalchemy import Numeric as _Numeric
+    total_value_usd: Mapped[float | None] = mapped_column(
+        _Numeric(precision=18, scale=2), nullable=True
+    )
+
+    notes: Mapped[str] = mapped_column(Text, default="")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Pointers to published artifacts (set in Contracts.2)
+    classification_artifact_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
+    review_artifact_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True
+    )
+
+    # Lifecycle
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
+    )
+
+    __table_args__ = (
+        Index("ix_contracts_status_created", "status", "created_at"),
+        Index("ix_contracts_type_created", "contract_type", "created_at"),
+    )
+
+
 # Import dev-chat models to ensure they're registered with Base.metadata
 # before any create_all call (tests and migrations both need this).
 from app.models_dev_chat import DevChatThread, DevChatMessage, DevChatTask  # noqa: F401, E402
@@ -451,4 +530,5 @@ __all__ = [
     "CostLibraryRow",
     "Decision",
     "ExecutionResult",
+    "Contract",
 ]

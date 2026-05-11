@@ -50,6 +50,14 @@ import {
   type DevChatSendResponse,
   type DevChatStatus,
   type DevChatThreadPage,
+  ContractSchema,
+  ContractListPageSchema,
+  ContractStatusSchema,
+  ContractUploadResponseSchema,
+  type Contract,
+  type ContractListPage,
+  type ContractStatus,
+  type ContractUploadResponse,
 } from "@/lib/schemas";
 import { mockStore } from "@/lib/mock/store";
 
@@ -1275,5 +1283,135 @@ export function useDevChatCancel() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dev-chat"] });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Contracts (Sprint Contracts.1)
+// ---------------------------------------------------------------------------
+
+/** GET /v1/contracts — list with optional filters. */
+export function useContractsList(
+  params?: { status?: string; contract_type?: string; limit?: number; offset?: number },
+  opts?: UseQueryOptions<ContractListPage | undefined>,
+) {
+  return useQuery<ContractListPage | undefined>({
+    queryKey: ["contracts", "list", params],
+    queryFn: async (): Promise<ContractListPage | undefined> => {
+      const qp = new URLSearchParams();
+      if (params?.status) qp.set("status", params.status);
+      if (params?.contract_type) qp.set("contract_type", params.contract_type);
+      if (params?.limit != null) qp.set("limit", String(params.limit));
+      if (params?.offset != null) qp.set("offset", String(params.offset));
+      const qs = qp.toString() ? `?${qp.toString()}` : "";
+      return apiFetch(`/api/v1/contracts${qs}`, { schema: ContractListPageSchema });
+    },
+    ...opts,
+  });
+}
+
+/** GET /v1/contracts/{upload_id} — full record. */
+export function useContract(
+  uploadId: string | null | undefined,
+  opts?: UseQueryOptions<Contract | undefined>,
+) {
+  return useQuery<Contract | undefined>({
+    queryKey: ["contracts", "detail", uploadId],
+    queryFn: async (): Promise<Contract | undefined> => {
+      if (!uploadId) return undefined;
+      try {
+        return await apiFetch(`/api/v1/contracts/${encodeURIComponent(uploadId)}`, {
+          schema: ContractSchema,
+        });
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return undefined;
+        throw e;
+      }
+    },
+    enabled: !!uploadId,
+    refetchInterval: (q) => {
+      const data = q.state.data;
+      if (!data) return 4000;
+      const inFlight = ["uploaded", "extracting"];
+      if (inFlight.includes(data.status)) return 4000;
+      return false;
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/contracts/upload — multipart upload. */
+export function useUploadContract(
+  opts?: UseMutationOptions<
+    ContractUploadResponse,
+    Error,
+    { files: File[]; project_label?: string; contract_type?: string; notes?: string }
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<
+    ContractUploadResponse,
+    Error,
+    { files: File[]; project_label?: string; contract_type?: string; notes?: string }
+  >({
+    mutationFn: async ({ files, project_label, contract_type, notes }) => {
+      if (!files || files.length === 0) {
+        throw new Error("Pick at least one contract file.");
+      }
+      const fd = new FormData();
+      for (const f of files) fd.append("files", f);
+      if (project_label) fd.append("project_label", project_label);
+      if (contract_type) fd.append("contract_type", contract_type);
+      if (notes) fd.append("notes", notes);
+      return apiFetch("/api/v1/contracts/upload", {
+        method: "POST",
+        body: fd,
+        schema: ContractUploadResponseSchema,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contracts"] });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/contracts/{upload_id}/dispatch_extraction */
+export function useDispatchContractExtraction(
+  opts?: UseMutationOptions<{ ok: boolean; upload_id: string; audit_hash: string }, Error, { uploadId: string }>,
+) {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean; upload_id: string; audit_hash: string }, Error, { uploadId: string }>({
+    mutationFn: ({ uploadId }) =>
+      apiFetch(`/api/v1/contracts/${encodeURIComponent(uploadId)}/dispatch_extraction`, {
+        method: "POST",
+      }),
+    onSuccess: (_data, { uploadId }) => {
+      qc.invalidateQueries({ queryKey: ["contracts", "detail", uploadId] });
+      qc.invalidateQueries({ queryKey: ["contracts", "list"] });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/contracts/{upload_id}/cancel */
+export function useCancelContract(
+  opts?: UseMutationOptions<{ ok: boolean; upload_id: string }, Error, { uploadId: string; reason?: string }>,
+) {
+  const qc = useQueryClient();
+  return useMutation<{ ok: boolean; upload_id: string }, Error, { uploadId: string; reason?: string }>({
+    mutationFn: ({ uploadId, reason }) => {
+      const fd = new FormData();
+      if (reason) fd.append("reason", reason);
+      return apiFetch(`/api/v1/contracts/${encodeURIComponent(uploadId)}/cancel`, {
+        method: "POST",
+        body: fd,
+      });
+    },
+    onSuccess: (_data, { uploadId }) => {
+      qc.invalidateQueries({ queryKey: ["contracts", "detail", uploadId] });
+      qc.invalidateQueries({ queryKey: ["contracts", "list"] });
+    },
+    ...opts,
   });
 }
