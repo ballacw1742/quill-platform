@@ -3,9 +3,18 @@
 import * as React from "react";
 import { Printer } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { AaceClassificationSchema, CostSchedulePackageSchema } from "@/lib/schemas";
+import {
+  AaceClassificationSchema,
+  CostSchedulePackageSchema,
+  ContractReviewMetadataSchema,
+  ContractExtractionMetadataSchema,
+  ContractInterpretationSchema,
+} from "@/lib/schemas";
 import { AaceClassificationView } from "./AaceClassificationView";
 import { CostSchedulePackageView } from "./CostSchedulePackageView";
+import { ContractExtractionView } from "./ContractExtractionView";
+import { ContractReviewView } from "./ContractReviewView";
+import { ContractInterpretationView } from "./ContractInterpretationView";
 import { GenericKeyValueView } from "./GenericKeyValueView";
 
 export interface ArtifactViewProps {
@@ -74,6 +83,48 @@ export function ArtifactView({ artifact, mode = "view", approvalId }: ArtifactVi
         <>
           {printButton}
           <CostSchedulePackageView artifact={parsed.data} mode={mode} />
+        </>
+      );
+    }
+    // Schema parse failed — fall through to generic
+  }
+
+  // ── Contract Extraction ───────────────────────────────────────────────────
+  if (artifactType === "contract_extraction") {
+    const parsed = ContractExtractionMetadataSchema.safeParse(artifact);
+    if (parsed.success) {
+      return (
+        <>
+          {printButton}
+          <ContractExtractionView artifact={parsed.data} mode={mode} />
+        </>
+      );
+    }
+    // Schema parse failed — fall through to generic
+  }
+
+  // ── Contract Review ───────────────────────────────────────────────────────
+  if (artifactType === "contract_review") {
+    const parsed = ContractReviewMetadataSchema.safeParse(artifact);
+    if (parsed.success) {
+      return (
+        <>
+          {printButton}
+          <ContractReviewView artifact={parsed.data} mode={mode} />
+        </>
+      );
+    }
+    // Schema parse failed — fall through to generic
+  }
+
+  // ── Contract Interpretation ───────────────────────────────────────────────
+  if (artifactType === "contract_interpretation") {
+    const parsed = ContractInterpretationSchema.safeParse(artifact);
+    if (parsed.success) {
+      return (
+        <>
+          {printButton}
+          <ContractInterpretationView item={parsed.data} mode={mode} />
         </>
       );
     }
