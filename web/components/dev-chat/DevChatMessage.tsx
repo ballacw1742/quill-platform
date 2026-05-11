@@ -60,7 +60,14 @@ export function DevChatMessageBubble({ message }: { message: DevChatMessage }) {
             isUser ? "text-white/70" : "text-label-tertiary",
           )}
         >
-          {new Date(message.created_at).toLocaleTimeString([], {
+          {new Date(
+            // API emits naive UTC ISO strings (no Z/offset). If the value
+            // lacks a timezone marker, append Z so JS parses it as UTC
+            // rather than local time (which would skew ET by +4h).
+            /[Zz]|[+-]\d{2}:\d{2}$/.test(message.created_at)
+              ? message.created_at
+              : message.created_at + "Z"
+          ).toLocaleTimeString([], {
             hour: "numeric",
             minute: "2-digit",
           })}

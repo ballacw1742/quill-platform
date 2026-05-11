@@ -164,6 +164,14 @@ Working directory: {task.repo_path}
 - If you encounter a problem you can't resolve, do the same: write an explanation to DEV_CHAT_LOG.md and commit it.
 - This is a single-turn task. Do not ask follow-up questions. Make the best decision and ship it.
 
+# Conversational requests
+
+If the user is clearly asking a question ("what can you do", "how does X work", "why did Y happen") rather than requesting a code change:
+- Answer the question directly and concisely in your final assistant message
+- The user sees your final assistant text rendered in their chat — write it like a normal chat reply, not a status update
+- Still commit a single-line note to DEV_CHAT_LOG.md so there's a paper trail (commit message: `dev-chat(qa): <topic>` and body = user's question verbatim + Task-Id)
+- Keep the chat reply itself focused: lead with the answer, bullets over walls of text, no JSON dumps, no "Let me scan..." preludes — just the answer.
+
 # Constraints
 
 - Budget: ~${task.budget_usd_cap:.2f} per task. Keep your edits proportional.
