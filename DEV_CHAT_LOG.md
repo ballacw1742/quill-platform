@@ -29,6 +29,49 @@ Here's what I can do via /dev-chat:
 
 Just describe what you want changed and I'll do it in one shot.
 
+## 2026-05-11 — Quill capability overview (no code change)
+
+Request: "What can you change in quill for me?"
+
+Here's what I can touch across the Quill stack:
+
+**Frontend (`web/`) — Next.js / React / Tailwind**
+- UI components: estimates, queue, documents, audit, dev-chat, approvals, agents
+- Pages and routing (`web/app/**`)
+- API wiring (`web/lib/api.ts`, `web/lib/websocket.ts`)
+- Styling, layout, design system tweaks
+- Schemas/types (`web/lib/schemas.ts`, `web/types/**`)
+- Frontend tests (Vitest)
+
+**Backend API (`api/`) — FastAPI / Python**
+- Routes (`api/app/routes/**`)
+- Business logic, services (`api/app/services/**`)
+- Pydantic schemas (`api/app/schemas.py`)
+- Models, enums, config (`api/app/models.py`, `api/app/enums.py`)
+- Backend tests (pytest)
+
+**Runtime (`runtime/`) — Python workers**
+- Triage, classification, estimation dispatchers
+- Agent logic, LLM client, lane router, validator
+- Dev chat worker, redeploy watcher, queue client
+- Runtime tests (pytest)
+
+**Telegram Bot (`telegram-bot/`) — Python**
+- Bot handlers, conversation logic, tools, notifier
+- Scheduler, transcription, pairing
+- Bot tests (pytest)
+
+**What I won't touch**
+- `api/app/security.py`, `api/app/auth/**` (auth/security)
+- `.env`, `.env*` files
+- `alembic/**` (migrations)
+- `deployment/**`, `scripts/restart*`
+- Anything destructive
+
+Just tell me what you want built or fixed — feature, bug fix, UI change, new endpoint, etc.
+
+---
+
 ## 2026-05-11 — Ambiguous request, no code change made
 
 Request: "test response shape"
