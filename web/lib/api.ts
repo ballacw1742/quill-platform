@@ -1415,3 +1415,128 @@ export function useCancelContract(
     ...opts,
   });
 }
+
+// ─── Contracts Review + Interpretation (Sprint Contracts.2) ──────────────────
+
+import type {
+  ContractReview,
+  ContractReviewListResponse,
+  ContractInterpretation,
+  ContractInterpretationListResponse,
+} from "@/lib/schemas";
+import {
+  ContractReviewSchema,
+  ContractReviewListResponseSchema,
+  ContractInterpretationSchema,
+  ContractInterpretationListResponseSchema,
+} from "@/lib/schemas";
+
+/** POST /v1/contracts/{upload_id}/dispatch_review — passkey-gated */
+export function useDispatchContractReview(
+  uploadId: string,
+  opts?: UseMutationOptions<
+    { ok: boolean; upload_id: string; audit_hash: string },
+    Error,
+    { passkey_assertion?: string } | void
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<
+    { ok: boolean; upload_id: string; audit_hash: string },
+    Error,
+    { passkey_assertion?: string } | void
+  >({
+    mutationFn: async (vars) => {
+      const passkey =
+        vars && "passkey_assertion" in vars ? vars.passkey_assertion : undefined;
+      const headers: Record<string, string> = {};
+      if (passkey) headers["X-Auth-Assertion"] = passkey;
+      return apiFetch(
+        `/api/v1/contracts/${encodeURIComponent(uploadId)}/dispatch_review`,
+        { method: "POST", headers },
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contracts", "detail", uploadId] });
+      qc.invalidateQueries({ queryKey: ["contracts", "reviews", uploadId] });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/contracts/{upload_id}/interpret — passkey-gated, optimistic append */
+export function useInterpretContract(
+  uploadId: string,
+  opts?: UseMutationOptions<
+    ContractInterpretation,
+    Error,
+    { question: string; passkey_assertion?: string }
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<
+    ContractInterpretation,
+    Error,
+    { question: string; passkey_assertion?: string }
+  >({
+    mutationFn: async ({ question, passkey_assertion }) => {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (passkey_assertion) headers["X-Auth-Assertion"] = passkey_assertion;
+      return apiFetch(
+        `/api/v1/contracts/${encodeURIComponent(uploadId)}/interpret`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ question }),
+          schema: ContractInterpretationSchema,
+        },
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({
+        queryKey: ["contracts", "interpretations", uploadId],
+      });
+    },
+    ...opts,
+  });
+}
+
+/** GET /v1/contracts/{upload_id}/reviews */
+export function useContractReviews(
+  uploadId: string,
+  opts?: UseQueryOptions<ContractReviewListResponse | undefined>,
+) {
+  return useQuery<ContractReviewListResponse | undefined>({
+    queryKey: ["contracts", "reviews", uploadId],
+    queryFn: async (): Promise<ContractReviewListResponse | undefined> => {
+      if (!uploadId) return undefined;
+      return apiFetch(
+        `/api/v1/contracts/${encodeURIComponent(uploadId)}/reviews`,
+        { schema: ContractReviewListResponseSchema },
+      );
+    },
+    enabled: !!uploadId,
+    ...opts,
+  });
+}
+
+/** GET /v1/contracts/{upload_id}/interpretations */
+export function useContractInterpretations(
+  uploadId: string,
+  opts?: UseQueryOptions<ContractInterpretationListResponse | undefined>,
+) {
+  return useQuery<ContractInterpretationListResponse | undefined>({
+    queryKey: ["contracts", "interpretations", uploadId],
+    queryFn: async (): Promise<ContractInterpretationListResponse | undefined> => {
+      if (!uploadId) return undefined;
+      return apiFetch(
+        `/api/v1/contracts/${encodeURIComponent(uploadId)}/interpretations`,
+        { schema: ContractInterpretationListResponseSchema },
+      );
+    },
+    enabled: !!uploadId,
+    ...opts,
+  });
+}

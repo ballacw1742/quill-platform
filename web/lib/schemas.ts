@@ -1066,3 +1066,161 @@ export const ContractExtractionMetadataSchema = z
   })
   .passthrough();
 export type ContractExtractionMetadata = z.infer<typeof ContractExtractionMetadataSchema>;
+
+// ─── Contracts Review + Interpretation (Sprint Contracts.2) ──────────────────
+
+const CANONICAL_DISCLAIMER =
+  "AI-generated analysis. This is not legal advice. Review with qualified counsel before relying on it for any binding decision." as const;
+
+// ── Risk flag ──────────────────────────────────────────────────────────────
+export const ContractRiskFlagSchema = z
+  .object({
+    severity: z.enum(["critical", "high", "medium", "low", "info"]),
+    category: z.string(),
+    title: z.string(),
+    summary: z.string(),
+    verbatim: z.string(),
+    location: z.string(),
+    why_it_matters: z.string(),
+    suggested_action: z.string(),
+    suggested_redline: z.string().optional(),
+  })
+  .passthrough();
+export type ContractRiskFlag = z.infer<typeof ContractRiskFlagSchema>;
+
+// ── Missing protection ─────────────────────────────────────────────────────
+export const ContractMissingProtectionSchema = z
+  .object({
+    category: z.string(),
+    title: z.string(),
+    why_typical: z.string(),
+    suggested_clause: z.string(),
+  })
+  .passthrough();
+export type ContractMissingProtection = z.infer<typeof ContractMissingProtectionSchema>;
+
+// ── Market terms entry ─────────────────────────────────────────────────────
+export const MarketTermsEntrySchema = z
+  .object({
+    verdict: z.enum([
+      "in-market",
+      "off-market-favorable",
+      "off-market-unfavorable",
+      "not-present",
+      "unclear",
+    ]),
+    notes: z.string(),
+  })
+  .passthrough();
+export type MarketTermsEntry = z.infer<typeof MarketTermsEntrySchema>;
+
+// ── Market terms assessment ────────────────────────────────────────────────
+export const MarketTermsAssessmentSchema = z
+  .object({
+    payment_terms: MarketTermsEntrySchema,
+    retention: MarketTermsEntrySchema,
+    indemnification: MarketTermsEntrySchema,
+    limitation_of_liability: MarketTermsEntrySchema,
+    termination: MarketTermsEntrySchema,
+    change_orders: MarketTermsEntrySchema,
+    dispute_resolution: MarketTermsEntrySchema,
+    insurance: MarketTermsEntrySchema,
+  })
+  .passthrough();
+export type MarketTermsAssessment = z.infer<typeof MarketTermsAssessmentSchema>;
+
+// ── Full contract review artifact ──────────────────────────────────────────
+export const ContractReviewMetadataSchema = z
+  .object({
+    risk_flags: z.array(ContractRiskFlagSchema).default([]),
+    missing_protections: z.array(ContractMissingProtectionSchema).default([]),
+    market_terms_assessment: MarketTermsAssessmentSchema,
+    plain_english_summary: z.string(),
+    recommended_actions: z.array(z.string()).default([]),
+    disclaimer: z.string().default(CANONICAL_DISCLAIMER),
+    citations: z
+      .array(
+        z.object({ quote: z.string(), location: z.string() }).passthrough()
+      )
+      .default([]),
+  })
+  .passthrough();
+export type ContractReviewMetadata = z.infer<typeof ContractReviewMetadataSchema>;
+
+export const ContractReviewSchema = z
+  .object({
+    artifact_type: z.literal("contract_review").optional(),
+    review_artifact_id: z.string().optional(),
+    created_at: z.string().optional(),
+    severity_counts: z
+      .object({
+        critical: z.number().default(0),
+        high: z.number().default(0),
+        medium: z.number().default(0),
+        low: z.number().default(0),
+        info: z.number().default(0),
+      })
+      .optional(),
+    ...ContractReviewMetadataSchema.shape,
+  })
+  .passthrough();
+export type ContractReview = z.infer<typeof ContractReviewSchema>;
+
+// ── Contract review list ───────────────────────────────────────────────────
+export const ContractReviewListItemSchema = z
+  .object({
+    review_artifact_id: z.string(),
+    created_at: z.string(),
+    severity_counts: z.object({
+      critical: z.number().default(0),
+      high: z.number().default(0),
+      medium: z.number().default(0),
+      low: z.number().default(0),
+      info: z.number().default(0),
+    }),
+  })
+  .passthrough();
+export type ContractReviewListItem = z.infer<typeof ContractReviewListItemSchema>;
+
+export const ContractReviewListResponseSchema = z.object({
+  items: z.array(ContractReviewListItemSchema),
+  total: z.number(),
+});
+export type ContractReviewListResponse = z.infer<typeof ContractReviewListResponseSchema>;
+
+// ── Supporting clause ──────────────────────────────────────────────────────
+export const SupportingClauseSchema = z
+  .object({
+    verbatim: z.string(),
+    location: z.string(),
+    why_relevant: z.string(),
+  })
+  .passthrough();
+export type SupportingClause = z.infer<typeof SupportingClauseSchema>;
+
+// ── Contract interpretation (single Q&A) ──────────────────────────────────
+export const ContractInterpretationSchema = z
+  .object({
+    contract_upload_id: z.string(),
+    interpretation_id: z.string().optional(),
+    question: z.string(),
+    answer: z.string(),
+    supporting_clauses: z.array(SupportingClauseSchema).default([]),
+    confidence: z.number().min(0).max(1),
+    caveats: z
+      .array(z.object({ caveat: z.string() }).passthrough())
+      .default([]),
+    disclaimer: z.string().default(CANONICAL_DISCLAIMER),
+    created_at: z.string().optional(),
+  })
+  .passthrough();
+export type ContractInterpretation = z.infer<typeof ContractInterpretationSchema>;
+
+// ── Contract interpretations list ─────────────────────────────────────────
+export const ContractInterpretationListResponseSchema = z.object({
+  items: z.array(ContractInterpretationSchema),
+  total: z.number(),
+});
+export type ContractInterpretationListResponse = z.infer<
+  typeof ContractInterpretationListResponseSchema
+>;
