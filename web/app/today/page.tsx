@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Sparkles,
   Truck,
-  Workflow,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -136,18 +135,6 @@ export default function TodayPage() {
                     : "No RFI items past 48-hour threshold"
                 }
                 tone={stats.rfiAged > 0 ? "warning" : "neutral"}
-              />
-
-              <SectionCard
-                icon={<Workflow className="h-4 w-4" />}
-                title="Hyperscaler inbox"
-                href="/queue"
-                value={
-                  stats.hyperscaler > 0
-                    ? `${stats.hyperscaler} item${stats.hyperscaler > 1 ? "s" : ""}`
-                    : "Clear"
-                }
-                subtitle="Items addressed to hyperscaler liaison"
               />
 
               <SectionCard
@@ -315,7 +302,6 @@ type Stats = {
   criticalPath: number;
   procurement: number;
   rfiAged: number;
-  hyperscaler: number;
 };
 
 function computeStats(items: ApprovalItem[]): Stats {
@@ -369,12 +355,6 @@ function computeStats(items: ApprovalItem[]): Stats {
     return age > 48 * 3_600_000;
   }).length;
 
-  const hyperscaler = pending.filter((i) => {
-    const w = i.workflow?.toLowerCase() ?? "";
-    const a = i.agent_id?.toLowerCase() ?? "";
-    return w.includes("hyperscaler") || a.includes("hyperscaler") || a.includes("liaison");
-  }).length;
-
   return {
     pending: pending.length,
     byLane,
@@ -382,7 +362,6 @@ function computeStats(items: ApprovalItem[]): Stats {
     criticalPath,
     procurement,
     rfiAged,
-    hyperscaler,
   };
 }
 

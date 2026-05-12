@@ -292,7 +292,7 @@ export function UploadEstimateSheet({
             id="project_label"
             value={projectLabel}
             onChange={(e) => setProjectLabel(e.target.value)}
-            placeholder="QPB1 — DH-2 80% DD"
+            placeholder="e.g. Learning to Flourish — Schematic"
             autoComplete="off"
           />
           <span className="text-footnote text-label-tertiary">
@@ -438,5 +438,5 @@ function defaultProjectLabel(): string {
     timeZone: "America/New_York",
   }).format(new Date());
   // en-CA gives YYYY-MM-DD already, which is what we want.
-  return `QPB1 — ${today}`;
+  return `Estimate — ${today}`;
 }
