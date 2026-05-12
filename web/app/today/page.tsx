@@ -1,381 +1,290 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
-  CalendarDays,
-  ChevronRight,
-  Inbox,
-  MailQuestion,
+  CheckCircle2,
+  Clock,
   RefreshCw,
   Sparkles,
-  Truck,
+  Zap,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
-import { SkelHeroCard, SkelSectionCard } from "@/components/ui/skeletons";
-import { useApprovals } from "@/lib/api";
-import type { ApprovalItem, Lane } from "@/lib/schemas";
-import { detectFlags } from "@/components/queue/FlagChips";
+import { SkelSectionCard } from "@/components/ui/skeletons";
+import { ApprovalDetailSheet } from "@/components/queue/ApprovalDetailSheet";
+import { SectionCard } from "@/components/today/SectionCard";
+import { NeedsSignoffRow } from "@/components/today/NeedsSignoffRow";
+import { InFlightRow } from "@/components/today/InFlightRow";
+import { RecentItemRow } from "@/components/today/RecentItemRow";
+import { NeedsAttentionRow } from "@/components/today/NeedsAttentionRow";
+import { useApprovals, useListEstimates, useContractsList } from "@/lib/api";
+import type { ApprovalItem } from "@/lib/schemas";
+import type { ContractListItem } from "@/lib/schemas";
+import type { EstimateListItem } from "@/lib/api";
+import {
+  deriveNeedsSignoff,
+  deriveInFlight,
+  deriveRecentlyShipped,
+  deriveNeedsAttention,
+  countPendingApprovals,
+} from "@/lib/today";
 
 /**
- * /today — Daily Brief in-app view, per MOBILE_UX_SPEC §"Tab 2 — Today".
+ * /today — Daily Brief: actual content inline, not just counts + links.
  *
- * No new endpoints — derives everything from useApprovals (the only data
- * source we have wired up today). Sections without data fall back to a
- * single-row "no items today" line; if the entire screen has no signal,
- * the spec calls for the "Quill builds your daily brief…" empty state.
+ * Sections appear only when they have real data. If all four are empty,
+ * the full-page empty state is shown instead.
+ *
+ * Pull-to-refresh implemented as touch-overscroll gesture (same pattern
+ * as /queue and /estimates).
  */
 
 export default function TodayPage() {
-  const { data, isLoading, dataUpdatedAt, error, refetch } = useApprovals();
   const qc = useQueryClient();
-  const items = (data ?? []) as ApprovalItem[];
 
+  // ── Data fetching ─────────────────────────────────────────────────────────
+  const approvalsQuery = useApprovals();
+  const estimatesQuery = useListEstimates();
+  const contractsQuery = useContractsList({ limit: 100 });
+
+  const approvals = React.useMemo<ApprovalItem[]>(
+    () => approvalsQuery.data ?? [],
+    [approvalsQuery.data],
+  );
+  const estimates = React.useMemo<EstimateListItem[]>(
+    () => estimatesQuery.data?.items ?? [],
+    [estimatesQuery.data],
+  );
+  const contracts = React.useMemo<ContractListItem[]>(
+    () => contractsQuery.data?.items ?? [],
+    [contractsQuery.data],
+  );
+
+  // ── Detail sheet state ────────────────────────────────────────────────────
+  const [openApprovalId, setOpenApprovalId] = React.useState<string | null>(
+    null,
+  );
+
+  // ── Derived sections ──────────────────────────────────────────────────────
+  const now = Date.now();
+
+  const needsSignoff = React.useMemo(
+    () => deriveNeedsSignoff(approvals),
+    [approvals],
+  );
+  const totalPending = React.useMemo(
+    () => countPendingApprovals(approvals),
+    [approvals],
+  );
+
+  const inFlight = React.useMemo(
+    () => deriveInFlight(estimates, contracts),
+    [estimates, contracts],
+  );
+
+  const recentlyShipped = React.useMemo(
+    () => deriveRecentlyShipped(approvals, estimates, contracts, now),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [approvals, estimates, contracts],
+  );
+
+  const needsAttention = React.useMemo(
+    () => deriveNeedsAttention(approvals, now),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [approvals],
+  );
+
+  // ── Loading / error state ─────────────────────────────────────────────────
+  const isLoading =
+    approvalsQuery.isLoading &&
+    estimatesQuery.isLoading &&
+    contractsQuery.isLoading &&
+    approvals.length === 0 &&
+    estimates.length === 0 &&
+    contracts.length === 0;
+
+  const hasError =
+    approvalsQuery.error || estimatesQuery.error || contractsQuery.error;
+
+  const allEmpty =
+    !isLoading &&
+    needsSignoff.length === 0 &&
+    inFlight.length === 0 &&
+    recentlyShipped.length === 0 &&
+    needsAttention.length === 0;
+
+  // ── Pull-to-refresh ───────────────────────────────────────────────────────
+  const refresh = React.useCallback(() => {
+    void qc.invalidateQueries({ queryKey: ["approvals"] });
+    void qc.invalidateQueries({ queryKey: ["estimates"] });
+    void qc.invalidateQueries({ queryKey: ["contracts"] });
+  }, [qc]);
+
+  const onTouchStart = React.useRef<{ y: number; scrolledTop: boolean } | null>(
+    null,
+  );
+  const handleTouchStart = (e: React.TouchEvent) => {
+    const target = e.currentTarget as HTMLDivElement;
+    onTouchStart.current = {
+      y: e.touches[0].clientY,
+      scrolledTop: target.scrollTop <= 0,
+    };
+  };
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    const start = onTouchStart.current;
+    if (!start) return;
+    const dy = e.changedTouches[0].clientY - start.y;
+    if (start.scrolledTop && dy > 80) {
+      void refresh();
+    }
+    onTouchStart.current = null;
+  };
+
+  // ── Timestamp ─────────────────────────────────────────────────────────────
   const today = formatToday();
-
-  const stats = computeStats(items);
-
-  const isInitialLoading = isLoading && items.length === 0;
-  const isEmpty =
-    !isLoading && items.length === 0;
+  const lastRefreshed = formatLastRefreshed(
+    approvalsQuery.dataUpdatedAt,
+  );
 
   return (
     <MobileShell>
       <TopBar hero title="Today" subtitle={today} />
 
-      <div className="bg-bg-elevated min-h-full">
-        <div className="flex flex-col gap-4 px-4 pt-4 pb-8">
-          {error && (
-            <ErrorBanner
-              message="Couldn't load today's brief. Try again."
-              onRetry={() => refetch()}
-              className="mx-0"
-            />
-          )}
-          {isInitialLoading ? (
-            <>
-              <SkelHeroCard />
-              <SkelSectionCard />
-              <SkelSectionCard />
-              <SkelSectionCard />
-              <SkelSectionCard />
-              <SkelSectionCard />
-              <SkelSectionCard />
-            </>
-          ) : isEmpty ? (
-            <EmptyState
-              icon={<Sparkles />}
-              title="Quill is still learning your project."
-              subtitle="Once the helpers have processed a day's work, you'll see your morning brief here. Need a cost & schedule estimate? Tap Estimates below."
-            />
-          ) : (
-            <>
-              {/* Hero — Top of mind */}
-              <TopOfMind topPriorityItems={stats.topPriority} />
-
-              {/* Stacked sections */}
-              <SectionCard
-                icon={<Inbox className="h-4 w-4" />}
-                title="Approvals waiting"
-                href="/queue"
-                value={`${stats.pending} pending`}
-                subtitle={`Yours ${stats.byLane["tier-1-spotcheck"]} · Two-signer ${stats.byLane["tier-0-mandatory"]} · Auto ${stats.byLane["tier-2-auto"]}`}
-              />
-
-              <SectionCard
-                icon={<AlertTriangle className="h-4 w-4" />}
-                title="Critical path"
-                href="/queue"
-                value={
-                  stats.criticalPath > 0
-                    ? `${stats.criticalPath} flagged`
-                    : "Clear"
-                }
-                subtitle={
-                  stats.criticalPath > 0
-                    ? "Items with critical-path or safety flags"
-                    : "No items flagged for critical-path or safety"
-                }
-                tone={stats.criticalPath > 0 ? "danger" : "neutral"}
-              />
-
-              <SectionCard
-                icon={<Truck className="h-4 w-4" />}
-                title="Procurement watch"
-                href="/queue"
-                value={
-                  stats.procurement > 0
-                    ? `${stats.procurement} alert${stats.procurement > 1 ? "s" : ""}`
-                    : "Clear"
-                }
-                subtitle={
-                  stats.procurement > 0
-                    ? "Long-lead PO or expediting items in queue"
-                    : "No procurement alerts in queue"
-                }
-                tone={stats.procurement > 0 ? "warning" : "neutral"}
-              />
-
-              <SectionCard
-                icon={<MailQuestion className="h-4 w-4" />}
-                title="RFIs aged > 48h"
-                href="/queue"
-                value={
-                  stats.rfiAged > 0
-                    ? `${stats.rfiAged} aged`
-                    : "On time"
-                }
-                subtitle={
-                  stats.rfiAged > 0
-                    ? "RFI-related items older than 48 hours"
-                    : "No RFI items past 48-hour threshold"
-                }
-                tone={stats.rfiAged > 0 ? "warning" : "neutral"}
-              />
-
-              <SectionCard
-                icon={<CalendarDays className="h-4 w-4" />}
-                title="Today's calendar"
-                href="/profile"
-                value="—"
-                subtitle="Not yet wired (calendar source pending)"
-                disabled
-              />
-            </>
-          )}
-        </div>
-
-        {/* Footer status */}
-        <div className="px-4 pb-6 flex items-center justify-between text-footnote text-label-tertiary">
-          <span>
-            Last refreshed {formatLastRefreshed(dataUpdatedAt)}
-          </span>
+      <div
+        className="bg-bg-elevated min-h-full overflow-y-auto"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
+        {/* "As of" timestamp strip */}
+        <div className="flex items-center justify-between px-4 pt-3 pb-1 text-footnote text-label-tertiary">
+          <span>Last refreshed {lastRefreshed} · Pull to refresh</span>
           <button
             type="button"
-            onClick={() =>
-              qc.invalidateQueries({ queryKey: ["approvals"] })
-            }
+            onClick={refresh}
             aria-label="Refresh"
             className="flex h-9 w-9 items-center justify-center text-accent active:opacity-60 no-tap-highlight"
           >
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
+
+        <div className="flex flex-col gap-4 px-4 pt-2 pb-8">
+          {/* Error banner */}
+          {hasError && (
+            <ErrorBanner
+              message="Couldn't load everything. Pull down to retry."
+              onRetry={refresh}
+              className="mx-0"
+            />
+          )}
+
+          {/* Loading skeletons */}
+          {isLoading && (
+            <>
+              <SkelSectionCard />
+              <SkelSectionCard />
+              <SkelSectionCard />
+            </>
+          )}
+
+          {/* Full-page empty state */}
+          {!isLoading && allEmpty && (
+            <EmptyState
+              icon={<Sparkles />}
+              title="Nothing needs you right now."
+              subtitle="Your morning is clear. Quill will surface things here as they come in."
+            />
+          )}
+
+          {/* ── Section 1: Needs your sign-off ── */}
+          {needsSignoff.length > 0 && (
+            <SectionCard
+              icon={<Zap className="h-4 w-4" />}
+              title="Needs your sign-off"
+              count={totalPending}
+              viewAllHref={totalPending > 5 ? "/queue" : undefined}
+              viewAllLabel={`View all ${totalPending} →`}
+            >
+              {needsSignoff.map((item) => (
+                <NeedsSignoffRow
+                  key={item.approval_id}
+                  item={item}
+                  onOpen={setOpenApprovalId}
+                  now={now}
+                />
+              ))}
+            </SectionCard>
+          )}
+
+          {/* ── Section 2: In-flight work ── */}
+          {inFlight.length > 0 && (
+            <SectionCard
+              icon={<RefreshCw className="h-4 w-4" />}
+              title="In-flight work"
+              count={inFlight.length}
+            >
+              {inFlight.map((item) => (
+                <InFlightRow key={item.id} item={item} now={now} />
+              ))}
+            </SectionCard>
+          )}
+
+          {/* ── Section 3: Recently shipped ── */}
+          {recentlyShipped.length > 0 && (
+            <SectionCard
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              title="Recently shipped"
+              count={recentlyShipped.length}
+              viewAllHref="/audit"
+              viewAllLabel="View activity →"
+            >
+              {recentlyShipped.map((item) => (
+                <RecentItemRow key={item.id} item={item} now={now} />
+              ))}
+            </SectionCard>
+          )}
+
+          {/* ── Section 4: Needs attention (stale) ── */}
+          {needsAttention.length > 0 && (
+            <SectionCard
+              icon={<AlertTriangle className="h-4 w-4" />}
+              title="Needs attention"
+              count={needsAttention.length}
+            >
+              {needsAttention.map((item) => (
+                <NeedsAttentionRow
+                  key={item.approval_id}
+                  item={item}
+                  onOpen={setOpenApprovalId}
+                  now={now}
+                />
+              ))}
+            </SectionCard>
+          )}
+
+          {/* ── Quiet hours hint (shown when sign-off section has items) ── */}
+          {needsSignoff.length > 0 && (
+            <p className="text-center text-footnote text-label-quaternary px-4">
+              <Clock className="inline h-3 w-3 mr-1 align-middle" />
+              Items sorted by urgency. Tap any row to review.
+            </p>
+          )}
+        </div>
       </div>
 
+      {/* Approval detail sheet — opens over the page, no navigation */}
+      <ApprovalDetailSheet
+        approvalId={openApprovalId}
+        onClose={() => setOpenApprovalId(null)}
+      />
     </MobileShell>
   );
 }
 
-/* ── Hero card ─────────────────────────────────────────────────────────── */
-
-function TopOfMind({
-  topPriorityItems,
-}: {
-  topPriorityItems: ApprovalItem[];
-}) {
-  return (
-    <section className="overflow-hidden rounded-xl bg-bg-tertiary p-4 shadow-card">
-      <div className="flex items-center gap-2 mb-3">
-        <Sparkles className="h-4 w-4 text-accent" />
-        <h2 className="text-title-3 text-label-primary">Top of mind</h2>
-      </div>
-      {topPriorityItems.length === 0 ? (
-        <p className="text-callout text-label-secondary">
-          Nothing critical right now. Spot-check items are in /Queue.
-        </p>
-      ) : (
-        <ul className="space-y-3">
-          {topPriorityItems.slice(0, 3).map((item) => {
-            const flags = detectFlags(item);
-            return (
-              <li key={item.approval_id}>
-                <Link
-                  href={`/queue`}
-                  className="block no-tap-highlight active:opacity-70"
-                >
-                  <div className="text-headline text-label-primary line-clamp-1">
-                    {item.summary ?? item.workflow}
-                  </div>
-                  <div className="text-callout text-label-secondary line-clamp-2">
-                    {flags.length > 0
-                      ? flags.map((f) => f.label).join(" · ")
-                      : item.rationale ?? "Awaiting your decision"}
-                  </div>
-                  <div className="mt-1 text-footnote text-accent">
-                    Review →
-                  </div>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-/* ── Section card ──────────────────────────────────────────────────────── */
-
-function SectionCard({
-  icon,
-  title,
-  value,
-  subtitle,
-  href,
-  tone = "neutral",
-  disabled = false,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  value: string;
-  subtitle: string;
-  href: string;
-  tone?: "neutral" | "danger" | "warning";
-  disabled?: boolean;
-}) {
-  const valueClass =
-    tone === "danger"
-      ? "text-danger"
-      : tone === "warning"
-        ? "text-warning"
-        : "text-label-primary";
-
-  const inner = (
-    <div className="flex items-center gap-3 px-4 py-4 min-h-[68px]">
-      <span
-        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
-          tone === "danger"
-            ? "bg-danger/10 text-danger"
-            : tone === "warning"
-              ? "bg-warning/10 text-warning"
-              : "bg-bg-elevated text-label-secondary"
-        }`}
-        aria-hidden="true"
-      >
-        {icon}
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="text-headline text-label-primary">{title}</div>
-        <div className="text-callout text-label-secondary line-clamp-1">
-          {subtitle}
-        </div>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className={`text-callout font-medium tabular-nums ${valueClass}`}>
-          {value}
-        </span>
-        {!disabled && (
-          <ChevronRight className="h-4 w-4 text-label-quaternary" />
-        )}
-      </div>
-    </div>
-  );
-
-  if (disabled) {
-    return (
-      <div className="overflow-hidden rounded-xl bg-bg-tertiary opacity-60 shadow-card">
-        {inner}
-      </div>
-    );
-  }
-  return (
-    <Link
-      href={href}
-      className="block overflow-hidden rounded-xl bg-bg-tertiary shadow-card no-tap-highlight active:bg-bg-elevated/60"
-    >
-      {inner}
-    </Link>
-  );
-}
-
-/* ── Helpers ───────────────────────────────────────────────────────────── */
-
-type Stats = {
-  pending: number;
-  byLane: Record<Lane, number>;
-  topPriority: ApprovalItem[];
-  criticalPath: number;
-  procurement: number;
-  rfiAged: number;
-};
-
-function computeStats(items: ApprovalItem[]): Stats {
-  const pending = items.filter((i) => i.status === "pending");
-
-  const byLane: Record<Lane, number> = {
-    "tier-0-mandatory": 0,
-    "tier-1-spotcheck": 0,
-    "tier-2-auto": 0,
-  };
-  for (const i of pending) {
-    byLane[i.lane] = (byLane[i.lane] ?? 0) + 1;
-  }
-
-  // Top of mind: critical-path / safety-flagged or Lane 1 mandatory items.
-  const flaggedDanger = pending.filter((i) => {
-    const f = detectFlags(i);
-    return f.some((x) => x.tone === "danger");
-  });
-  const mandatory = pending.filter((i) => i.lane === "tier-0-mandatory");
-  const topPriority = uniqueById([...flaggedDanger, ...mandatory]).slice(0, 3);
-
-  const criticalPath = pending.filter((i) => {
-    const e = (i.escalations ?? []).map((x) => x.toLowerCase());
-    return (
-      e.includes("critical-path") ||
-      e.includes("critical_path") ||
-      e.includes("safety") ||
-      e.includes("safety-impact")
-    );
-  }).length;
-
-  const procurement = pending.filter((i) => {
-    const w = i.workflow?.toLowerCase() ?? "";
-    const a = i.agent_id?.toLowerCase() ?? "";
-    const e = (i.escalations ?? []).map((x) => x.toLowerCase());
-    return (
-      w.includes("procurement") ||
-      w.includes("po") ||
-      a.includes("procurement") ||
-      e.includes("long-lead")
-    );
-  }).length;
-
-  const rfiAged = pending.filter((i) => {
-    const isRfi =
-      (i.workflow?.toLowerCase() ?? "").includes("rfi") ||
-      (i.agent_id?.toLowerCase() ?? "").includes("rfi");
-    if (!isRfi) return false;
-    const age = Date.now() - +new Date(i.created_at);
-    return age > 48 * 3_600_000;
-  }).length;
-
-  return {
-    pending: pending.length,
-    byLane,
-    topPriority,
-    criticalPath,
-    procurement,
-    rfiAged,
-  };
-}
-
-function uniqueById(arr: ApprovalItem[]): ApprovalItem[] {
-  const seen = new Set<string>();
-  const out: ApprovalItem[] = [];
-  for (const i of arr) {
-    if (!seen.has(i.approval_id)) {
-      seen.add(i.approval_id);
-      out.push(i);
-    }
-  }
-  return out;
-}
+/* ── Helpers ─────────────────────────────────────────────────────────────── */
 
 function formatToday(): string {
   return new Intl.DateTimeFormat("en-US", {
