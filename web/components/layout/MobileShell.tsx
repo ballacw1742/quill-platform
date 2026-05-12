@@ -54,18 +54,17 @@ import type { Session } from "@/lib/schemas";
 // Bottom-bar layout: 5 primary tabs visible at all times (Apple HIG max),
 // less-frequent destinations consolidated under "More" which opens a sheet.
 const PRIMARY_TABS = [
-  { href: "/queue", label: "Queue", icon: Inbox },
   { href: "/today", label: "Today", icon: Sparkles },
+  { href: "/queue", label: "Queue", icon: Inbox },
   { href: "/estimates", label: "Estimates", icon: Calculator },
   { href: "/contracts", label: "Contracts", icon: ClipboardList },
-  // 5th tab slot is the "More" button — rendered inline by TabBar so the
-  // overflow sheet anchors to it without breaking the flex layout.
-  { href: "/profile", label: "Profile", icon: User },
+  { href: "/dev-chat", label: "Dev", icon: Terminal },
+  // The "More" button is the 6th slot rendered inline by TabBar.
 ] as const;
 
 const MORE_TABS = [
   { href: "/documents", label: "Documents", icon: FileText },
-  { href: "/dev-chat", label: "Dev Chat", icon: Terminal },
+  { href: "/profile", label: "Profile", icon: User },
 ] as const;
 
 const MORE_HREFS = new Set<string>(MORE_TABS.map((t) => t.href));
