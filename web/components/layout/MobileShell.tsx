@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Calculator, ClipboardList, FileText, Inbox, Sparkles, Terminal, User } from "lucide-react";
+import { Calculator, ClipboardList, FileText, Inbox, MoreHorizontal, Sparkles, Terminal, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useSession } from "@/lib/api";
@@ -51,16 +51,27 @@ import type { Session } from "@/lib/schemas";
 // Sprint Contracts.2: "Contracts" tab added as 5th slot (after Documents).
 // This makes 7 tabs — two over Apple's HIG max of 5.
 // KNOWN CAVEAT (visible-tolerable): On narrow screens (< 375px) tab labels
-// may overflow. A "More" tab consolidation is tracked for a future sprint.
-const TABS = [
+// Bottom-bar layout: 5 primary tabs visible at all times (Apple HIG max),
+// less-frequent destinations consolidated under "More" which opens a sheet.
+const PRIMARY_TABS = [
   { href: "/queue", label: "Queue", icon: Inbox },
   { href: "/today", label: "Today", icon: Sparkles },
   { href: "/estimates", label: "Estimates", icon: Calculator },
-  { href: "/documents", label: "Documents", icon: FileText },
   { href: "/contracts", label: "Contracts", icon: ClipboardList },
-  { href: "/dev-chat", label: "Dev", icon: Terminal },
+  // 5th tab slot is the "More" button — rendered inline by TabBar so the
+  // overflow sheet anchors to it without breaking the flex layout.
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
+
+const MORE_TABS = [
+  { href: "/documents", label: "Documents", icon: FileText },
+  { href: "/dev-chat", label: "Dev Chat", icon: Terminal },
+] as const;
+
+const MORE_HREFS = new Set<string>(MORE_TABS.map((t) => t.href));
+
+// Legacy alias kept for any external imports.
+const TABS = PRIMARY_TABS;
 
 export function MobileShell({
   children,
@@ -168,10 +179,20 @@ export function TopBar({
 
 function TabBar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: approvals } = useApprovals();
   const pendingCount = approvals?.length ?? 0;
+  const [moreOpen, setMoreOpen] = React.useState(false);
+
+  const moreActive = Array.from(MORE_HREFS).some(
+    (h) => pathname === h || pathname.startsWith(h + "/"),
+  );
+
+  const labelClass =
+    "text-[10px] leading-[12px] font-medium tracking-tight";
 
   return (
+    <>
     <nav
       className={cn(
         "fixed bottom-0 left-0 right-0 z-40 bg-chrome",
@@ -182,7 +203,7 @@ function TabBar() {
       aria-label="Primary"
     >
       <ul className="flex items-stretch justify-around px-2">
-        {TABS.map(({ href, label, icon: Icon }) => {
+        {PRIMARY_TABS.map(({ href, label, icon: Icon }) => {
           const active =
             pathname === href ||
             pathname.startsWith(href + "/") ||
@@ -191,9 +212,6 @@ function TabBar() {
             // /audit is reached via Profile → Activity (per Phase D.2 tab
             // bar update), so highlight Profile when the user is in /audit.
             (href === "/profile" && pathname.startsWith("/audit"));
-          // 5 tabs are tighter — drop label one notch (text-caption-2 → 10/12)
-          // so "Documents" / "Estimates" stay on one line at 375px width.
-          const labelClass = "text-[10px] leading-[12px] font-medium tracking-tight";
           const showBadge = href === "/queue" && pendingCount > 0;
           return (
             <li key={href} className="flex-1">
@@ -230,8 +248,105 @@ function TabBar() {
             </li>
           );
         })}
+
+        {/* More tab — 5th slot. Opens overflow sheet. */}
+        <li className="flex-1">
+          <button
+            type="button"
+            onClick={() => setMoreOpen(true)}
+            role="tab"
+            aria-selected={moreActive}
+            aria-label="More"
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            className={cn(
+              "flex h-[49px] w-full flex-col items-center justify-center gap-0.5",
+              "no-tap-highlight transition-state ease-ios",
+              moreActive
+                ? "text-accent"
+                : "text-label-secondary active:text-accent",
+            )}
+          >
+            <MoreHorizontal
+              className="h-6 w-6"
+              strokeWidth={moreActive ? 2 : 1.75}
+              aria-hidden="true"
+            />
+            <span className={cn(labelClass, "truncate max-w-full px-0.5")}>More</span>
+          </button>
+        </li>
       </ul>
     </nav>
+
+    {/* Overflow sheet — simple bottom drawer with the rest of the tabs. */}
+    {moreOpen && (
+      <>
+        <div
+          className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+          onClick={() => setMoreOpen(false)}
+          aria-hidden="true"
+        />
+        <div
+          role="menu"
+          aria-label="More destinations"
+          className={cn(
+            "fixed bottom-0 left-0 right-0 z-50 bg-chrome",
+            "rounded-t-2xl border-t border-separator/60 pb-safe",
+            "shadow-[0_-12px_32px_-12px_rgba(0,0,0,0.32)]",
+          )}
+        >
+          <div className="flex items-center justify-between px-4 pt-3 pb-2">
+            <span className="text-headline font-semibold text-label-primary">
+              More
+            </span>
+            <button
+              type="button"
+              onClick={() => setMoreOpen(false)}
+              aria-label="Close"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-bg-elevated text-label-secondary active:opacity-70 no-tap-highlight"
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
+          </div>
+          <ul className="flex flex-col px-2 pb-3">
+            {MORE_TABS.map(({ href, label, icon: Icon }) => {
+              const active =
+                pathname === href || pathname.startsWith(href + "/");
+              return (
+                <li key={href}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      router.push(href);
+                    }}
+                    role="menuitem"
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-xl px-4 py-3",
+                      "min-h-[56px] no-tap-highlight active:bg-bg-elevated",
+                      active ? "text-accent" : "text-label-primary",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-9 w-9 items-center justify-center rounded-xl",
+                        active
+                          ? "bg-accent/10 text-accent"
+                          : "bg-bg-elevated text-label-secondary",
+                      )}
+                    >
+                      <Icon className="h-5 w-5" strokeWidth={active ? 2 : 1.75} />
+                    </span>
+                    <span className="text-body font-medium">{label}</span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </>
+    )}
+    </>
   );
 }
 

@@ -124,24 +124,27 @@ export default function ContractsPage() {
       <TopBar
         title="Contracts"
         right={
+          // Icon-only buttons to keep the title from crowding. Tooltips/
+          // aria-labels preserve accessibility. The fill on "New" still
+          // visually communicates it as the primary action.
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => setDraftOpen(true)}
-              className="flex items-center gap-1 rounded-lg border border-accent px-3 py-2 min-h-[36px] text-caption font-semibold text-accent active:bg-accent/5 no-tap-highlight"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-accent text-accent active:bg-accent/5 no-tap-highlight"
               aria-label="Draft a new contract"
+              title="Draft"
             >
               <PenLine className="h-4 w-4" />
-              Draft
             </button>
             <button
               type="button"
               onClick={() => setUploadOpen(true)}
-              className="flex items-center gap-1 rounded-lg bg-accent px-3 py-2 min-h-[36px] text-caption font-semibold text-white active:bg-accent/80 no-tap-highlight"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-white active:bg-accent/80 no-tap-highlight"
               aria-label="Upload new contract"
+              title="Upload"
             >
               <Plus className="h-4 w-4" />
-              New
             </button>
           </div>
         }
