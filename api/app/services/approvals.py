@@ -115,8 +115,7 @@ async def create_approval(
     )
     item.audit_hash = entry.hash
     item.prev_audit_hash = entry.prev_hash
-    await session.flush()
-
+    
     # Lane 1 (auto) executes immediately, no human signature required.
     if item.lane == Lane.AUTO.value:
         await execute_approval(session, item.id, actor=actor)
