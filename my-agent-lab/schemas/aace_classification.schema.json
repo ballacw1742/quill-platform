@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "artifact_type": { "type": "string", "const": "aace_classification" },
+    "artifact_id": { "type": "string" },
+    "title": { "type": "string" },
+    "summary": { "type": "string", "maxLength": 280 },
+    "body_markdown": { "type": "string" },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "class": { "type": "string", "enum": ["5", "4", "3", "2"] },
+        "design_maturity_estimate_pct": { "type": "number" },
+        "supporting_evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "category": { "type": "string" },
+              "score": { "type": "number" },
+              "evidence": { "type": "string" }
+            }
+          }
+        },
+        "missing_for_next_class": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "deliverable": { "type": "string" },
+              "rationale": { "type": "string" },
+              "would_unlock_class": { "type": "string", "enum": ["4", "3", "2"] }
+            }
+          }
+        },
+        "uploaded_files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "filename": { "type": "string" },
+              "kind": { "type": "string" },
+              "size_bytes": { "type": "integer" },
+              "extraction_status": { "type": "string" },
+              "extraction_summary": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "confidence": { "type": "number" },
+    "escalation_reasons": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "required": ["artifact_type", "title", "summary", "body_markdown", "metadata"]
+}

@@ -1,0 +1,14 @@
+[project]
+name = "quill-adk-port"
+version = "0.1.0"
+description = "Quill agent fleet — Google ADK port"
+requires-python = ">=3.11"
+dependencies = [
+    "google-adk>=1.22.0",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["root_agent*", "sub_agents*"]
