@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { AlertTriangle, Fingerprint, Loader2 } from "lucide-react";
+import { AlertTriangle, Fingerprint, KeyRound, Loader2 } from "lucide-react";
 import {
   challengePasskey,
   isPasskeySupported,
@@ -10,8 +10,15 @@ import {
   type ActionAssertion,
   type ActionIntent,
 } from "@/lib/auth";
+import { useLogin, useSession } from "@/lib/api";
+import type { Session } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+const DEV_FALLBACK =
+  typeof process !== "undefined" &&
+  process.env.NEXT_PUBLIC_DEV_AUTH_FALLBACK === "1";
 
 /**
  * Full-screen biometric / passkey ceremony overlay.
@@ -57,11 +64,20 @@ export function BiometricPrompt({
   const [error, setError] = React.useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = React.useState(60);
 
+  // Password fallback state (only meaningful when DEV_AUTH_FALLBACK is on).
+  const [showPasswordForm, setShowPasswordForm] = React.useState(false);
+  const [password, setPassword] = React.useState("");
+  const passwordLogin = useLogin();
+  const { data: rawSession } = useSession();
+  const session = rawSession as Session | null | undefined;
+
   // Reset on each open
   React.useEffect(() => {
     if (open) {
       setError(null);
       setSecondsLeft(60);
+      setShowPasswordForm(false);
+      setPassword("");
     }
   }, [open]);
 
@@ -113,14 +129,57 @@ export function BiometricPrompt({
 
   // Auto-fire on open (matches iOS behaviour where biometric prompts fire
   // immediately on user action, not on a follow-up button tap).
+  // NB: skip auto-fire if the user has switched to the password form.
   const autoFiredFor = React.useRef<string | null>(null);
   React.useEffect(() => {
-    if (!open || !actionIntent || !supported) return;
+    if (!open || !actionIntent || !supported || showPasswordForm) return;
     const key = `${actionIntent.approval_id}:${actionIntent.decision}`;
     if (autoFiredFor.current === key) return;
     autoFiredFor.current = key;
     void runChallenge();
-  }, [open, actionIntent, supported, runChallenge]);
+  }, [open, actionIntent, supported, runChallenge, showPasswordForm]);
+
+  // Password-verify fallback path. Verifies the password against /v1/auth/login
+  // then synthesizes an opaque dev token as the auth_assertion. Server-side
+  // DEV_AUTH_FALLBACK accepts opaque tokens; production passkey-only stays
+  // intact because this branch is gated by NEXT_PUBLIC_DEV_AUTH_FALLBACK.
+  const runPasswordChallenge = React.useCallback(async () => {
+    const email = session?.email;
+    if (!email) {
+      setError("No session. Sign in again and retry.");
+      return;
+    }
+    if (!password) {
+      setError("Enter your password.");
+      return;
+    }
+    setPending(true);
+    setError(null);
+    try {
+      // Verify password via the existing login endpoint.
+      await passwordLogin.mutateAsync({
+        email,
+        password,
+      });
+      // Mint an opaque dev assertion the server will accept under
+      // DEV_AUTH_FALLBACK. NOT a passkey JWT — server-side, the route checks
+      // "looks like JWT" (3 dot-separated segments) first; an opaque string
+      // falls into the dev branch where any non-empty string is accepted.
+      const stamp = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const pseudoAssertion: ActionAssertion = {
+        auth_assertion: stamp,
+        expires_in: 60,
+      };
+      await onConfirm(pseudoAssertion);
+      onOpenChange(false);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("password fallback failed", err);
+      setError("Couldn't verify password. Check it and try again.");
+    } finally {
+      setPending(false);
+    }
+  }, [session, password, passwordLogin, onConfirm, onOpenChange]);
 
   return (
     <AnimatePresence>
@@ -187,25 +246,98 @@ export function BiometricPrompt({
             )}
           </div>
 
+          {/* Password fallback form (shown when user taps "Use password instead") */}
+          {showPasswordForm && DEV_FALLBACK && (
+            <div className="px-6 pb-2">
+              <label
+                htmlFor="approval-password"
+                className="mb-1 block text-subhead text-label-secondary text-left"
+              >
+                Password for {session?.email ?? "current account"}
+              </label>
+              <Input
+                id="approval-password"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                className="h-[50px] rounded-lg border-separator-opaque bg-bg-tertiary text-body"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !pending && password) {
+                    void runPasswordChallenge();
+                  }
+                }}
+              />
+            </div>
+          )}
+
           {/* Bottom action stack */}
-          <div className="px-4 pb-4 pt-3">
-            <Button
-              type="button"
-              onClick={runChallenge}
-              disabled={pending || (!!actionIntent && !supported)}
-              variant={destructive ? "destructive" : "default"}
-              className="w-full h-[50px] text-headline rounded-lg"
-            >
-              {pending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Awaiting biometric…
-                </>
-              ) : (
-                <>
-                  <Fingerprint className="h-4 w-4" /> Use passkey
-                </>
-              )}
-            </Button>
+          <div className="px-4 pb-4 pt-3 space-y-2">
+            {showPasswordForm && DEV_FALLBACK ? (
+              <>
+                <Button
+                  type="button"
+                  onClick={runPasswordChallenge}
+                  disabled={pending || !password}
+                  variant={destructive ? "destructive" : "default"}
+                  className="w-full h-[50px] text-headline rounded-lg"
+                >
+                  {pending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Verifying…
+                    </>
+                  ) : (
+                    <>
+                      <KeyRound className="h-4 w-4" /> Confirm with password
+                    </>
+                  )}
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordForm(false);
+                    setPassword("");
+                    setError(null);
+                  }}
+                  className="block w-full py-3 text-center text-callout text-accent active:opacity-60 no-tap-highlight"
+                >
+                  Use passkey instead
+                </button>
+              </>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  onClick={runChallenge}
+                  disabled={pending || (!!actionIntent && !supported)}
+                  variant={destructive ? "destructive" : "default"}
+                  className="w-full h-[50px] text-headline rounded-lg"
+                >
+                  {pending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" /> Awaiting biometric…
+                    </>
+                  ) : (
+                    <>
+                      <Fingerprint className="h-4 w-4" /> Use passkey
+                    </>
+                  )}
+                </Button>
+                {DEV_FALLBACK && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowPasswordForm(true);
+                      setError(null);
+                    }}
+                    className="block w-full py-3 text-center text-callout text-accent active:opacity-60 no-tap-highlight"
+                  >
+                    Use password instead
+                  </button>
+                )}
+              </>
+            )}
           </div>
         </motion.div>
       )}
