@@ -144,6 +144,54 @@ def cmd_evals_run(agent_id: str, limit: int | None) -> None:
     sys.exit(rc)
 
 
+@cmd_evals.command("parity")
+@click.argument("agent_id")
+@click.option("--inputs", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="JSONL file of input payloads to evaluate.")
+@click.option("--out-dir", default="_eval_runs", show_default=True, type=click.Path(),
+              help="Directory to write JSONL records + summary into.")
+@click.option("--sample-id-key", default="id", show_default=True,
+              help="Top-level key in each input record to use as sample_id.")
+@click.option("--backend", multiple=True, default=("anthropic", "ollama"),
+              help="Backends to run each sample through (can repeat).")
+def cmd_evals_parity(
+    agent_id: str,
+    inputs: str,
+    out_dir: str,
+    sample_id_key: str,
+    backend: tuple[str, ...],
+) -> None:
+    """Cross-backend parity eval: run each input through both backends.
+
+    Emits per-row JSONL plus a summary.json with validity %, p50/p95 latency,
+    token totals, and pairwise lane-decision agreement.
+    """
+    from runtime.eval_harness import run_parity  # local import: optional dep
+
+    payloads: list[dict[str, Any]] = []
+    with open(inputs, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            payloads.append(json.loads(line))
+
+    if not payloads:
+        click.echo(f"no payloads parsed from {inputs}", err=True)
+        sys.exit(2)
+
+    summary = asyncio.run(
+        run_parity(
+            agent_id,
+            inputs=payloads,
+            out_dir=Path(out_dir),
+            sample_id_key=sample_id_key,
+            backends=tuple(backend),
+        )
+    )
+    click.echo(json.dumps(summary, indent=2))
+
+
 # ----------------------------------------------------------------------
 # `quill-runtime registry`
 # ----------------------------------------------------------------------

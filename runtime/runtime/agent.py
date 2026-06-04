@@ -26,6 +26,7 @@ from runtime.hashing import hash_input, hash_output, hash_prompt
 from runtime.json_extractor import JSONExtractionError, extract_json
 from runtime.lane_router import LaneDecision, route_lane
 from runtime.llm_client import LLMClient, LLMError, LLMResponse
+from runtime.model_router import ModelRouter
 from runtime.notifications import sentry as sentry_svc
 from runtime.queue_client import QueueClient
 from runtime.validator import validate_output
@@ -58,6 +59,8 @@ class AgentRun:
     cache_hit: bool = False
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
+    # Sprint Gemma.1: which backend served the call ("anthropic" | "ollama").
+    backend: str = "anthropic"
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -90,6 +93,10 @@ class Agent:
         self.config = config or get_config()
         self.spec = spec or load_agent(agent_id, config=self.config)
         self._llm = llm or LLMClient(self.config)
+        # Sprint Gemma.1: route through the ModelRouter so cost_class works.
+        # The router still uses self._llm for Anthropic calls so tests that
+        # inject a stub LLMClient keep working.
+        self._router = ModelRouter(remote_client=self._llm)
         self._queue = queue  # may be None if submit_to_queue is never used
         self._owns_queue = queue is None
 
@@ -156,14 +163,16 @@ class Agent:
             cache_hit=False,
             cache_creation_input_tokens=0,
             cache_read_input_tokens=0,
+            backend="anthropic",
         )
 
         try:
-            llm_resp: LLMResponse = await self._llm.call_llm(
-                model=model,
+            llm_resp: LLMResponse = await self._router.call(
+                spec=spec,
                 system=spec.system_prompt,
                 user=user_msg,
-                upgrade_model=spec.upgrade_model,
+                model_override=model_override,
+                config_default_override=cfg.default_model_override,
                 prompt_cache=prompt_cache,
             )
         except LLMError as e:
@@ -179,6 +188,7 @@ class Agent:
             "output": llm_resp.output_tokens,
         }
         run_kwargs["fell_back"] = llm_resp.fell_back
+        run_kwargs["backend"] = getattr(llm_resp, "backend", "anthropic")
         run_kwargs["cache_used"] = getattr(llm_resp, "cache_used", False)
         run_kwargs["cache_hit"] = getattr(llm_resp, "cache_hit", False)
         run_kwargs["cache_creation_input_tokens"] = getattr(
