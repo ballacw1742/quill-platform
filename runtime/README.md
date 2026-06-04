@@ -50,6 +50,44 @@ The canonical contract is documented in `runtime/MODEL_ROUTING_CONTRACT.md`.
 The `LLMResponse` object carries a new `backend` field (`anthropic` | `ollama`)
 so downstream code can attribute cost without inspecting model names.
 
+### Keep-alive daemon
+
+Gemma's first call after model unload pays a 15-20s cold-start. Pin the model
+in memory with:
+
+```bash
+quill-runtime local warmup --interval 60
+```
+
+Runs in the foreground; supervisor-friendly. One-shot variant:
+`quill-runtime local ping`.
+
+### Streaming (real-time agent loops)
+
+For token-by-token output (real-time agent loops, voice UIs, etc.):
+
+```python
+async for chunk in client.stream(model=None, system="You are concise.", user="Hi"):
+    print(chunk, end="", flush=True)
+```
+
+CLI sanity-check: `quill-runtime local stream "Hi there"`.
+
+### Audio transcription substrate (Whisper, local)
+
+Local-only meeting transcription via the OpenAI Whisper CLI. No audio leaves
+the machine. No API key.
+
+```bash
+quill-runtime transcribe ./meeting.wav \
+    --model small.en \
+    --out ./meeting.transcript.json
+```
+
+Produces a normalized `TranscriptArtifact` (segments, timestamps, full text)
+that any agent can consume. This is the substrate Phase 3 "record everything"
+workflows run on.
+
 ### Cross-backend parity eval
 
 Measure local-vs-remote quality on a per-agent eval set:

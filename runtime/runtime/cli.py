@@ -1027,5 +1027,65 @@ def cmd_local_route(agent_id: str) -> None:
     }, indent=2))
 
 
+@cmd_local.command("stream")
+@click.option("--model", default=None, help="Model to stream from (defaults to LOCAL_MODEL_NAME).")
+@click.option("--system", default="You are a helpful assistant.", help="System prompt.")
+@click.argument("user_prompt")
+def cmd_local_stream(model: str | None, system: str, user_prompt: str) -> None:
+    """Stream tokens from the local model to stdout (sanity check for real-time loops)."""
+    from runtime.local_llm_client import LocalLLMClient
+
+    async def _go() -> None:
+        client = LocalLLMClient()
+        async for chunk in client.stream(model=model, system=system, user=user_prompt):
+            click.echo(chunk, nl=False)
+        click.echo()
+
+    asyncio.run(_go())
+
+
+# ----------------------------------------------------------------------
+# `quill-runtime transcribe` — local Whisper transcription substrate
+# ----------------------------------------------------------------------
+@main.command("transcribe")
+@click.argument("audio_path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--model", default=None, help="Whisper model (default: WHISPER_MODEL env or 'small.en').")
+@click.option("--language", default=None, help="Language code (default: WHISPER_LANGUAGE env or 'en').")
+@click.option("--output-dir", default=None, type=click.Path(), help="Where to keep the raw JSON.")
+@click.option("--out", "out_path", default=None, type=click.Path(),
+              help="Write the normalized TranscriptArtifact JSON here.")
+def cmd_transcribe(
+    audio_path: str,
+    model: str | None,
+    language: str | None,
+    output_dir: str | None,
+    out_path: str | None,
+) -> None:
+    """Transcribe an audio file locally via Whisper. No audio leaves the machine."""
+    from runtime.transcription import transcribe
+
+    artifact = asyncio.run(
+        transcribe(
+            audio_path,
+            model=model,
+            language=language,
+            output_dir=Path(output_dir) if output_dir else None,
+        )
+    )
+    payload = artifact.to_dict()
+    if out_path:
+        Path(out_path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    click.echo(json.dumps({
+        "source_path": payload["source_path"],
+        "model": payload["model"],
+        "language": payload["language"],
+        "duration_s": payload["duration_s"],
+        "text_preview": payload["text"][:240],
+        "segments": len(payload["segments"]),
+        "raw_json_path": payload["raw_json_path"],
+        "normalized_json_path": out_path,
+    }, indent=2))
+
+
 if __name__ == "__main__":
     main()

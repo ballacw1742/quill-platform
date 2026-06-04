@@ -12,6 +12,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+# Re-resolve exception classes at the function call site (lazily) so that
+# whichever httpx the runtime module pinned at its own import time is the
+# same exception type we raise here. Test plugins like respx replace some
+# httpx attrs at session start; we don't want to capture either side too
+# early.
+
+
+def _connect_error_cls():
+    from runtime.local_llm_client import _HttpxConnectError
+    return _HttpxConnectError
+
 from runtime.local_llm_client import LocalLLMClient, LocalLLMConfig, LocalLLMError
 
 
@@ -114,8 +125,10 @@ def test_call_non_200_raises(cfg):
 
 
 def test_call_connect_error_raises_local_error(cfg):
+    err_cls = _connect_error_cls()
+
     async def fake_post(url, json=None):
-        raise httpx.ConnectError("nope")
+        raise err_cls("nope")
 
     with _patch_client(AsyncMock(side_effect=fake_post)):
         client = LocalLLMClient(cfg)
@@ -134,8 +147,10 @@ def test_warmup_ok(cfg):
 
 
 def test_warmup_failure_returns_false(cfg):
+    err_cls = _connect_error_cls()
+
     async def fake_post(url, json=None):
-        raise httpx.ConnectError("nope")
+        raise err_cls("nope")
 
     with _patch_client(AsyncMock(side_effect=fake_post)):
         client = LocalLLMClient(cfg)

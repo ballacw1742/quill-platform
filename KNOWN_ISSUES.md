@@ -19,4 +19,10 @@ Severity: `(invisible)` `(visible-tolerable)` `(visible-frustrating)` `(blocking
 ## Sprint Gemma.2 — Multimodal + 4 more agent migrations + warmup daemon
 
 - `model_router` — Image inputs to a remote-routed agent log a warning and drop the images. Anthropic multimodal isn't wired through the runtime yet. — `(visible-tolerable)` — Sprint Gemma.3 — add image block support to the Anthropic path so `cost_class=local-preferred` agents fall back without losing vision.
-- `local_warmup_daemon` — Runs in foreground; not yet wired into Makefile / systemd. — `(invisible)` — Sprint Gemma.3 — add Makefile target + supervisor recipe.
+- `local_warmup_daemon` — Runs in foreground; not yet wired into Makefile / systemd. — `(invisible)` — Sprint Gemma.3+ — add Makefile target + supervisor recipe.
+
+## Sprint Gemma.3 — Transcription substrate + streaming
+
+- `transcription` — Whisper CLI runs as a subprocess; large meetings serialize and can be slow on the `small.en` model. — `(visible-tolerable)` — follow-up — expose `--model` for `medium.en` / `large-v3` swap; consider faster-whisper.
+- `LocalLLMClient.stream` — Streaming + JSON-mode compose poorly (`format=json` defaults off for streaming). Callers needing structured streaming must buffer + validate at end. — `(invisible)` — follow-up — document in `MODEL_ROUTING_CONTRACT.md` if a real consumer needs both.
+- `transcription` — Whisper model files download on first use (~500MB for `small.en`); cold start on a fresh machine. — `(visible-tolerable)` — follow-up — add `quill-runtime transcribe --warmup` to pre-pull.

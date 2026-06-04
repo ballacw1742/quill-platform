@@ -16,6 +16,12 @@ from typing import Any
 import httpx
 import structlog
 
+# Pin exception classes at import time. Some downstream code paths in tests
+# can monkey-patch the httpx module and we want our except clauses to keep
+# matching real network errors regardless.
+_HttpxConnectError = httpx.ConnectError
+_HttpxTimeoutException = httpx.TimeoutException
+
 log = structlog.get_logger(__name__)
 
 
@@ -97,9 +103,9 @@ class LocalLLMClient:
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.post(url, json=payload)
-        except httpx.ConnectError as e:
+        except _HttpxConnectError as e:
             raise LocalLLMError(f"could not reach Ollama at {self.cfg.base_url}: {e}") from e
-        except httpx.TimeoutException as e:
+        except _HttpxTimeoutException as e:
             raise LocalLLMError(f"local call timed out after {timeout}s: {e}") from e
 
         latency_ms = int((time.perf_counter() - start) * 1000)
@@ -153,6 +159,74 @@ class LocalLLMClient:
                 return base64.b64encode(fh.read()).decode("ascii")
         return src
 
+    async def stream(
+        self,
+        *,
+        model: str | None,
+        system: str,
+        user: str,
+        images: list[str] | None = None,
+        temperature: float = 0.0,
+        format_json: bool = False,
+        timeout_s: float | None = None,
+    ):
+        """Async generator yielding text deltas as Ollama streams them.
+
+        Used by Sprint Gemma.3 real-time agent loops. Each yield is a str
+        containing the next chunk of the assistant message. The final yield
+        is an empty string when ``done=True`` arrives, after which the
+        generator returns.
+
+        Note: ``format_json`` defaults to False here because JSON-mode and
+        streaming compose awkwardly (you can't render half a JSON object).
+        Callers that need streaming + JSON should buffer and validate after.
+        """
+        model = model or self.cfg.default_model
+        timeout = timeout_s if timeout_s is not None else self.cfg.timeout_s
+        url = f"{self.cfg.base_url}/api/chat"
+
+        user_msg: dict[str, Any] = {"role": "user", "content": user}
+        if images:
+            user_msg["images"] = [self._encode_image(i) for i in images]
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "stream": True,
+            "messages": [
+                {"role": "system", "content": system},
+                user_msg,
+            ],
+            "options": {"temperature": float(temperature)},
+        }
+        if format_json:
+            payload["format"] = "json"
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                async with client.stream("POST", url, json=payload) as resp:
+                    if resp.status_code != 200:
+                        body = await resp.aread()
+                        raise LocalLLMError(
+                            f"ollama stream returned {resp.status_code}: {body[:300]!r}"
+                        )
+                    async for line in resp.aiter_lines():
+                        if not line:
+                            continue
+                        try:
+                            evt = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        msg = evt.get("message") or {}
+                        chunk = msg.get("content") or ""
+                        if chunk:
+                            yield chunk
+                        if evt.get("done"):
+                            return
+        except _HttpxConnectError as e:
+            raise LocalLLMError(f"could not reach Ollama at {self.cfg.base_url}: {e}") from e
+        except _HttpxTimeoutException as e:
+            raise LocalLLMError(f"local stream timed out: {e}") from e
+
     async def warmup(self, model: str | None = None) -> bool:
         """Keep-alive ping. Issues a no-op generate that forces Ollama to load
         the model into memory. Returns True on success, False on failure.
@@ -172,7 +246,7 @@ class LocalLLMClient:
             ok = resp.status_code == 200
             log.info("local_llm.warmup", model=model, ok=ok)
             return ok
-        except (httpx.ConnectError, httpx.TimeoutException) as e:
+        except (_HttpxConnectError, _HttpxTimeoutException) as e:
             log.warning("local_llm.warmup.fail", model=model, err=str(e))
             return False
 
