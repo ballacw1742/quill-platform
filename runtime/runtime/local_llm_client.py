@@ -55,8 +55,10 @@ class LocalLLMClient:
         model: str | None,
         system: str,
         user: str,
+        images: list[str] | None = None,
         temperature: float = 0.0,
         timeout_s: float | None = None,
+        format_json: bool = True,
     ) -> dict[str, Any]:
         """Make a single chat completion request. Returns a dict with:
 
@@ -65,22 +67,32 @@ class LocalLLMClient:
         - input_tokens: int
         - output_tokens: int
         - latency_ms: int
+
+        ``images`` is an optional list of either local file paths or base64-
+        encoded image bytes. Ollama's /api/chat accepts a parallel ``images``
+        list on the user message. Used by the multimodal path (Sprint Gemma.2).
         """
         model = model or self.cfg.default_model
         timeout = timeout_s if timeout_s is not None else self.cfg.timeout_s
         url = f"{self.cfg.base_url}/api/chat"
-        payload = {
+
+        user_msg: dict[str, Any] = {"role": "user", "content": user}
+        if images:
+            user_msg["images"] = [self._encode_image(i) for i in images]
+
+        payload: dict[str, Any] = {
             "model": model,
             "stream": False,
-            "format": "json",
             "messages": [
                 {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                user_msg,
             ],
             "options": {
                 "temperature": float(temperature),
             },
         }
+        if format_json:
+            payload["format"] = "json"
         start = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -125,6 +137,44 @@ class LocalLLMClient:
             "output_tokens": out_tok,
             "latency_ms": latency_ms,
         }
+
+    @staticmethod
+    def _encode_image(src: str) -> str:
+        """Accept either a base64 string (already encoded) or a filesystem path.
+
+        Heuristic: anything that's a readable file gets read + b64-encoded;
+        anything else is assumed to be a base64 string already.
+        """
+        import base64
+        import os.path
+
+        if os.path.isfile(src):
+            with open(src, "rb") as fh:
+                return base64.b64encode(fh.read()).decode("ascii")
+        return src
+
+    async def warmup(self, model: str | None = None) -> bool:
+        """Keep-alive ping. Issues a no-op generate that forces Ollama to load
+        the model into memory. Returns True on success, False on failure.
+        Used by the keep-alive daemon to avoid the 15-20s cold-start latency.
+        """
+        model = model or self.cfg.default_model
+        url = f"{self.cfg.base_url}/api/generate"
+        payload = {
+            "model": model,
+            "prompt": "",
+            "keep_alive": "30m",
+            "stream": False,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self.cfg.timeout_s) as client:
+                resp = await client.post(url, json=payload)
+            ok = resp.status_code == 200
+            log.info("local_llm.warmup", model=model, ok=ok)
+            return ok
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            log.warning("local_llm.warmup.fail", model=model, err=str(e))
+            return False
 
 
 __all__ = ["LocalLLMClient", "LocalLLMConfig", "LocalLLMError"]

@@ -133,6 +133,7 @@ class Agent:
         required_approvers: list[str] | None = None,
         model_override: str | None = None,
         prompt_cache: bool = True,
+        images: list[str] | None = None,
     ) -> AgentRun:
         cfg = self.config
         spec = self.spec
@@ -174,6 +175,7 @@ class Agent:
                 model_override=model_override,
                 config_default_override=cfg.default_model_override,
                 prompt_cache=prompt_cache,
+                images=images,
             )
         except LLMError as e:
             log.error("agent.run.llm_fail", agent_id=spec.agent_id, err=str(e))

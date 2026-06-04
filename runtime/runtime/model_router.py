@@ -162,6 +162,7 @@ class ModelRouter:
         max_tokens: int = 16000,
         temperature: float = 0.0,
         prompt_cache: bool = True,
+        images: list[str] | None = None,
     ) -> LLMResponse:
         decision = decide_route(
             spec,
@@ -178,6 +179,14 @@ class ModelRouter:
         )
 
         if decision.backend == "anthropic":
+            if images:
+                # Anthropic multimodal would need messages with image blocks;
+                # for now Phase-2 multimodal is local-only. Surface clearly.
+                log.warning(
+                    "llm.route.images_unsupported_for_remote",
+                    agent_id=spec.agent_id,
+                    n_images=len(images),
+                )
             return await self._remote.call_llm(
                 model=decision.model,
                 system=system,
@@ -195,6 +204,7 @@ class ModelRouter:
                 model=decision.model,
                 system=system,
                 user=user,
+                images=images,
                 temperature=temperature,
             )
             return LLMResponse(

@@ -978,5 +978,54 @@ def cmd_contract_draft_status(state_file: str | None) -> None:
     click.echo(json.dumps(data, indent=2, default=str))
 
 
+# ----------------------------------------------------------------------
+# `quill-runtime local` — local LLM helpers (Sprint Gemma.2)
+# ----------------------------------------------------------------------
+@main.group("local")
+def cmd_local() -> None:
+    """Local LLM (Ollama) helpers: warmup, ping."""
+
+
+@cmd_local.command("ping")
+@click.option("--model", default=None, help="Model to ping (defaults to LOCAL_MODEL_NAME).")
+def cmd_local_ping(model: str | None) -> None:
+    """One-shot warmup ping. Returns OK/FAIL."""
+    from runtime.local_llm_client import LocalLLMClient
+
+    client = LocalLLMClient()
+    ok = asyncio.run(client.warmup(model))
+    click.echo("OK" if ok else "FAIL")
+    sys.exit(0 if ok else 2)
+
+
+@cmd_local.command("warmup")
+@click.option("--model", default=None, help="Model to keep warm (defaults to LOCAL_MODEL_NAME).")
+@click.option("--interval", "interval_s", default=60.0, type=float, show_default=True,
+              help="Seconds between warmup pings.")
+def cmd_local_warmup(model: str | None, interval_s: float) -> None:
+    """Run the keep-alive daemon (foreground; supervisor-friendly)."""
+    from runtime.local_warmup_daemon import run_forever
+
+    asyncio.run(run_forever(model=model, interval_s=interval_s))
+
+
+@cmd_local.command("route")
+@click.argument("agent_id")
+def cmd_local_route(agent_id: str) -> None:
+    """Inspect the routing decision for an agent (no LLM call)."""
+    from runtime.agent_loader import load_agent
+    from runtime.model_router import decide_route
+
+    spec = load_agent(agent_id)
+    d = decide_route(spec)
+    click.echo(json.dumps({
+        "agent_id": agent_id,
+        "backend": d.backend,
+        "model": d.model,
+        "fallback_model": d.fallback_model,
+        "reason": d.reason,
+    }, indent=2))
+
+
 if __name__ == "__main__":
     main()
