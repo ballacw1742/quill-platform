@@ -31,8 +31,17 @@ def _json_type(bind):
 def upgrade() -> None:
     bind = op.get_bind()
     if _is_postgres(bind):
-        op.execute("CREATE EXTENSION IF NOT EXISTS pgvector")  # tolerated even if absent
-        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        # Cloud SQL uses 'vector' as extension name; upstream Postgres may call it 'pgvector'.
+        # Use SAVEPOINTs so a failure on one variant doesn't abort the outer transaction.
+        conn = op.get_bind()
+        for ext in ("vector", "pgvector"):
+            try:
+                conn.execute(sa.text("SAVEPOINT ext_create"))
+                conn.execute(sa.text(f"CREATE EXTENSION IF NOT EXISTS {ext}"))
+                conn.execute(sa.text("RELEASE SAVEPOINT ext_create"))
+                break
+            except Exception:  # noqa: BLE001
+                conn.execute(sa.text("ROLLBACK TO SAVEPOINT ext_create"))
 
     json_t = _json_type(bind)
 
