@@ -28,6 +28,9 @@ jobs:
         working-directory: frontend-vite
         env:
           VITE_API_URL: https://quill-agents-894031978246.us-central1.run.app
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: studio-1771635593-6661e.firebaseapp.com
+          VITE_FIREBASE_PROJECT_ID: studio-1771635593-6661e
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
