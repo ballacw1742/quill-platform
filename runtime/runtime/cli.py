@@ -144,6 +144,54 @@ def cmd_evals_run(agent_id: str, limit: int | None) -> None:
     sys.exit(rc)
 
 
+@cmd_evals.command("parity")
+@click.argument("agent_id")
+@click.option("--inputs", required=True, type=click.Path(exists=True, dir_okay=False),
+              help="JSONL file of input payloads to evaluate.")
+@click.option("--out-dir", default="_eval_runs", show_default=True, type=click.Path(),
+              help="Directory to write JSONL records + summary into.")
+@click.option("--sample-id-key", default="id", show_default=True,
+              help="Top-level key in each input record to use as sample_id.")
+@click.option("--backend", multiple=True, default=("anthropic", "ollama"),
+              help="Backends to run each sample through (can repeat).")
+def cmd_evals_parity(
+    agent_id: str,
+    inputs: str,
+    out_dir: str,
+    sample_id_key: str,
+    backend: tuple[str, ...],
+) -> None:
+    """Cross-backend parity eval: run each input through both backends.
+
+    Emits per-row JSONL plus a summary.json with validity %, p50/p95 latency,
+    token totals, and pairwise lane-decision agreement.
+    """
+    from runtime.eval_harness import run_parity  # local import: optional dep
+
+    payloads: list[dict[str, Any]] = []
+    with open(inputs, "r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            payloads.append(json.loads(line))
+
+    if not payloads:
+        click.echo(f"no payloads parsed from {inputs}", err=True)
+        sys.exit(2)
+
+    summary = asyncio.run(
+        run_parity(
+            agent_id,
+            inputs=payloads,
+            out_dir=Path(out_dir),
+            sample_id_key=sample_id_key,
+            backends=tuple(backend),
+        )
+    )
+    click.echo(json.dumps(summary, indent=2))
+
+
 # ----------------------------------------------------------------------
 # `quill-runtime registry`
 # ----------------------------------------------------------------------
@@ -928,6 +976,115 @@ def cmd_contract_draft_status(state_file: str | None) -> None:
     dispatcher = ContractDraftDispatcher(state_file=state_path)
     data = dispatcher.get_status_dict()
     click.echo(json.dumps(data, indent=2, default=str))
+
+
+# ----------------------------------------------------------------------
+# `quill-runtime local` — local LLM helpers (Sprint Gemma.2)
+# ----------------------------------------------------------------------
+@main.group("local")
+def cmd_local() -> None:
+    """Local LLM (Ollama) helpers: warmup, ping."""
+
+
+@cmd_local.command("ping")
+@click.option("--model", default=None, help="Model to ping (defaults to LOCAL_MODEL_NAME).")
+def cmd_local_ping(model: str | None) -> None:
+    """One-shot warmup ping. Returns OK/FAIL."""
+    from runtime.local_llm_client import LocalLLMClient
+
+    client = LocalLLMClient()
+    ok = asyncio.run(client.warmup(model))
+    click.echo("OK" if ok else "FAIL")
+    sys.exit(0 if ok else 2)
+
+
+@cmd_local.command("warmup")
+@click.option("--model", default=None, help="Model to keep warm (defaults to LOCAL_MODEL_NAME).")
+@click.option("--interval", "interval_s", default=60.0, type=float, show_default=True,
+              help="Seconds between warmup pings.")
+def cmd_local_warmup(model: str | None, interval_s: float) -> None:
+    """Run the keep-alive daemon (foreground; supervisor-friendly)."""
+    from runtime.local_warmup_daemon import run_forever
+
+    asyncio.run(run_forever(model=model, interval_s=interval_s))
+
+
+@cmd_local.command("route")
+@click.argument("agent_id")
+def cmd_local_route(agent_id: str) -> None:
+    """Inspect the routing decision for an agent (no LLM call)."""
+    from runtime.agent_loader import load_agent
+    from runtime.model_router import decide_route
+
+    spec = load_agent(agent_id)
+    d = decide_route(spec)
+    click.echo(json.dumps({
+        "agent_id": agent_id,
+        "backend": d.backend,
+        "model": d.model,
+        "fallback_model": d.fallback_model,
+        "reason": d.reason,
+    }, indent=2))
+
+
+@cmd_local.command("stream")
+@click.option("--model", default=None, help="Model to stream from (defaults to LOCAL_MODEL_NAME).")
+@click.option("--system", default="You are a helpful assistant.", help="System prompt.")
+@click.argument("user_prompt")
+def cmd_local_stream(model: str | None, system: str, user_prompt: str) -> None:
+    """Stream tokens from the local model to stdout (sanity check for real-time loops)."""
+    from runtime.local_llm_client import LocalLLMClient
+
+    async def _go() -> None:
+        client = LocalLLMClient()
+        async for chunk in client.stream(model=model, system=system, user=user_prompt):
+            click.echo(chunk, nl=False)
+        click.echo()
+
+    asyncio.run(_go())
+
+
+# ----------------------------------------------------------------------
+# `quill-runtime transcribe` — local Whisper transcription substrate
+# ----------------------------------------------------------------------
+@main.command("transcribe")
+@click.argument("audio_path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--model", default=None, help="Whisper model (default: WHISPER_MODEL env or 'small.en').")
+@click.option("--language", default=None, help="Language code (default: WHISPER_LANGUAGE env or 'en').")
+@click.option("--output-dir", default=None, type=click.Path(), help="Where to keep the raw JSON.")
+@click.option("--out", "out_path", default=None, type=click.Path(),
+              help="Write the normalized TranscriptArtifact JSON here.")
+def cmd_transcribe(
+    audio_path: str,
+    model: str | None,
+    language: str | None,
+    output_dir: str | None,
+    out_path: str | None,
+) -> None:
+    """Transcribe an audio file locally via Whisper. No audio leaves the machine."""
+    from runtime.transcription import transcribe
+
+    artifact = asyncio.run(
+        transcribe(
+            audio_path,
+            model=model,
+            language=language,
+            output_dir=Path(output_dir) if output_dir else None,
+        )
+    )
+    payload = artifact.to_dict()
+    if out_path:
+        Path(out_path).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    click.echo(json.dumps({
+        "source_path": payload["source_path"],
+        "model": payload["model"],
+        "language": payload["language"],
+        "duration_s": payload["duration_s"],
+        "text_preview": payload["text"][:240],
+        "segments": len(payload["segments"]),
+        "raw_json_path": payload["raw_json_path"],
+        "normalized_json_path": out_path,
+    }, indent=2))
 
 
 if __name__ == "__main__":

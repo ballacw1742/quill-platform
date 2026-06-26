@@ -1,0 +1,17 @@
+steps:
+  - name: 'node:20'
+    dir: 'frontend-vite'
+    entrypoint: 'npm'
+    args: ['install']
+  - name: 'node:20'
+    dir: 'frontend-vite'
+    entrypoint: 'npm'
+    args: ['run', 'build']
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'firebase'
+    args: ['deploy', '--only', 'hosting', '--project', 'studio-1771635593-6661e', '--token', '$$FIREBASE_TOKEN']
+    secretEnv: ['FIREBASE_TOKEN']
+availableSecrets:
+  secretManager:
+    - versionName: projects/totemic-formula-467102-s9/secrets/FIREBASE_TOKEN/versions/latest
+      env: 'FIREBASE_TOKEN'

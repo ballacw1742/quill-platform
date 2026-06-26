@@ -25,6 +25,82 @@ pip install -e .[dev]
 | `ON_PREM_INFERENCE_URL`      | _(unset)_                                                        | Placeholder for Class-A on-prem routing.                |
 | `LOG_LEVEL`                  | `INFO`                                                           | structlog level.                                       |
 | `RUNTIME_REQUEST_TIMEOUT_S`  | `60`                                                             | HTTP timeout for the queue client.                     |
+| `LOCAL_INFERENCE_URL`        | `http://localhost:11434`                                         | Ollama base URL (Sprint Gemma.1).                      |
+| `LOCAL_MODEL_NAME`           | `gemma4:12b-mlx`                                                 | Default local model when `cost_class=local-*`.         |
+| `LOCAL_TIMEOUT_S`            | `120`                                                            | Per-call timeout for the local backend.                |
+| `LOCAL_DISABLE`              | _(unset)_                                                        | Kill switch: `1`/`true` forces remote regardless of `cost_class`. |
+
+## Local vs. Remote Routing (Sprint Gemma.1)
+
+Every agent's `system.md` front-matter MAY declare a `cost_class`:
+
+- `remote-only` (default) — always Anthropic.
+- `remote-preferred` — alias for the default.
+- `local-preferred` — Ollama first, fall back to Anthropic on local failure.
+- `local-only` — Ollama only; raise on failure.
+
+And MAY pin a specific local model:
+
+```yaml
+cost_class: local-preferred
+local_model: gemma4:12b-mlx
+```
+
+The canonical contract is documented in `runtime/MODEL_ROUTING_CONTRACT.md`.
+The `LLMResponse` object carries a new `backend` field (`anthropic` | `ollama`)
+so downstream code can attribute cost without inspecting model names.
+
+### Keep-alive daemon
+
+Gemma's first call after model unload pays a 15-20s cold-start. Pin the model
+in memory with:
+
+```bash
+quill-runtime local warmup --interval 60
+```
+
+Runs in the foreground; supervisor-friendly. One-shot variant:
+`quill-runtime local ping`.
+
+### Streaming (real-time agent loops)
+
+For token-by-token output (real-time agent loops, voice UIs, etc.):
+
+```python
+async for chunk in client.stream(model=None, system="You are concise.", user="Hi"):
+    print(chunk, end="", flush=True)
+```
+
+CLI sanity-check: `quill-runtime local stream "Hi there"`.
+
+### Audio transcription substrate (Whisper, local)
+
+Local-only meeting transcription via the OpenAI Whisper CLI. No audio leaves
+the machine. No API key.
+
+```bash
+quill-runtime transcribe ./meeting.wav \
+    --model small.en \
+    --out ./meeting.transcript.json
+```
+
+Produces a normalized `TranscriptArtifact` (segments, timestamps, full text)
+that any agent can consume. This is the substrate Phase 3 "record everything"
+workflows run on.
+
+### Cross-backend parity eval
+
+Measure local-vs-remote quality on a per-agent eval set:
+
+```bash
+quill-runtime evals parity design-classifier \
+  --inputs runtime/scripts/synthetic_design_packages.jsonl \
+  --out-dir _eval_runs
+```
+
+Writes `_eval_runs/<agent>_<run-id>.jsonl` (one row per (sample, backend)) and
+`_eval_runs/<agent>_<run-id>.summary.json` with validity %, p50/p95 latency,
+token totals, and pairwise lane-decision agreement.
 
 A `.env` file in the runtime working directory is auto-loaded.
 
