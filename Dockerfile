@@ -15,6 +15,6 @@ COPY api /app/api
 
 RUN pip install --upgrade pip && pip install -e .
 
-EXPOSE 8000
+EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", "--app-dir", "api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn app.main:app --app-dir api --host 0.0.0.0 --port ${PORT:-8000}"]
