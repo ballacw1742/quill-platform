@@ -1,0 +1,40 @@
+name: Deploy Quill Backend to Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'api/**'
+      - 'agents/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t gcr.io/totemic-formula-467102-s9/quill-api:${{ github.sha }} .
+          docker push gcr.io/totemic-formula-467102-s9/quill-api:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy quill-agents \
+            --image gcr.io/totemic-formula-467102-s9/quill-api:${{ github.sha }} \
+            --platform managed \
+            --region us-central1 \
+            --no-allow-unauthenticated \
+            --project totemic-formula-467102-s9
