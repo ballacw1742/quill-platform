@@ -1346,3 +1346,37 @@ export const ContractDraftSchema = z
   })
   .passthrough();
 export type ContractDraft = z.infer<typeof ContractDraftSchema>;
+
+// ─── Project Requests (Requests tab) ─────────────────────────────────────────
+
+export const ProjectRequestSchema = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  message: z.string(),
+  intent: z.string(), // estimate | schedule | rfi | contract | general
+  status: z.string(), // processing | complete | failed
+  response: z.string().nullable().optional(),
+  output_module: z.string().nullable().optional(),
+  output_id: z.string().nullable().optional(),
+  drive_url: z.string().nullable().optional(),
+  filenames: z.string().nullable().optional(), // comma-separated
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ProjectRequest = z.infer<typeof ProjectRequestSchema>;
+
+export const ProjectRequestListResponseSchema = z.object({
+  items: z.array(ProjectRequestSchema),
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+});
+export type ProjectRequestListResponse = z.infer<typeof ProjectRequestListResponseSchema>;
+
+export const ProjectRequestSubmitResponseSchema = z.object({
+  request_id: z.string(),
+  intent: z.string(),
+  status: z.string(),
+  message: z.string(),
+});
+export type ProjectRequestSubmitResponse = z.infer<typeof ProjectRequestSubmitResponseSchema>;
