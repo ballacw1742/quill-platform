@@ -2,345 +2,88 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
-import { Fingerprint, Loader2 } from "lucide-react";
 import { QuillLogo } from "@/components/QuillLogo";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { useLogin, useSession } from "@/lib/api";
-import type { Session } from "@/lib/schemas";
-import {
-  isPasskeySupported,
-  isUserCancelledError,
-  loginWithPasskey,
-} from "@/lib/auth";
-import { RegisterPasskeyDialog } from "@/components/auth/RegisterPasskeyDialog";
-import { toast } from "sonner";
-
-/**
- * /login — iOS-redesign.
- *
- * MOBILE_UX_SPEC.md §"Authentication / /login":
- *   1. Big Quill mark, centered.
- *   2. text-title-1 "Sign in".
- *   3. text-body label-secondary "Use your passkey to continue."
- *   4. Email input.
- *   5. Primary "Sign in with passkey" — full-width 50 px accent filled.
- *   6. Ghost "Register a passkey" below.
- *   7. <details> dev-fallback collapsed by default.
- *
- * Forbidden chrome from the prior design: marketing copy, Card border,
- * footer link, top wordmark+tagline. The form *is* the screen.
- */
-
-const schema = z.object({
-  email: z.string().email("Enter a valid email"),
-  password: z.string().optional(),
-});
-type FormValues = z.infer<typeof schema>;
-
-const DEV_FALLBACK =
-  typeof process !== "undefined" &&
-  process.env.NEXT_PUBLIC_DEV_AUTH_FALLBACK === "1";
-
-const LAST_EMAIL_KEY = "quill.last_login_email";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { data: rawSession } = useSession();
-  const session = rawSession as Session | null | undefined;
-  const passwordLogin = useLogin();
-  // Passkey support must be checked client-side only — SSR has no `window`.
-  // Default to true so the SSR HTML shows an enabled button (matching what
-  // 99%+ of real users will hydrate to) and avoids hydration mismatch flicker.
-  const [passkeyAvailable, setPasskeyAvailable] = React.useState(true);
-  React.useEffect(() => {
-    setPasskeyAvailable(isPasskeySupported());
-  }, []);
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
+  const [loading, setLoading] = React.useState(false);
+  const [error, setError] = React.useState("");
 
-  const [passkeyPending, setPasskeyPending] = React.useState(false);
-  const [registerOpen, setRegisterOpen] = React.useState(false);
-  // After password sign-in, we force users without a passkey to register one
-  // before unlocking the rest of the app. This flag remembers we entered that
-  // forced flow so the dialog's onRegistered handler redirects on completion.
-  const [forcedEnroll, setForcedEnroll] = React.useState(false);
-
-  React.useEffect(() => {
-    if (session) router.replace("/queue");
-  }, [session, router]);
-
-  // Pre-fill last successful email if available.
-  const lastEmail =
-    typeof window !== "undefined"
-      ? window.localStorage.getItem(LAST_EMAIL_KEY) ?? "charles@quill.local"
-      : "charles@quill.local";
-
-  const form = useForm<FormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: { email: lastEmail, password: "" },
-  });
-
-  const rememberEmail = (email: string) => {
-    if (typeof window !== "undefined")
-      window.localStorage.setItem(LAST_EMAIL_KEY, email);
-  };
-
-  const onPasskey = async () => {
-    const email = form.getValues("email");
-    if (!email) {
-      form.setError("email", { message: "Email required for passkey" });
-      return;
-    }
-    setPasskeyPending(true);
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
     try {
-      const result = await loginWithPasskey(email);
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("quill.session", JSON.stringify(result));
-        // Mirror the JWT to the canonical key used by lib/api.apiFetch.
-        if ((result as { access_token?: string }).access_token) {
-          window.localStorage.setItem(
-            "quill_session_token",
-            (result as { access_token: string }).access_token,
-          );
-        }
+      const res = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.detail || "Invalid email or password");
       }
-      rememberEmail(email);
-      toast.success("Signed in with passkey");
-      router.replace("/queue");
-    } catch (err) {
-      if (isUserCancelledError(err)) {
-        toast.message("Passkey prompt cancelled");
-      } else {
-        // eslint-disable-next-line no-console
-        console.error("passkey sign-in failed", err);
-        toast.error(
-          "Sign-in didn't work — your passkey wasn't recognized. Try again.",
-        );
+      const data = await res.json();
+      if (data.access_token) {
+        document.cookie = `quill_token=${data.access_token}; path=/; max-age=86400`;
+        localStorage.setItem("quill_token", data.access_token);
+        router.replace("/queue");
       }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
-      setPasskeyPending(false);
+      setLoading(false);
     }
-  };
-
-  const onPassword = (values: FormValues) => {
-    if (!values.password) {
-      form.setError("password", { message: "Required" });
-      return;
-    }
-    passwordLogin.mutate(
-      { email: values.email, password: values.password },
-      {
-        onSuccess: async (result) => {
-          rememberEmail(values.email);
-          // Persist the JWT so subsequent API calls (incl. the passkey
-          // credentials check below + the registration flow) carry auth.
-          const token = (result as { access_token?: string }).access_token;
-          if (typeof window !== "undefined") {
-            if (token) {
-              window.localStorage.setItem("quill_session_token", token);
-            }
-            window.localStorage.setItem("quill.session", JSON.stringify(result));
-          }
-
-          // Check if the user has any passkeys. If not, force enrollment
-          // before we let them into the app.
-          let needsEnroll = true;
-          try {
-            const apiBase =
-              (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
-            const resp = await fetch(
-              `${apiBase}/api/v1/auth/passkey/credentials`,
-              {
-                method: "GET",
-                headers: token ? { Authorization: `Bearer ${token}` } : {},
-                credentials: "include",
-              },
-            );
-            if (resp.ok) {
-              const creds = (await resp.json()) as unknown[];
-              needsEnroll = Array.isArray(creds) ? creds.length === 0 : true;
-            }
-          } catch (e) {
-            // eslint-disable-next-line no-console
-            console.warn("passkey credentials check failed; forcing enrollment", e);
-          }
-
-          if (needsEnroll && isPasskeySupported()) {
-            toast.message(
-              "Set up a passkey to finish signing in.",
-              { description: "Passkeys replace the password on this device." },
-            );
-            setForcedEnroll(true);
-            setRegisterOpen(true);
-            return;
-          }
-
-          toast.success("Signed in");
-          router.replace("/queue");
-        },
-        onError: (e) => {
-          // eslint-disable-next-line no-console
-          console.error("password sign-in failed", e);
-          toast.error("Couldn't sign in. Check your email and password.");
-        },
-      },
-    );
   };
 
   return (
-    <main className="flex min-h-screen flex-col bg-bg pt-safe pb-safe">
-      <div className="mx-auto flex w-full max-w-sm flex-1 flex-col px-6 pt-12 pb-8">
-        {/* Quill mark — anchored near the top with breathing room. We don't
-            vertically center the whole stack because on tall phones it ends up
-            floating in the bottom half; visually heavier near the top reads as
-            'app launching' (matches iOS app first-run UX). */}
+    <main className="flex min-h-screen flex-col items-center justify-center bg-bg px-6">
+      <div className="w-full max-w-sm">
         <div className="mb-10 flex flex-col items-center gap-3">
-          <QuillLogo size={120} className="drop-shadow-md" />
-          <span className="text-title-1 font-semibold tracking-tight text-label-primary">
-            Quill
-          </span>
+          <QuillLogo size={80} />
+          <span className="text-2xl font-semibold text-label-primary">Quill</span>
         </div>
 
-        <div className="mb-8 space-y-1">
-          <h1 className="text-title-1 text-label-primary">Sign in</h1>
-          <p className="text-body text-label-secondary">
-            Use your passkey to continue.
-          </p>
-        </div>
-
-        <form
-          onSubmit={form.handleSubmit(onPassword)}
-          className="space-y-4"
-          autoComplete="on"
-        >
-          <div className="space-y-1.5">
-            <label
-              htmlFor="email"
-              className="block text-subhead text-label-secondary"
-            >
-              Email
-            </label>
-            <Input
-              id="email"
+        <form onSubmit={handleLogin} className="space-y-4">
+          <div>
+            <label className="block text-sm text-label-secondary mb-1">Email</label>
+            <input
               type="email"
-              inputMode="email"
-              autoComplete="username webauthn"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
               placeholder="you@example.com"
-              className="h-[50px] rounded-lg border-separator-opaque bg-bg-tertiary text-body"
-              {...form.register("email")}
+              required
+              className="w-full h-[50px] rounded-lg border border-separator-opaque bg-bg-tertiary px-3 text-body text-label-primary focus:outline-none focus:ring-2 focus:ring-accent"
             />
-            {form.formState.errors.email && (
-              <p className="text-footnote text-danger">
-                {form.formState.errors.email.message}
-              </p>
-            )}
           </div>
 
-          <Button
-            type="button"
-            onClick={onPasskey}
-            disabled={!passkeyAvailable || passkeyPending}
-            className="h-[50px] w-full rounded-lg text-headline text-white"
-          >
-            {passkeyPending ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Waiting for passkey…
-              </>
-            ) : (
-              <>
-                <Fingerprint className="h-4 w-4" />
-                Sign in with passkey
-              </>
-            )}
-          </Button>
+          <div>
+            <label className="block text-sm text-label-secondary mb-1">Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              required
+              className="w-full h-[50px] rounded-lg border border-separator-opaque bg-bg-tertiary px-3 text-body text-label-primary focus:outline-none focus:ring-2 focus:ring-accent"
+            />
+          </div>
+
+          {error && (
+            <p className="text-sm text-red-500">{error}</p>
+          )}
 
           <button
-            type="button"
-            onClick={() => setRegisterOpen(true)}
-            className="block w-full py-3 text-center text-callout text-accent active:opacity-60 no-tap-highlight"
+            type="submit"
+            disabled={loading}
+            className="w-full h-[50px] rounded-lg bg-accent text-white font-medium text-body disabled:opacity-60 active:opacity-80 transition-opacity"
           >
-            Register a passkey
+            {loading ? "Signing in…" : "Sign in"}
           </button>
-
-          {!passkeyAvailable && (
-            <div className="rounded-md bg-bg-elevated px-3 py-2 text-footnote text-label-secondary">
-              Passkeys aren&rsquo;t supported on this browser. Use Safari,
-              Chrome, Edge, or Firefox on a modern device.
-            </div>
-          )}
-
-          {DEV_FALLBACK && (
-            <div className="space-y-3 pt-2">
-              <div className="flex items-center gap-3">
-                <div className="h-px flex-1 bg-separator/40" aria-hidden="true" />
-                <span className="text-footnote text-label-tertiary">or</span>
-                <div className="h-px flex-1 bg-separator/40" aria-hidden="true" />
-              </div>
-
-              <div className="space-y-1.5">
-                <label
-                  htmlFor="password"
-                  className="block text-subhead text-label-secondary"
-                >
-                  Password
-                </label>
-                <Input
-                  id="password"
-                  type="password"
-                  autoComplete="current-password"
-                  placeholder="Enter your password"
-                  className="h-[50px] rounded-lg border-separator-opaque bg-bg-tertiary text-body"
-                  {...form.register("password")}
-                />
-              </div>
-              <Button
-                type="submit"
-                variant="secondary"
-                className="h-[50px] w-full rounded-lg text-headline"
-                disabled={passwordLogin.isPending}
-              >
-                {passwordLogin.isPending ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Signing in…
-                  </>
-                ) : (
-                  "Sign in with password"
-                )}
-              </Button>
-              <p className="text-caption-1 text-label-tertiary text-center">
-                After signing in, you’ll be asked to set up a passkey for future
-                logins.
-              </p>
-            </div>
-          )}
         </form>
       </div>
-
-      <RegisterPasskeyDialog
-        open={registerOpen}
-        onOpenChange={(v) => {
-          setRegisterOpen(v);
-          // If the user closes the forced-enroll dialog without registering,
-          // they're not actually signed in for production use — clear the
-          // session so they have to try again. (Stays in localStorage for the
-          // duration of the dialog so the registration call can authenticate.)
-          if (!v && forcedEnroll) {
-            setForcedEnroll(false);
-          }
-        }}
-        onRegistered={() => {
-          if (forcedEnroll) {
-            setForcedEnroll(false);
-            setRegisterOpen(false);
-            toast.success("Passkey set up. Signing you in…");
-            router.replace("/queue");
-          }
-        }}
-      />
     </main>
   );
 }
