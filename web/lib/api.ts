@@ -1712,3 +1712,82 @@ export function useContractDraft(uploadId: string) {
     documentQuery,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Project Requests (Requests tab)
+// ---------------------------------------------------------------------------
+import {
+  ProjectRequestSchema,
+  ProjectRequestListResponseSchema,
+  ProjectRequestSubmitResponseSchema,
+  type ProjectRequest,
+  type ProjectRequestListResponse,
+  type ProjectRequestSubmitResponse,
+} from "@/lib/schemas";
+
+/** GET /v1/requests — list request history for the current user */
+export function useProjectRequests(
+  opts?: UseQueryOptions<ProjectRequestListResponse | undefined>,
+) {
+  return useQuery<ProjectRequestListResponse | undefined>({
+    queryKey: ["requests"],
+    queryFn: async (): Promise<ProjectRequestListResponse | undefined> => {
+      return apiFetch("/api/v1/requests", {
+        schema: ProjectRequestListResponseSchema,
+      });
+    },
+    refetchInterval: 5000, // Poll every 5s while processing
+    ...opts,
+  });
+}
+
+/** GET /v1/requests/{id} — single request detail */
+export function useProjectRequest(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<ProjectRequest | undefined>,
+) {
+  return useQuery<ProjectRequest | undefined>({
+    queryKey: ["requests", id],
+    queryFn: async (): Promise<ProjectRequest | undefined> => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/requests/${encodeURIComponent(id)}`, {
+        schema: ProjectRequestSchema,
+      });
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** POST /v1/requests — submit a new project request */
+export function useSubmitProjectRequest(
+  opts?: UseMutationOptions<
+    ProjectRequestSubmitResponse,
+    Error,
+    FormData
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<ProjectRequestSubmitResponse, Error, FormData>({
+    mutationFn: async (body: FormData) => {
+      const token = getStoredToken();
+      const headers: Record<string, string> = {};
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const resp = await fetch(`${API_BASE}/api/v1/requests`, {
+        method: "POST",
+        headers,
+        body,
+      });
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => resp.statusText);
+        throw new ApiError(resp.status, text);
+      }
+      const json = await resp.json();
+      return ProjectRequestSubmitResponseSchema.parse(json);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["requests"] });
+    },
+    ...opts,
+  });
+}
