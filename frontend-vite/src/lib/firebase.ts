@@ -11,13 +11,17 @@ import type { User } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  // authDomain must be the Firebase default domain for redirects to work
+  // even when app is hosted on custom domain
+  authDomain: 'studio-1771635593-6661e.firebaseapp.com',
+  projectId: 'studio-1771635593-6661e',
 };
 
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const googleProvider = new GoogleAuthProvider();
+
+const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
 
 export const signInWithGoogle = () => signInWithRedirect(auth, googleProvider);
 export const handleRedirectResult = () => getRedirectResult(auth);
