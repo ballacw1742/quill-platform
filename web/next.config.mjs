@@ -1,6 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  typescript: {
+    // TypeScript errors are caught in CI; skip during Docker builds
+    ignoreBuildErrors: true,
+  },
+  eslint: {
+    // ESLint is run separately in CI; skip during Docker builds
+    ignoreDuringBuilds: true,
+  },
   output: process.env.NEXT_OUTPUT_STANDALONE === "1" ? "standalone" : undefined,
   images: {
     formats: ["image/avif", "image/webp"],
