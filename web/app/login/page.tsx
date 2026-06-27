@@ -11,6 +11,12 @@ export default function LoginPage() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
 
+  // If already logged in, go to queue
+  React.useEffect(() => {
+    const token = window.localStorage.getItem("quill_session_token");
+    if (token) router.replace("/queue");
+  }, [router]);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -21,19 +27,19 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password }),
       });
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
         throw new Error(data?.detail || "Invalid email or password");
       }
-      const data = await res.json();
       if (data.access_token) {
-        document.cookie = `quill_token=${data.access_token}; path=/; max-age=86400`;
-        localStorage.setItem("quill_token", data.access_token);
+        // Store with the key the app actually reads
+        window.localStorage.setItem("quill_session_token", data.access_token);
         router.replace("/queue");
+      } else {
+        throw new Error("No token returned");
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Login failed");
-    } finally {
       setLoading(false);
     }
   };
@@ -45,7 +51,6 @@ export default function LoginPage() {
           <QuillLogo size={80} />
           <span className="text-2xl font-semibold text-label-primary">Quill</span>
         </div>
-
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm text-label-secondary mb-1">Email</label>
@@ -54,11 +59,11 @@ export default function LoginPage() {
               value={email}
               onChange={e => setEmail(e.target.value)}
               placeholder="you@example.com"
+              autoComplete="email"
               required
               className="w-full h-[50px] rounded-lg border border-separator-opaque bg-bg-tertiary px-3 text-body text-label-primary focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
-
           <div>
             <label className="block text-sm text-label-secondary mb-1">Password</label>
             <input
@@ -66,15 +71,12 @@ export default function LoginPage() {
               value={password}
               onChange={e => setPassword(e.target.value)}
               placeholder="Enter your password"
+              autoComplete="current-password"
               required
               className="w-full h-[50px] rounded-lg border border-separator-opaque bg-bg-tertiary px-3 text-body text-label-primary focus:outline-none focus:ring-2 focus:ring-accent"
             />
           </div>
-
-          {error && (
-            <p className="text-sm text-red-500">{error}</p>
-          )}
-
+          {error && <p className="text-sm text-red-500">{error}</p>}
           <button
             type="submit"
             disabled={loading}
