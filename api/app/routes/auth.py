@@ -3,6 +3,7 @@
 Endpoints:
     POST /v1/auth/register                       (dev-only fallback, gated)
     POST /v1/auth/login                          (dev-only fallback, gated)
+    POST /v1/auth/google                         (Google OAuth via Firebase ID token)
     GET  /v1/auth/me
     POST /v1/auth/passkey/register/begin
     POST /v1/auth/passkey/register/complete
@@ -17,6 +18,7 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -43,6 +45,13 @@ from app.schemas import (
     UserOut,
 )
 from app.security import get_current_user, hash_password, issue_token, verify_password
+
+try:
+    from google.oauth2 import id_token as google_id_token
+    from google.auth.transport import requests as google_requests
+    _GOOGLE_AUTH_AVAILABLE = True
+except ImportError:
+    _GOOGLE_AUTH_AVAILABLE = False
 from app.services.security import (
     challenge_store,
     generate_authentication_options,
@@ -100,6 +109,48 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token
         or not verify_password(body.password, user.password_hash)
     ):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+    return TokenOut(access_token=issue_token(user), user_id=user.id, role=user.role)
+
+
+@router.post("/google", response_model=TokenOut, summary="Exchange a Google ID token for a Quill session token.")
+async def google_login(body: dict, db: AsyncSession = Depends(get_db)) -> TokenOut:
+    """Accept a Firebase Google ID token, find or create the user, return a Quill JWT."""
+    if not _GOOGLE_AUTH_AVAILABLE:
+        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "google-auth package not installed")
+
+    credential = body.get("credential") or body.get("id_token")
+    if not credential:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Missing credential")
+
+    try:
+        request = google_requests.Request()
+        # audience=None skips the aud claim check (Firebase tokens have Firebase project as aud)
+        idinfo = google_id_token.verify_firebase_token(credential, request)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, f"Invalid Google token: {exc}") from exc
+
+    email: str | None = idinfo.get("email")
+    name: str = idinfo.get("name") or idinfo.get("email") or "Google User"
+
+    if not email:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No email in Google token")
+
+    # Find or create user
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalars().first()
+
+    if not user:
+        user = User(
+            id=str(uuid.uuid4()),
+            email=email,
+            display_name=name,
+            role=UserRole.OBSERVER.value,
+            password_hash=None,
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
     return TokenOut(access_token=issue_token(user), user_id=user.id, role=user.role)
 
 
