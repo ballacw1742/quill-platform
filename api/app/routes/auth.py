@@ -400,23 +400,64 @@ async def google_login(
     if not credential:
         raise HTTPException(status_code=400, detail="Missing credential")
 
-    # Verify Firebase ID token using Google's public key endpoint
+    # Verify Firebase ID token using Firebase's own verification endpoint
+    # Firebase tokens have iss=https://securetoken.google.com/PROJECT_ID
+    # and must be verified with Firebase's public keys, not Google's tokeninfo
+    FIREBASE_PROJECT = "studio-1771635593-6661e"
+    
+    import base64 as _b64, json as _json
+    
+    # Decode the JWT payload without verification to check issuer first
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(
-                f"https://www.googleapis.com/oauth2/v3/tokeninfo?id_token={credential}"
-            )
-            if resp.status_code != 200:
-                raise HTTPException(status_code=401, detail="Invalid Google token")
-            idinfo = resp.json()
-    except httpx.RequestError as e:
-        raise HTTPException(status_code=503, detail=f"Could not verify token: {e}")
-
-    # Accept tokens from our Firebase project or Google OAuth
-    aud = idinfo.get("aud", "")
-    if not (aud == "studio-1771635593-6661e" or "apps.googleusercontent.com" in aud or aud.startswith("studio")):
-        # For Firebase ID tokens, aud is the project ID
-        pass  # Accept all for now - Firebase tokens have project ID as aud
+        parts = credential.split(".")
+        if len(parts) != 3:
+            raise ValueError("Not a JWT")
+        # Add padding if needed
+        payload_b64 = parts[1] + "=" * (4 - len(parts[1]) % 4)
+        payload_bytes = _b64.urlsafe_b64decode(payload_b64)
+        unverified = _json.loads(payload_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token format: {e}")
+    
+    iss = unverified.get("iss", "")
+    
+    # Route to appropriate verifier based on issuer
+    idinfo = None
+    
+    if f"securetoken.google.com/{FIREBASE_PROJECT}" in iss:
+        # Firebase ID token — verify via Firebase token verification API
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(
+                    f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=AIzaSyB_OqDH-Z139IrO79J0PHsHU-fW2xLIHhM",
+                    json={"idToken": credential}
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    users_list = data.get("users", [])
+                    if users_list:
+                        u = users_list[0]
+                        idinfo = {
+                            "email": u.get("email"),
+                            "name": u.get("displayName", u.get("email","")),
+                            "email_verified": u.get("emailVerified", False),
+                        }
+                if idinfo is None:
+                    raise HTTPException(status_code=401, detail="Invalid Firebase token")
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=503, detail=f"Could not verify token: {e}")
+    else:
+        # Google OAuth token — verify via tokeninfo
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"https://www.googleapis.com/oauth2/v3/tokeninfo?id_token={credential}"
+                )
+                if resp.status_code != 200:
+                    raise HTTPException(status_code=401, detail="Invalid Google token")
+                idinfo = resp.json()
+        except httpx.RequestError as e:
+            raise HTTPException(status_code=503, detail=f"Could not verify token: {e}")
 
     email = idinfo.get("email")
     name = idinfo.get("name") or email
