@@ -44,8 +44,15 @@ async def process_task(request: Request):
                 if response:
                     import json as _json
                     try:
+                        # Strip markdown code fences if present
+                        clean = response.strip()
+                        if clean.startswith("```"):
+                            clean = clean.split("```", 2)[1]  # get content between fences
+                            if clean.startswith("json"):
+                                clean = clean[4:]
+                            clean = clean.rsplit("```", 1)[0].strip()
                         # Try to parse as JSON (coordinator returns JSON plan)
-                        plan = _json.loads(response)
+                        plan = _json.loads(clean)
                         direct = plan.get("direct_response", "")
                         if direct:
                             response_text = direct
