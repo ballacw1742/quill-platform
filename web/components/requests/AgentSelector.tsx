@@ -18,7 +18,6 @@ import { cn } from "@/lib/utils";
 
 export interface AgentDef {
   id: string;
-  emoji: string;
   label: string;
   description: string;
   /** Maps to the intent field on POST /v1/requests */
@@ -29,7 +28,6 @@ export interface AgentDef {
 export const AGENTS: AgentDef[] = [
   {
     id: "coordinator",
-    emoji: "🤖",
     label: "Coordinator",
     description: "Auto-routes your request to the right agent",
     intent: "general",
@@ -44,7 +42,6 @@ export const AGENTS: AgentDef[] = [
   },
   {
     id: "cost-estimator",
-    emoji: "💰",
     label: "Cost Estimator",
     description: "Upload drawings or scope documents to generate a detailed cost estimate",
     intent: "estimate",
@@ -57,7 +54,6 @@ export const AGENTS: AgentDef[] = [
   },
   {
     id: "schedule-builder",
-    emoji: "📅",
     label: "Schedule Builder",
     description: "Submit milestones or scope to generate a project schedule with critical path analysis",
     intent: "schedule",
@@ -70,7 +66,6 @@ export const AGENTS: AgentDef[] = [
   },
   {
     id: "rfi-manager",
-    emoji: "📋",
     label: "RFI Manager",
     description: "Submit questions or clarifications; routes to the right party and drafts the response",
     intent: "rfi",
@@ -83,7 +78,6 @@ export const AGENTS: AgentDef[] = [
   },
   {
     id: "contract-reviewer",
-    emoji: "📄",
     label: "Contract Reviewer",
     description: "Upload contracts or agreements for clause analysis, red flags, and summary",
     intent: "contract",
@@ -96,7 +90,6 @@ export const AGENTS: AgentDef[] = [
   },
   {
     id: "change-order",
-    emoji: "🔄",
     label: "Change Order Processor",
     description: "Submit change order requests for cost and schedule impact analysis",
     intent: "general",
@@ -109,7 +102,6 @@ export const AGENTS: AgentDef[] = [
   },
   {
     id: "progress-tracker",
-    emoji: "📊",
     label: "Progress Tracker",
     description: "Upload field reports to generate progress summaries",
     intent: "general",
@@ -122,7 +114,6 @@ export const AGENTS: AgentDef[] = [
   },
   {
     id: "owner-reporting",
-    emoji: "👤",
     label: "Owner Reporting",
     description: "Generate owner-facing status reports from project data",
     intent: "general",
@@ -187,7 +178,6 @@ export function AgentSelector({ selected, onSelect }: AgentSelectorProps) {
         aria-expanded={open}
         aria-label="Select agent"
       >
-        <span className="text-xl leading-none shrink-0">{selected.emoji}</span>
         <div className="flex-1 min-w-0">
           <p className="text-callout font-medium text-label-primary leading-tight">
             {selected.label}
@@ -233,7 +223,6 @@ export function AgentSelector({ selected, onSelect }: AgentSelectorProps) {
                   )}
                 >
                   <span className="text-xl leading-none shrink-0 w-7 text-center">
-                    {agent.emoji}
                   </span>
                   <div className="flex-1 min-w-0">
                     <p
