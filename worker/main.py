@@ -8,6 +8,7 @@ app = FastAPI(title="Quill Dev-Chat Worker")
 
 QUILL_BACKEND = os.environ.get("QUILL_BACKEND_URL", "https://quill-agents-qdur2ylusq-uc.a.run.app")
 ADK_URL = os.environ.get("ADK_AGENTS_URL", "https://quill-agents-894031978246.us-central1.run.app")
+AGENT_SECRET = os.environ.get("AGENT_SHARED_SECRET", "dev-agent-secret-change-me")
 
 @app.get("/health")
 def health():
@@ -24,7 +25,7 @@ async def process_task(request: Request):
     if not task_id:
         raise HTTPException(400, "Missing task_id")
 
-    headers = {"X-Worker-Token": worker_token}
+    headers = {"X-Agent-Secret": AGENT_SECRET}
 
     # Mark running
     async with httpx.AsyncClient(timeout=10) as c:
