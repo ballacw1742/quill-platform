@@ -40,7 +40,15 @@ export default function LoginPage() {
       const auth = getFirebaseAuth();
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
-      const idToken = await result.user.getIdToken();
+      
+      let idToken: string;
+      try {
+        idToken = await result.user.getIdToken(true);
+      } catch (tokenErr) {
+        throw new Error("Failed to get auth token: " + String(tokenErr));
+      }
+      
+      if (!idToken) throw new Error("No token received from Google");
 
       const res = await fetch("/api/v1/auth/google", {
         method: "POST",
@@ -48,16 +56,24 @@ export default function LoginPage() {
         body: JSON.stringify({ credential: idToken }),
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.detail || "Sign in failed");
+      let data: { detail?: string; access_token?: string };
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status})`);
+      }
+      
+      if (!res.ok) throw new Error(data?.detail || `Auth failed (${res.status})`);
 
       if (data.access_token) {
         window.localStorage.setItem("quill_session_token", data.access_token);
         router.replace("/queue");
+      } else {
+        throw new Error("No session token in response");
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Sign in failed";
-      if (!msg.includes("popup-closed") && !msg.includes("cancelled")) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!msg.includes("popup-closed") && !msg.includes("cancelled") && !msg.includes("auth/popup-closed")) {
         setError(msg);
       }
     } finally {
