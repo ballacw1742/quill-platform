@@ -13,6 +13,9 @@ import { cn } from "@/lib/utils";
  *   - Drive link icon → inline URL input (toggleable)
  *   - Send button (disabled while processing)
  *   - File name chips above the input
+ *   - Example prompt chips (scrollable horizontal row, controlled by parent)
+ *   - prefillValue prop: when set, pre-populates the text input (e.g. quick
+ *     actions from the empty state or agent chip taps)
  */
 
 export interface RequestInputValue {
@@ -21,13 +24,24 @@ export interface RequestInputValue {
   driveUrl: string;
 }
 
+interface RequestInputProps {
+  onSend: (value: RequestInputValue) => void;
+  isProcessing?: boolean;
+  /** Chips shown above the textarea. Changes based on selected agent. */
+  examples?: string[];
+  /** When set, pre-populates the textarea. Parent clears after use. */
+  prefillValue?: string | null;
+  /** Called after prefillValue has been consumed (so parent can reset it). */
+  onPrefillConsumed?: () => void;
+}
+
 export function RequestInput({
   onSend,
   isProcessing,
-}: {
-  onSend: (value: RequestInputValue) => void;
-  isProcessing?: boolean;
-}) {
+  examples = [],
+  prefillValue,
+  onPrefillConsumed,
+}: RequestInputProps) {
   const [message, setMessage] = React.useState("");
   const [files, setFiles] = React.useState<File[]>([]);
   const [driveUrl, setDriveUrl] = React.useState("");
@@ -35,7 +49,24 @@ export function RequestInput({
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-  const canSend = (message.trim().length > 0 || files.length > 0 || driveUrl.trim().length > 0) && !isProcessing;
+  // Apply prefillValue whenever it changes
+  React.useEffect(() => {
+    if (prefillValue) {
+      setMessage(prefillValue);
+      // Auto-resize
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+        textareaRef.current.style.height =
+          Math.min(textareaRef.current.scrollHeight, 120) + "px";
+        textareaRef.current.focus();
+      }
+      onPrefillConsumed?.();
+    }
+  }, [prefillValue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const canSend =
+    (message.trim().length > 0 || files.length > 0 || driveUrl.trim().length > 0) &&
+    !isProcessing;
 
   function handleSend() {
     if (!canSend) return;
@@ -66,12 +97,21 @@ export function RequestInput({
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const selected = Array.from(e.target.files ?? []);
     setFiles((prev) => [...prev, ...selected]);
-    // Reset so the same file can be re-selected
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function removeFile(idx: number) {
     setFiles((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function handleExampleChip(text: string) {
+    setMessage(text);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height =
+        Math.min(textareaRef.current.scrollHeight, 120) + "px";
+      textareaRef.current.focus();
+    }
   }
 
   return (
@@ -130,6 +170,32 @@ export function RequestInput({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {/* Example prompt chips — scrollable horizontal row */}
+      {examples.length > 0 && (
+        <div
+          className="flex gap-2 px-4 pt-2 pb-0 overflow-x-auto scrollbar-none"
+          aria-label="Example prompts"
+          style={{ WebkitOverflowScrolling: "touch" }}
+        >
+          {examples.map((example) => (
+            <button
+              key={example}
+              type="button"
+              onClick={() => handleExampleChip(example)}
+              disabled={isProcessing}
+              className={cn(
+                "shrink-0 rounded-full border border-separator bg-bg-elevated",
+                "px-3 py-1.5 text-caption-1 text-label-secondary whitespace-nowrap",
+                "transition-colors hover:bg-bg-secondary hover:text-label-primary",
+                "active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed",
+              )}
+            >
+              {example}
+            </button>
+          ))}
         </div>
       )}
 
