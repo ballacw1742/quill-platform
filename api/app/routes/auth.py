@@ -442,3 +442,30 @@ async def google_login(
         await db.refresh(user)
 
     return TokenOut(access_token=issue_token(user), token_type="bearer", user_id=user.id, role=user.role)
+
+
+@router.post("/bootstrap-owner")
+async def bootstrap_owner(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """One-time bootstrap: set a specific email as owner. 
+    Only works if no owner exists yet."""
+    from app.enums import UserRole
+    from app.models import User
+
+    # Check no owner exists
+    result = await db.execute(select(User).where(User.role == UserRole.OWNER.value))
+    existing_owner = result.scalar_one_or_none()
+    if existing_owner:
+        raise HTTPException(403, "An owner already exists")
+
+    email = body.get("email")
+    result2 = await db.execute(select(User).where(User.email == email))
+    user = result2.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, f"User {email} not found")
+
+    user.role = UserRole.OWNER.value
+    await db.commit()
+    return {"message": f"{email} is now owner", "role": user.role}

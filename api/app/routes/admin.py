@@ -358,3 +358,21 @@ async def telegram_pair(
         "email": user.email,
         "telegram_chat_id": user.telegram_chat_id,
     }
+
+
+@router.post("/users/{user_id}/set-role")
+async def set_user_role(
+    user_id: str,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(require_owner),
+):
+    """Set a user's role. Owner-only."""
+    from app.models import User
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(404, "User not found")
+    user.role = body.get("role", user.role)
+    await db.commit()
+    return {"id": user.id, "email": user.email, "role": user.role}
