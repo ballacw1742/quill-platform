@@ -19,7 +19,7 @@ from app.schemas import (
     HealthOut,
     LitigationHoldRequest,
 )
-from app.security import require_admin_header
+from app.security import require_admin_header, require_owner
 from app.services import approvals as svc
 from app.services import audit as audit_svc
 from app.services import scheduler_registry
