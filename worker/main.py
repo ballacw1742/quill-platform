@@ -58,7 +58,7 @@ async def process_task(request: Request):
     try:
         async with httpx.AsyncClient(timeout=10) as c:
             await c.patch(f"{QUILL_BACKEND}/v1/dev-chat/worker/tasks/{task_id}/complete",
-                         json={"result_markdown": response_text}, headers=headers)
+                         json={"status": "completed", "summary": response_text, "cost_usd": 0.01}, headers=headers)
     except Exception as e:
         pass  # Task already in DB, just log
 
