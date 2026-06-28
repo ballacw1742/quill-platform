@@ -38,7 +38,27 @@ async def process_task(request: Request):
                 json={"agent": "quill_coordinator", "message": user_message,
                       "session_id": f"dev-chat-{thread_id}"})
             if resp.status_code == 200:
-                response_text = resp.json().get("response", "Done.")
+                data = resp.json()
+                # ADK coordinator returns JSON - extract the direct_response or format the plan
+                response = data.get("response", "")
+                if response:
+                    import json as _json
+                    try:
+                        # Try to parse as JSON (coordinator returns JSON plan)
+                        plan = _json.loads(response)
+                        direct = plan.get("direct_response", "")
+                        if direct:
+                            response_text = direct
+                        else:
+                            # Format the dispatch plan as readable text
+                            lines = [f"I'll help with that. Here's my plan:\n"]
+                            for step in plan.get("dispatch_plan", []):
+                                lines.append(f"• {step.get('agent', 'agent')}: {step.get('task', '')}")
+                            response_text = "\n".join(lines) if len(lines) > 1 else response
+                    except:
+                        response_text = response
+                else:
+                    response_text = "Task processed successfully."
             else:
                 response_text = f"Agent returned {resp.status_code}: {resp.text[:200]}"
 
