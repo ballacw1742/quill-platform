@@ -26,6 +26,8 @@ export default function LoginPage() {
 
   React.useEffect(() => {
     if (typeof window !== "undefined") {
+      // Clear any stale error state
+      setError("");
       const token = window.localStorage.getItem("quill_session_token");
       if (token) router.replace("/queue");
     }
