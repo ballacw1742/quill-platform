@@ -384,3 +384,54 @@ async def _load_credential(
     if cred is None or cred.user_id != expected_user_id or cred.revoked_at is not None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "unknown credential")
     return cred
+
+
+@router.post("/google")
+async def google_login(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+) -> TokenOut:
+    """Exchange a Firebase Google ID token for a Quill session token."""
+    from google.oauth2 import id_token as google_id_token
+    from google.auth.transport import requests as google_requests
+    import uuid as _uuid
+    from datetime import datetime as _dt
+
+    credential = body.get("credential") or body.get("id_token")
+    if not credential:
+        raise HTTPException(status_code=400, detail="Missing credential")
+
+    try:
+        # Verify Firebase ID token
+        idinfo = google_id_token.verify_firebase_token(
+            credential,
+            google_requests.Request(),
+            audience="studio-1771635593-6661e",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid Google token: {e}")
+
+    email = idinfo.get("email")
+    name = idinfo.get("name") or email
+
+    if not email:
+        raise HTTPException(status_code=400, detail="No email in token")
+
+    # Find or auto-create user
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        user = User(
+            id=str(_uuid.uuid4()),
+            email=email,
+            display_name=name,
+            hashed_password="",
+            role=UserRole.observer,
+            created_at=_dt.utcnow(),
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    return TokenOut(access_token=issue_token(user), token_type="bearer", user_id=user.id, role=user.role)
