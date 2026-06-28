@@ -94,44 +94,56 @@ def _dispatch_task_cloud(
         return
 
     try:
-        from google.cloud import tasks_v2  # type: ignore[import]
-    except ImportError:
-        log.error(
-            "google-cloud-tasks not installed — dispatch skipped for task %s. "
-            "Add google-cloud-tasks to pyproject.toml dependencies.",
-            task_id,
+        import base64
+        import google.auth
+        import google.auth.transport.requests as ga_transport
+        import urllib.request as urllib_req
+        
+        # Get ADC credentials
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        creds.refresh(ga_transport.Request())
+        
+        queue_path = (
+            f"projects/{cfg.CLOUD_TASKS_PROJECT}/locations/{cfg.CLOUD_TASKS_LOCATION}"
+            f"/queues/{cfg.CLOUD_TASKS_QUEUE}"
         )
-        return
-
-    try:
-        client = tasks_v2.CloudTasksClient()
-        parent = client.queue_path(
-            cfg.CLOUD_TASKS_PROJECT, cfg.CLOUD_TASKS_LOCATION, cfg.CLOUD_TASKS_QUEUE
-        )
-
-        payload = json.dumps({
+        
+        payload_bytes = json.dumps({
             "task_id": task_id,
             "message_id": message_id,
             "thread_id": thread_id,
             "message": user_message,
             "user_id": user_id,
         }).encode()
-
-        task = {
-            "http_request": {
-                "http_method": tasks_v2.HttpMethod.POST,
-                "url": f"{worker_url}/process",
-                "headers": {"Content-Type": "application/json"},
-                "body": payload,
-                "oidc_token": {
-                    "service_account_email": cfg.CLOUD_TASKS_SA_EMAIL,
-                    "audience": worker_url,  # OIDC audience must match Cloud Run URL
-                },
+        
+        task_body = json.dumps({
+            "task": {
+                "httpRequest": {
+                    "httpMethod": "POST",
+                    "url": f"{worker_url}/process",
+                    "headers": {"Content-Type": "application/json"},
+                    "body": base64.b64encode(payload_bytes).decode(),
+                    "oidcToken": {
+                        "serviceAccountEmail": cfg.CLOUD_TASKS_SA_EMAIL,
+                        "audience": worker_url,
+                    },
+                }
             }
-        }
-
-        response = client.create_task(request={"parent": parent, "task": task})
-        log.info("Cloud Tasks task created: %s for dev-chat task_id=%s", response.name, task_id)
+        }).encode()
+        
+        api_url = f"https://cloudtasks.googleapis.com/v2/{queue_path}/tasks"
+        req = urllib_req.Request(
+            api_url,
+            data=task_body,
+            headers={
+                "Authorization": f"Bearer {creds.token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with urllib_req.urlopen(req, timeout=10) as resp:
+            result = json.loads(resp.read())
+            log.info("Cloud Tasks task created: %s for dev-chat task_id=%s", result.get("name"), task_id)
     except Exception as exc:  # noqa: BLE001
         log.error(
             "Cloud Tasks dispatch failed for task %s: %s — task remains queued in DB.",
