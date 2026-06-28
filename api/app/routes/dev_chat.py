@@ -19,6 +19,7 @@ Disallowed paths: v1 is permissive (log warning, don't block).
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import UTC, datetime
@@ -62,8 +63,82 @@ _DISALLOWED_PATHS: list[str] = [
     "scripts/restart*",
 ]
 
-# Queue directory for OpenClaw integration.
+# Queue directory — kept for cancel markers only; task dispatch now uses Cloud Tasks.
 _QUEUE_DIR = Path.home() / ".openclaw" / "dev-chat-queue"
+
+# ---------------------------------------------------------------------------
+# Cloud Tasks dispatch
+# ---------------------------------------------------------------------------
+
+def _dispatch_task_cloud(
+    task_id: str,
+    message_id: str,
+    thread_id: str,
+    user_message: str,
+    user_id: str,
+) -> None:
+    """Enqueue a dev-chat task via Cloud Tasks → quill-worker Cloud Run service.
+
+    Requires WORKER_URL to be set in environment.  Falls back silently (logs
+    error) if google-cloud-tasks is unavailable or the queue call fails — the
+    task row is already committed to the DB at this point.
+    """
+    cfg = _settings
+    worker_url = cfg.WORKER_URL
+    if not worker_url:
+        log.error(
+            "WORKER_URL not configured — Cloud Tasks dispatch skipped for task %s. "
+            "Task is queued in DB but will not be processed until WORKER_URL is set.",
+            task_id,
+        )
+        return
+
+    try:
+        from google.cloud import tasks_v2  # type: ignore[import]
+    except ImportError:
+        log.error(
+            "google-cloud-tasks not installed — dispatch skipped for task %s. "
+            "Add google-cloud-tasks to pyproject.toml dependencies.",
+            task_id,
+        )
+        return
+
+    try:
+        client = tasks_v2.CloudTasksClient()
+        parent = client.queue_path(
+            cfg.CLOUD_TASKS_PROJECT, cfg.CLOUD_TASKS_LOCATION, cfg.CLOUD_TASKS_QUEUE
+        )
+
+        payload = json.dumps({
+            "task_id": task_id,
+            "message_id": message_id,
+            "thread_id": thread_id,
+            "message": user_message,
+            "user_id": user_id,
+        }).encode()
+
+        task = {
+            "http_request": {
+                "http_method": tasks_v2.HttpMethod.POST,
+                "url": f"{worker_url}/process",
+                "headers": {"Content-Type": "application/json"},
+                "body": payload,
+                "oidc_token": {
+                    "service_account_email": cfg.CLOUD_TASKS_SA_EMAIL,
+                    "audience": worker_url,  # OIDC audience must match Cloud Run URL
+                },
+            }
+        }
+
+        response = client.create_task(request={"parent": parent, "task": task})
+        log.info("Cloud Tasks task created: %s for dev-chat task_id=%s", response.name, task_id)
+    except Exception as exc:  # noqa: BLE001
+        log.error(
+            "Cloud Tasks dispatch failed for task %s: %s — task remains queued in DB.",
+            task_id,
+            exc,
+        )
+
 
 router = APIRouter(prefix="/v1/dev-chat", tags=["dev-chat"])
 ws_router = APIRouter(tags=["dev-chat-ws"])  # No prefix — WS path is /ws/dev-chat
@@ -207,6 +282,15 @@ async def send_message(
     thread.updated_at = _utcnow()
 
     await db.commit()
+
+    # 9b. Dispatch via Cloud Tasks (non-blocking — errors are logged, not raised)
+    _dispatch_task_cloud(
+        task_id=task_id,
+        message_id=agent_msg.id,
+        thread_id=thread.id,
+        user_message=body.content,
+        user_id=user.id,
+    )
 
     # 9. Audit
     await audit_svc.record_event(
