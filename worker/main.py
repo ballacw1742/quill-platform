@@ -29,7 +29,7 @@ async def process_task(request: Request):
 
     # Mark running
     async with httpx.AsyncClient(timeout=10) as c:
-        await c.post(f"{QUILL_BACKEND}/v1/dev-chat/worker/tasks/{task_id}/running",
+        await c.patch(f"{QUILL_BACKEND}/v1/dev-chat/worker/tasks/{task_id}/running",
                      json={"progress": "Processing with AI agents..."}, headers=headers)
 
     try:
@@ -43,11 +43,11 @@ async def process_task(request: Request):
                 response_text = f"Agent returned {resp.status_code}: {resp.text[:200]}"
 
         async with httpx.AsyncClient(timeout=10) as c:
-            await c.post(f"{QUILL_BACKEND}/v1/dev-chat/worker/tasks/{task_id}/complete",
+            await c.patch(f"{QUILL_BACKEND}/v1/dev-chat/worker/tasks/{task_id}/complete",
                          json={"result_markdown": response_text}, headers=headers)
     except Exception as e:
         async with httpx.AsyncClient(timeout=10) as c:
-            await c.post(f"{QUILL_BACKEND}/v1/dev-chat/worker/tasks/{task_id}/complete",
+            await c.patch(f"{QUILL_BACKEND}/v1/dev-chat/worker/tasks/{task_id}/complete",
                          json={"result_markdown": f"Error: {str(e)[:300]}"}, headers=headers)
 
     return {"ok": True}
