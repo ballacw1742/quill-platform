@@ -17,7 +17,7 @@ from app.db import connect, disconnect
 from app.logging_setup import configure_logging
 from app import models_dev_chat as _models_dev_chat  # noqa: F401 — registers dev-chat ORM models with Base.metadata
 from app import models_requests as _models_requests  # noqa: F401 — registers project_requests ORM model with Base.metadata
-from app.routes import admin, approvals, audit, auth, contracts, dev_chat, documents, estimates, realtime, requests as requests_routes
+from app.routes import admin, approvals, audit, auth, contracts, dev_chat, documents, estimates, realtime, requests as requests_routes, sites as sites_routes
 from app.services import sentry as sentry_svc
 from app.services.audit_mirror import get_mirror
 from app.services.sla import run_forever as sla_run_forever
@@ -111,3 +111,4 @@ app.include_router(contracts.router)    # Sprint Contracts.1
 app.include_router(dev_chat.router)     # Sprint DC.1 dev-chat REST
 app.include_router(dev_chat.ws_router)  # Sprint DC.1 dev-chat WS (/ws/dev-chat)
 app.include_router(requests_routes.router)  # Requests tab — unified project submission
+app.include_router(sites_routes.router)     # Sprint QuillDC — DataSite proxy routes
