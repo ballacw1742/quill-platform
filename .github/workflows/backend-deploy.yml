@@ -38,3 +38,10 @@ jobs:
             --region us-central1 \
             --no-allow-unauthenticated \
             --project totemic-formula-467102-s9
+      - name: Grant public access (re-apply after each deploy)
+        run: |
+          gcloud run services add-iam-policy-binding quill-agents \
+            --region us-central1 \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --project totemic-formula-467102-s9
