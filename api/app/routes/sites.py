@@ -16,7 +16,7 @@ from app.security import get_current_user
 
 router = APIRouter(prefix="/v1/sites", tags=["sites"])
 
-DATASITE_URL = os.environ.get("DATASITE_URL", "https://datasite-agents-qdur2ylusq-uc.a.run.app")
+DATASITE_URL = os.environ.get("DATASITE_URL", "https://datasite-agents-894031978246.us-central1.run.app")
 
 
 async def _datasite_request(method: str, path: str, **kwargs):
@@ -56,6 +56,15 @@ async def create_site(
 ):
     """Create a new site evaluation."""
     return await _datasite_request("post", "/sites", json=body)
+
+
+@router.post("/{site_id}/run")
+async def run_site_evaluation(
+    site_id: str,
+    user=Depends(get_current_user),
+):
+    """Trigger the evaluation pipeline for a site."""
+    return await _datasite_request("post", f"/sites/{site_id}/run", json={})
 
 
 @router.post("/evaluate")

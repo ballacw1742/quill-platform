@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Calculator, ClipboardList, FileText, Inbox, MessageSquare, MoreHorizontal, Sparkles, Terminal, User, X } from "lucide-react";
+import { Building2, Calculator, ClipboardList, FileText, FolderKanban, Inbox, MessageSquare, MoreHorizontal, Sparkles, Terminal, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useSession } from "@/lib/api";
@@ -53,20 +53,22 @@ import type { Session } from "@/lib/schemas";
 // KNOWN CAVEAT (visible-tolerable): On narrow screens (< 375px) tab labels
 // Bottom-bar layout: 5 primary tabs visible at all times (Apple HIG max),
 // less-frequent destinations consolidated under "More" which opens a sheet.
-// Sprint Requests: "Requests" tab added as 3rd primary slot (after Queue).
-// Dev moved from primary to More sheet to keep primary at Apple HIG max of 5.
-// Primary: Today, Queue, Requests, Estimates, Contracts + More (Dev, Documents, Profile).
+// Sprint DC.2: Sites + Projects replace Today/Queue/Estimates as primary tabs.
+// Primary: Sites, Projects, Requests, Contracts + More
+// More sheet: Today, Queue, Estimates, Dev, Documents, Profile, Approvals, Settings
 const PRIMARY_TABS = [
-  { href: "/today", label: "Today", icon: Sparkles },
-  { href: "/queue", label: "Queue", icon: Inbox },
+  { href: "/sites", label: "Sites", icon: Building2 },
+  { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/requests", label: "Requests", icon: MessageSquare },
-  { href: "/estimates", label: "Estimates", icon: Calculator },
   { href: "/contracts", label: "Contracts", icon: ClipboardList },
-  // The "More" button is the 6th slot rendered inline by TabBar.
+  // The "More" button is the 5th slot rendered inline by TabBar.
 ] as const;
 
-// Dev moved to More to make room for Requests in primary bar.
+// Sprint DC.2: Today/Queue/Estimates moved to More sheet; Sites/Projects take primary.
 const MORE_TABS = [
+  { href: "/today", label: "Today", icon: Sparkles },
+  { href: "/queue", label: "Queue", icon: Inbox },
+  { href: "/estimates", label: "Estimates", icon: Calculator },
   { href: "/dev-chat", label: "Dev", icon: Terminal },
   { href: "/documents", label: "Documents", icon: FileText },
   { href: "/profile", label: "Profile", icon: User },

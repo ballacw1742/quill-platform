@@ -32,14 +32,29 @@ from typing import Optional
 import json
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.db import get_db
 from app.models_requests import RequestRecord
 from app.security import get_current_user, require_agent_secret
+
+_settings = get_settings()
+
+INTERNAL_API_URL: str = _settings.INTERNAL_API_URL
+DATASITE_URL: str = _settings.DATASITE_URL
+
+AGENT_DISPATCH_MAP: dict[str, str] = {
+    "estimate": f"{INTERNAL_API_URL}/v1/agents/estimate",
+    "rfi": f"{INTERNAL_API_URL}/v1/agents/rfi",
+    "contract": f"{INTERNAL_API_URL}/v1/agents/contract",
+    "general": f"{INTERNAL_API_URL}/v1/agents/coordinator",
+    "site_evaluation": f"{DATASITE_URL}/sites/questionnaire",
+}
 
 log = logging.getLogger("quill.requests")
 
@@ -98,6 +113,115 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 _REQUEST_DISPATCH_DIR = _REPO_ROOT / "_state" / "request_dispatch_requests"
 
 
+async def _dispatch_to_agent(
+    request_id: str,
+    intent: str,
+    message: str,
+    filenames: list[str],
+    drive_url: str | None,
+    user_id: str,
+) -> None:
+    """Async HTTP dispatcher — posts to the appropriate agent endpoint.
+
+    On success: calls PATCH /v1/requests/{id} internally to store the response.
+    On failure: marks the request as failed with the error message.
+    Wraps everything in try/except so a dispatch failure never crashes the caller.
+    """
+    import os
+    from app.db import SessionLocal as async_session_maker  # noqa: N812
+
+    # site_evaluation intent from a plain-text message cannot be dispatched directly
+    # to DataSite's /sites/questionnaire endpoint (requires a deeply structured body).
+    # Instead, return a guided response directing the user to the /sites/new form,
+    # preserving their message as context.
+    if intent == "site_evaluation":
+        try:
+            async with async_session_maker() as session:
+                record = await session.get(RequestRecord, request_id)
+                if record is not None:
+                    record.status = "complete"
+                    record.response = (
+                        f"To evaluate a site, please use the **Sites** tab and click **New Site** "
+                        f"to fill out the structured evaluation form. This ensures all scoring "
+                        f"criteria (power, fiber, permitting, environmental, etc.) are captured "
+                        f"accurately.\n\n"
+                        f"Your request has been saved: \"{message[:200]}\""
+                    )
+                    record.output_module = "sites"
+                    record.updated_at = _utcnow()
+                    await session.commit()
+                    log.info("dispatch.site_eval_guided request_id=%s", request_id)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("dispatch.site_eval_guide_failed request_id=%s err=%s", request_id, exc)
+        return
+
+    endpoint = AGENT_DISPATCH_MAP.get(intent, AGENT_DISPATCH_MAP["general"])
+    payload = {
+        "request_id": request_id,
+        "intent": intent,
+        "message": message,
+        "filenames": filenames,
+        "drive_url": drive_url,
+        "user_id": user_id,
+        "requested_at": _utcnow().isoformat(),
+    }
+
+    new_status = "failed"
+    response_text: str | None = None
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(endpoint, json=payload)
+            if resp.status_code < 400:
+                new_status = "complete"
+                try:
+                    body = resp.json()
+                    # If agent returns a stub / not-implemented marker, treat as processing
+                    if isinstance(body, dict) and body.get("status") == "agent_not_implemented":
+                        new_status = "processing"
+                        response_text = "Agent not yet implemented — request queued."
+                    else:
+                        response_text = json.dumps(body) if not isinstance(body, str) else body
+                except Exception:
+                    response_text = resp.text[:2000]
+            else:
+                response_text = f"Agent returned {resp.status_code}: {resp.text[:500]}"
+                new_status = "failed"
+    except httpx.ConnectError as exc:
+        log.warning("dispatch.connect_error request_id=%s endpoint=%s err=%s", request_id, endpoint, exc)
+        response_text = f"Agent unreachable ({endpoint}): {exc}"
+        new_status = "failed"
+    except Exception as exc:  # noqa: BLE001
+        log.exception("dispatch.unexpected_error request_id=%s", request_id)
+        response_text = f"Unexpected dispatch error: {exc}"
+        new_status = "failed"
+
+    # Skip DB update for processing state (agent will call PATCH when done)
+    if new_status == "processing":
+        log.info("dispatch.queued request_id=%s intent=%s", request_id, intent)
+        # Still write the marker file as a backup for the external coordinator
+        _write_dispatch_marker(request_id, intent, message, filenames, drive_url, user_id)
+        return
+
+    # Update the DB record directly (same process, share DB session)
+    try:
+        # Use a fresh session since we're in a background task
+        async with async_session_maker() as session:
+            record = await session.get(RequestRecord, request_id)
+            if record is not None:
+                record.status = new_status
+                record.response = response_text
+                record.updated_at = _utcnow()
+                await session.commit()
+                log.info(
+                    "dispatch.complete request_id=%s status=%s",
+                    request_id,
+                    new_status,
+                )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("dispatch.db_update_failed request_id=%s err=%s", request_id, exc)
+
+
 def _write_dispatch_marker(
     request_id: str,
     intent: str,
@@ -143,10 +267,17 @@ def _write_dispatch_marker(
 
 def classify_intent(message: str, filenames: list[str]) -> str:
     """Keyword-based intent classification. Returns one of:
-    estimate | schedule | rfi | contract | general
+    estimate | schedule | rfi | contract | site_evaluation | general
     """
     text = (message + " " + " ".join(filenames)).lower()
 
+    # site_evaluation — check before general keywords to avoid false positives
+    if any(w in text for w in ["evaluate site", "data center site", "go/no-go", "parcel", "site evaluation", "site evaluator"]):
+        return "site_evaluation"
+    # "site" alone is checked after more specific terms to reduce false positives
+    # Only treat bare "site" as site_evaluation when accompanied by evaluation context
+    if "site" in text and any(w in text for w in ["score", "feasibility", "data center potential", "hpc", "hyperscale", "colocation"]):
+        return "site_evaluation"
     if any(w in text for w in ["estimate", "cost", "budget", "price", "bid", "scope", "takeoff", "quantity"]):
         return "estimate"
     if any(w in text for w in ["schedule", "timeline", "gantt", "critical path", "milestone", "sequenc", "duration"]):
@@ -165,6 +296,7 @@ def _intent_label(intent: str) -> str:
         "rfi": "RFI Agent",
         "contract": "Contract Reviewer",
         "general": "Coordinator",
+        "site_evaluation": "Site Evaluator",
     }
     return labels.get(intent, "Agent")
 
@@ -210,7 +342,7 @@ async def submit_request(
     If ``intent`` is provided in the form payload and matches a known value,
     it overrides keyword-based auto-classification.
     """
-    _VALID_INTENTS = {"estimate", "schedule", "rfi", "contract", "general"}
+    _VALID_INTENTS = {"estimate", "schedule", "rfi", "contract", "general", "site_evaluation"}
     file_names = [f.filename or "" for f in files if f.filename]
     if intent_override and intent_override in _VALID_INTENTS:
         intent = intent_override
@@ -238,9 +370,9 @@ async def submit_request(
         len(file_names),
     )
 
-    # Enqueue dispatch marker for the external coordinator agent.
+    # Dispatch to agent via async HTTP (with marker-file fallback for queued state).
     background_tasks.add_task(
-        _write_dispatch_marker,
+        _dispatch_to_agent,
         request_id=record.id,
         intent=intent,
         message=message,

@@ -1,0 +1,363 @@
+"use client";
+
+/**
+ * /sites/new — Submit a new site evaluation (Sprint DC.2)
+ *
+ * Uses the simplified CreateSiteRequest model (flat fields) via POST /api/v1/sites.
+ * On success, redirects to /sites/[id].
+ *
+ * Design: dark Quill theme, iOS-style form cards.
+ */
+
+import * as React from "react";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Building2, Loader2 } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { MobileShell, TopBar } from "@/components/layout/MobileShell";
+import { useCreateSite } from "@/lib/api";
+
+// ── Field helpers ─────────────────────────────────────────────────────────────
+
+function FieldLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <label className="block text-footnote font-semibold text-label-secondary uppercase tracking-wide mb-1.5">
+      {children}
+    </label>
+  );
+}
+
+function FieldInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      {...props}
+      className={cn(
+        "w-full rounded-xl px-4 py-3 text-body text-label-primary",
+        "bg-bg-elevated border border-separator/60",
+        "placeholder:text-label-quaternary",
+        "focus:outline-none focus:border-accent",
+        "transition-colors",
+        props.className,
+      )}
+    />
+  );
+}
+
+function FieldSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className={cn(
+        "w-full rounded-xl px-4 py-3 text-body text-label-primary",
+        "bg-bg-elevated border border-separator/60",
+        "focus:outline-none focus:border-accent",
+        "transition-colors appearance-none",
+        props.className,
+      )}
+    />
+  );
+}
+
+function FieldTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      {...props}
+      rows={props.rows ?? 3}
+      className={cn(
+        "w-full rounded-xl px-4 py-3 text-body text-label-primary",
+        "bg-bg-elevated border border-separator/60",
+        "placeholder:text-label-quaternary",
+        "focus:outline-none focus:border-accent",
+        "transition-colors resize-none",
+        props.className,
+      )}
+    />
+  );
+}
+
+function FormCard({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <div className={cn("rounded-2xl bg-chrome/80 border border-separator/40 p-5 mb-4", className)}>
+      {children}
+    </div>
+  );
+}
+
+// ── Form state ────────────────────────────────────────────────────────────────
+
+interface FormState {
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  acres: string;
+  target_workload: string;
+  target_mw: string;
+  fiber_providers: string;
+  zoning_status: string;
+  flood_zone: string;
+  notes: string;
+}
+
+const INITIAL_STATE: FormState = {
+  address: "",
+  city: "",
+  state: "",
+  zip: "",
+  acres: "",
+  target_workload: "ai_hpc",
+  target_mw: "",
+  fiber_providers: "",
+  zoning_status: "",
+  flood_zone: "no",
+  notes: "",
+};
+
+const WORKLOAD_OPTIONS = [
+  { value: "hyperscale_compute", label: "Hyperscale Compute" },
+  { value: "ai_hpc", label: "AI / HPC" },
+  { value: "edge_latency", label: "Edge / Latency" },
+  { value: "colocation", label: "Colocation" },
+  { value: "mixed", label: "Mixed" },
+];
+
+const US_STATES = [
+  "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+  "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+  "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+  "VA","WA","WV","WI","WY","DC",
+];
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+export default function NewSitePage() {
+  const router = useRouter();
+  const [form, setForm] = React.useState<FormState>(INITIAL_STATE);
+  const [errors, setErrors] = React.useState<Partial<Record<keyof FormState, string>>>({});
+  const createSite = useCreateSite({
+    onSuccess: (site) => {
+      router.push(`/sites/${site.site_id}`);
+    },
+    onError: (err) => {
+      setErrors({ address: err.message ?? "Submission failed." });
+    },
+  });
+
+  function set(key: keyof FormState) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+      setForm((prev) => ({ ...prev, [key]: e.target.value }));
+      setErrors((prev) => ({ ...prev, [key]: undefined }));
+    };
+  }
+
+  function validate(): boolean {
+    const e: Partial<Record<keyof FormState, string>> = {};
+    if (!form.address.trim()) e.address = "Address is required";
+    if (!form.city.trim()) e.city = "City is required";
+    if (!form.state.trim()) e.state = "State is required";
+    if (!form.zip.trim()) e.zip = "ZIP is required";
+    if (!form.target_workload) e.target_workload = "Workload type is required";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validate()) return;
+
+    const payload: Record<string, any> = {
+      address: form.address.trim(),
+      city: form.city.trim(),
+      state: form.state.toUpperCase(),
+      zip: form.zip.trim(),
+      target_workload: form.target_workload,
+      lead_source: "internal",
+    };
+    if (form.acres) payload.acres = parseFloat(form.acres);
+    if (form.target_mw) payload.target_mw = parseFloat(form.target_mw);
+    // Store extras in a notes-like field; DataSite's CreateSiteRequest is lean
+    // Additional fields stored in the notes for now
+    const noteParts: string[] = [];
+    if (form.fiber_providers) noteParts.push(`Fiber providers: ${form.fiber_providers}`);
+    if (form.zoning_status) noteParts.push(`Zoning: ${form.zoning_status}`);
+    if (form.flood_zone === "yes") noteParts.push("Flood zone: yes");
+    if (form.notes) noteParts.push(form.notes);
+    // (DataSite CreateSiteRequest has no notes field — we send extra context in a custom field)
+    if (noteParts.length > 0) payload.notes = noteParts.join(" | ");
+
+    createSite.mutate(payload);
+  }
+
+  const isPending = createSite.isPending;
+
+  return (
+    <MobileShell>
+      <TopBar
+        title="New Site"
+        left={
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="flex items-center gap-1 text-accent font-semibold text-callout"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Sites
+          </button>
+        }
+      />
+
+      <form onSubmit={handleSubmit} className="px-4 pt-3 pb-12">
+        {/* Location */}
+        <FormCard>
+          <p className="text-callout font-semibold text-label-primary mb-4">Location</p>
+
+          <div className="mb-4">
+            <FieldLabel>Street Address *</FieldLabel>
+            <FieldInput
+              placeholder="3990 E Broad Street"
+              value={form.address}
+              onChange={set("address")}
+              autoComplete="street-address"
+            />
+            {errors.address && <p className="text-caption-1 text-red-400 mt-1">{errors.address}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <FieldLabel>City *</FieldLabel>
+              <FieldInput
+                placeholder="Columbus"
+                value={form.city}
+                onChange={set("city")}
+              />
+              {errors.city && <p className="text-caption-1 text-red-400 mt-1">{errors.city}</p>}
+            </div>
+            <div>
+              <FieldLabel>State *</FieldLabel>
+              <FieldSelect value={form.state} onChange={set("state")}>
+                <option value="">Select</option>
+                {US_STATES.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </FieldSelect>
+              {errors.state && <p className="text-caption-1 text-red-400 mt-1">{errors.state}</p>}
+            </div>
+          </div>
+
+          <div>
+            <FieldLabel>ZIP Code *</FieldLabel>
+            <FieldInput
+              placeholder="43213"
+              value={form.zip}
+              onChange={set("zip")}
+              inputMode="numeric"
+              maxLength={10}
+            />
+            {errors.zip && <p className="text-caption-1 text-red-400 mt-1">{errors.zip}</p>}
+          </div>
+        </FormCard>
+
+        {/* Site Details */}
+        <FormCard>
+          <p className="text-callout font-semibold text-label-primary mb-4">Site Details</p>
+
+          <div className="mb-4">
+            <FieldLabel>Target Workload *</FieldLabel>
+            <FieldSelect value={form.target_workload} onChange={set("target_workload")}>
+              {WORKLOAD_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </FieldSelect>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div>
+              <FieldLabel>Parcel Size (acres)</FieldLabel>
+              <FieldInput
+                placeholder="250"
+                type="number"
+                min="0"
+                step="0.1"
+                value={form.acres}
+                onChange={set("acres")}
+              />
+            </div>
+            <div>
+              <FieldLabel>Available Power (MW)</FieldLabel>
+              <FieldInput
+                placeholder="100"
+                type="number"
+                min="0"
+                step="1"
+                value={form.target_mw}
+                onChange={set("target_mw")}
+              />
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <FieldLabel>Fiber Providers Present</FieldLabel>
+            <FieldInput
+              placeholder="AT&T, Lumen, Zayo"
+              value={form.fiber_providers}
+              onChange={set("fiber_providers")}
+            />
+          </div>
+
+          <div className="mb-4">
+            <FieldLabel>Zoning Status</FieldLabel>
+            <FieldInput
+              placeholder="M-2 Industrial, pending rezoning"
+              value={form.zoning_status}
+              onChange={set("zoning_status")}
+            />
+          </div>
+
+          <div>
+            <FieldLabel>Flood Zone</FieldLabel>
+            <FieldSelect value={form.flood_zone} onChange={set("flood_zone")}>
+              <option value="no">No</option>
+              <option value="yes">Yes</option>
+              <option value="unknown">Unknown</option>
+            </FieldSelect>
+          </div>
+        </FormCard>
+
+        {/* Notes */}
+        <FormCard>
+          <p className="text-callout font-semibold text-label-primary mb-4">Additional Notes</p>
+          <FieldTextarea
+            placeholder="Any other context about this site…"
+            value={form.notes}
+            onChange={set("notes")}
+            rows={4}
+          />
+        </FormCard>
+
+        {/* Submit */}
+        <button
+          type="submit"
+          disabled={isPending}
+          className={cn(
+            "w-full py-3.5 rounded-2xl font-semibold text-body",
+            "bg-accent text-white",
+            "transition-all active:scale-[0.98]",
+            "flex items-center justify-center gap-2",
+            isPending && "opacity-60 cursor-not-allowed",
+          )}
+        >
+          {isPending ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Submitting…
+            </>
+          ) : (
+            <>
+              <Building2 className="h-4 w-4" />
+              Submit Site Evaluation
+            </>
+          )}
+        </button>
+      </form>
+    </MobileShell>
+  );
+}

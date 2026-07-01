@@ -37,6 +37,7 @@ jobs:
             --platform managed \
             --region us-central1 \
             --no-allow-unauthenticated \
+            --set-env-vars DATASITE_URL=https://datasite-agents-894031978246.us-central1.run.app \
             --project totemic-formula-467102-s9
 
       - name: Run database migrations

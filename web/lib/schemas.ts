@@ -1380,3 +1380,105 @@ export const ProjectRequestSubmitResponseSchema = z.object({
   message: z.string(),
 });
 export type ProjectRequestSubmitResponse = z.infer<typeof ProjectRequestSubmitResponseSchema>;
+
+// ─── Sites (DataSite Intelligence) ───────────────────────────────────────────
+
+export const SiteScoreSchema = z.object({
+  power: z.number().nullable().optional(),
+  fiber: z.number().nullable().optional(),
+  permitting: z.number().nullable().optional(),
+  environmental: z.number().nullable().optional(),
+  land: z.number().nullable().optional(),
+  water: z.number().nullable().optional(),
+  market: z.number().nullable().optional(),
+  financial: z.number().nullable().optional(),
+  title: z.number().nullable().optional(),
+  geotechnical: z.number().nullable().optional(),
+  total_weighted: z.number().nullable().optional(),
+});
+export type SiteScore = z.infer<typeof SiteScoreSchema>;
+
+export const SiteSchema = z.object({
+  site_id: z.string(),
+  status: z.string(),
+  lead_source: z.string().nullable().optional(),
+  property: z.object({
+    address: z.string().nullable().optional(),
+    city: z.string().nullable().optional(),
+    state: z.string().nullable().optional(),
+    zip: z.string().nullable().optional(),
+    county: z.string().nullable().optional(),
+    acres: z.number().nullable().optional(),
+  }).optional().default({}),
+  target_workload: z.string().nullable().optional(),
+  target_mw: z.number().nullable().optional(),
+  scores: z.object({
+    criteria: z.record(z.object({
+      score: z.number().nullable().optional(),
+      weight: z.number().nullable().optional(),
+      weighted_score: z.number().nullable().optional(),
+    })).optional().default({}),
+    total_weighted: z.number().nullable().optional(),
+  }).optional().default({}),
+  recommendation: z.object({
+    verdict: z.string().nullable().optional(),
+    summary: z.string().nullable().optional(),
+    risks: z.array(z.string()).optional().default([]),
+    strengths: z.array(z.string()).optional().default([]),
+    next_steps: z.array(z.string()).optional().default([]),
+  }).optional().default({}),
+  documents: z.array(z.object({
+    doc_id: z.string(),
+    filename: z.string().nullable().optional(),
+    type: z.string().nullable().optional(),
+  })).optional().default([]),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+});
+export type Site = z.infer<typeof SiteSchema>;
+
+export const SiteListResponseSchema = z.object({
+  items: z.array(SiteSchema).optional(),
+  // DataSite may return a flat array directly
+}).or(z.array(SiteSchema));
+export type SiteListResponse = z.infer<typeof SiteListResponseSchema>;
+
+// ─── Projects ─────────────────────────────────────────────────────────────────
+
+export const ProjectSchema = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  name: z.string(),
+  address: z.string().nullable().optional(),
+  site_id: z.string().nullable().optional(),
+  site_score: z.number().nullable().optional(),
+  site_verdict: z.string().nullable().optional(),
+  workload_type: z.string().nullable().optional(),
+  phase: z.string(),
+  status: z.string(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type QuillProject = z.infer<typeof ProjectSchema>;
+
+export const ProjectListResponseSchema = z.object({
+  items: z.array(ProjectSchema),
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+});
+export type ProjectListResponse = z.infer<typeof ProjectListResponseSchema>;
+
+export const ProjectCreateSchema = z.object({
+  name: z.string(),
+  address: z.string().optional(),
+  site_id: z.string().optional(),
+  site_score: z.number().optional(),
+  site_verdict: z.string().optional(),
+  workload_type: z.string().optional(),
+  phase: z.string().optional(),
+  status: z.string().optional(),
+  notes: z.string().optional(),
+});
+export type ProjectCreate = z.infer<typeof ProjectCreateSchema>;
