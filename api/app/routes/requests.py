@@ -130,6 +130,31 @@ async def _dispatch_to_agent(
     import os
     from app.db import SessionLocal as async_session_maker  # noqa: N812
 
+    # site_evaluation intent from a plain-text message cannot be dispatched directly
+    # to DataSite's /sites/questionnaire endpoint (requires a deeply structured body).
+    # Instead, return a guided response directing the user to the /sites/new form,
+    # preserving their message as context.
+    if intent == "site_evaluation":
+        try:
+            async with async_session_maker() as session:
+                record = await session.get(RequestRecord, request_id)
+                if record is not None:
+                    record.status = "complete"
+                    record.response = (
+                        f"To evaluate a site, please use the **Sites** tab and click **New Site** "
+                        f"to fill out the structured evaluation form. This ensures all scoring "
+                        f"criteria (power, fiber, permitting, environmental, etc.) are captured "
+                        f"accurately.\n\n"
+                        f"Your request has been saved: \"{message[:200]}\""
+                    )
+                    record.output_module = "sites"
+                    record.updated_at = _utcnow()
+                    await session.commit()
+                    log.info("dispatch.site_eval_guided request_id=%s", request_id)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("dispatch.site_eval_guide_failed request_id=%s err=%s", request_id, exc)
+        return
+
     endpoint = AGENT_DISPATCH_MAP.get(intent, AGENT_DISPATCH_MAP["general"])
     payload = {
         "request_id": request_id,
