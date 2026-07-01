@@ -60,7 +60,7 @@ _settings = get_settings()
 # Google sign-in (account creation only; existing users are never downgraded).
 # ---------------------------------------------------------------------------
 PARTNER_EMAILS: frozenset[str] = frozenset({
-    "khawla.sidaoui@gmail.com",
+    "sidaoui.khawla@gmail.com",
 })
 
 
