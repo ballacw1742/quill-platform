@@ -38,6 +38,20 @@ jobs:
             --region us-central1 \
             --no-allow-unauthenticated \
             --project totemic-formula-467102-s9
+
+      - name: Run database migrations
+        run: |
+          # Update the migration job to use the freshly deployed image, then execute it.
+          # The job connects to Cloud SQL via the Unix socket (same as the service).
+          gcloud run jobs update quill-migrate \
+            --image gcr.io/totemic-formula-467102-s9/quill-api:${{ github.sha }} \
+            --region us-central1 \
+            --project totemic-formula-467102-s9
+          gcloud run jobs execute quill-migrate \
+            --region us-central1 \
+            --project totemic-formula-467102-s9 \
+            --wait
+
       - name: Grant public access (re-apply after each deploy)
         run: |
           gcloud run services add-iam-policy-binding quill-agents \

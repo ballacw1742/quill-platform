@@ -55,6 +55,14 @@ from app.services.security import (
 router = APIRouter(prefix="/v1/auth", tags=["auth"])
 _settings = get_settings()
 
+# ---------------------------------------------------------------------------
+# Partner-role allowlist — emails in this set get UserRole.partner on first
+# Google sign-in (account creation only; existing users are never downgraded).
+# ---------------------------------------------------------------------------
+PARTNER_EMAILS: frozenset[str] = frozenset({
+    "sidaoui.khawla@gmail.com",
+})
+
 
 # ---------------------------------------------------------------------------
 # Dev-only email/password fallback (gated by DEV_AUTH_FALLBACK)
@@ -470,12 +478,13 @@ async def google_login(
     user = result.scalar_one_or_none()
 
     if not user:
+        assigned_role = UserRole.partner if email in PARTNER_EMAILS else UserRole.observer
         user = User(
             id=str(_uuid.uuid4()),
             email=email,
             display_name=name,
             hashed_password="",
-            role=UserRole.observer,
+            role=assigned_role,
             created_at=_dt.utcnow(),
         )
         db.add(user)
