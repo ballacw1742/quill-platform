@@ -483,9 +483,7 @@ async def google_login(
             id=str(_uuid.uuid4()),
             email=email,
             display_name=name,
-            hashed_password="",
             role=assigned_role,
-            created_at=_dt.utcnow(),
         )
         db.add(user)
         await db.commit()
