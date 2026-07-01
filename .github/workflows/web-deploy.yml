@@ -1,0 +1,47 @@
+name: Deploy Quill Web to Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'web/**'
+      - 'web/Dockerfile'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t gcr.io/totemic-formula-467102-s9/quill-web:${{ github.sha }} ./web
+          docker push gcr.io/totemic-formula-467102-s9/quill-web:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy quill-web \
+            --image gcr.io/totemic-formula-467102-s9/quill-web:${{ github.sha }} \
+            --platform managed \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --set-env-vars "INTERNAL_API_URL=https://quill-agents-894031978246.us-central1.run.app,NODE_ENV=production" \
+            --project totemic-formula-467102-s9
+
+      - name: Grant public access (re-apply after each deploy)
+        run: |
+          gcloud run services add-iam-policy-binding quill-web \
+            --region us-central1 \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --project totemic-formula-467102-s9
