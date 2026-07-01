@@ -124,6 +124,18 @@ export const AGENTS: AgentDef[] = [
       "Summarize budget, schedule, and risks for the owner",
     ],
   },
+  {
+    id: "site-evaluator",
+    label: "Site Evaluator",
+    description: "Submit a site address for DataSite Intelligence scoring and Go/No-Go analysis",
+    intent: "site_evaluation",
+    examples: [
+      "Evaluate 3990 East Broad Street, Columbus OH for hyperscale compute",
+      "Score this site for AI/HPC workload feasibility",
+      "Run a Go/No-Go analysis on this parcel",
+      "What's the data center potential of this site?",
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------------------

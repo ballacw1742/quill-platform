@@ -1791,3 +1791,206 @@ export function useSubmitProjectRequest(
     ...opts,
   });
 }
+
+// ---------------------------------------------------------------------------
+// Sites (DataSite Intelligence proxy)
+// ---------------------------------------------------------------------------
+import {
+  SiteSchema,
+  SiteListResponseSchema,
+  ProjectSchema,
+  ProjectListResponseSchema,
+  ProjectCreateSchema,
+  type Site,
+  type SiteListResponse,
+  type QuillProject,
+  type ProjectListResponse,
+  type ProjectCreate,
+} from "@/lib/schemas";
+
+/** GET /v1/sites — list all site evaluations */
+export function useSites(opts?: UseQueryOptions<Site[]>) {
+  return useQuery<Site[]>({
+    queryKey: ["sites"],
+    queryFn: async (): Promise<Site[]> => {
+      const raw: any = await apiFetch("/api/v1/sites");
+      // Backend may return {items: [...]} or a flat array
+      const arr = Array.isArray(raw) ? raw : (raw?.items ?? []);
+      return arr;
+    },
+    refetchInterval: 15000,
+    ...opts,
+  });
+}
+
+/** GET /v1/sites/{id} — single site */
+export function useSite(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<Site | undefined>,
+) {
+  return useQuery<Site | undefined>({
+    queryKey: ["sites", id],
+    queryFn: async (): Promise<Site | undefined> => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(id)}`, {
+        schema: SiteSchema,
+      });
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** POST /v1/sites — create a new site */
+export function useCreateSite(
+  opts?: UseMutationOptions<Site, Error, Record<string, any>>,
+) {
+  const qc = useQueryClient();
+  return useMutation<Site, Error, Record<string, any>>({
+    mutationFn: async (body) => {
+      return apiFetch("/api/v1/sites", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: SiteSchema,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sites"] });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/sites/questionnaire — submit questionnaire */
+export function useSubmitSiteQuestionnaire(
+  opts?: UseMutationOptions<Site, Error, Record<string, any>>,
+) {
+  const qc = useQueryClient();
+  return useMutation<Site, Error, Record<string, any>>({
+    mutationFn: async (body) => {
+      const token = getStoredToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      const resp = await fetch(`${API_BASE}/api/v1/sites`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => resp.statusText);
+        throw new ApiError(resp.status, text);
+      }
+      const json = await resp.json();
+      return SiteSchema.parse(json);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sites"] });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/sites/{id}/run — trigger evaluation */
+export function useRunSiteEvaluation(
+  opts?: UseMutationOptions<Site, Error, string>,
+) {
+  const qc = useQueryClient();
+  return useMutation<Site, Error, string>({
+    mutationFn: async (siteId: string) => {
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(siteId)}/run`, {
+        method: "POST",
+        body: "{}",
+      });
+    },
+    onSuccess: (_, siteId) => {
+      qc.invalidateQueries({ queryKey: ["sites", siteId] });
+      qc.invalidateQueries({ queryKey: ["sites"] });
+    },
+    ...opts,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+/** GET /v1/projects — list projects for current user */
+export function useProjects(opts?: UseQueryOptions<ProjectListResponse | undefined>) {
+  return useQuery<ProjectListResponse | undefined>({
+    queryKey: ["projects"],
+    queryFn: async (): Promise<ProjectListResponse | undefined> => {
+      return apiFetch("/api/v1/projects", {
+        schema: ProjectListResponseSchema,
+      });
+    },
+    refetchInterval: 15000,
+    ...opts,
+  });
+}
+
+/** GET /v1/projects/{id} — single project */
+export function useProject(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<QuillProject | undefined>,
+) {
+  return useQuery<QuillProject | undefined>({
+    queryKey: ["projects", id],
+    queryFn: async (): Promise<QuillProject | undefined> => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/projects/${encodeURIComponent(id)}`, {
+        schema: ProjectSchema,
+      });
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** POST /v1/projects — create a project */
+export function useCreateProject(
+  opts?: UseMutationOptions<QuillProject, Error, ProjectCreate>,
+) {
+  const qc = useQueryClient();
+  return useMutation<QuillProject, Error, ProjectCreate>({
+    mutationFn: async (body: ProjectCreate) => {
+      return apiFetch("/api/v1/projects", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ProjectSchema,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+    ...opts,
+  });
+}
+
+/** PATCH /v1/projects/{id} — update phase / status / notes */
+export function useUpdateProject(
+  opts?: UseMutationOptions<
+    QuillProject,
+    Error,
+    { id: string; body: { phase?: string; status?: string; notes?: string; advance_phase?: boolean } }
+  >,
+) {
+  const qc = useQueryClient();
+  return useMutation<
+    QuillProject,
+    Error,
+    { id: string; body: { phase?: string; status?: string; notes?: string; advance_phase?: boolean } }
+  >({
+    mutationFn: async ({ id, body }) => {
+      return apiFetch(`/api/v1/projects/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: ProjectSchema,
+      });
+    },
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["projects", id] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+    ...opts,
+  });
+}

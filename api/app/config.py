@@ -53,6 +53,16 @@ class Settings(BaseSettings):
     # Notifications
     TELEGRAM_NOTIFY_CHAT_ID: str = Field(default="")
 
+    # External service URLs
+    DATASITE_URL: str = Field(
+        default="https://datasite-agents-894031978246.us-central1.run.app",
+        description="DataSite Intelligence Cloud Run service URL.",
+    )
+    INTERNAL_API_URL: str = Field(
+        default="https://quill-adk-agents-894031978246.us-central1.run.app",
+        description="Quill ADK agents Cloud Run service URL.",
+    )
+
     # Documents service (Phase D.1)
     DOCUMENTS_BLOB_PATH: str = Field(
         default="./_local_documents",
