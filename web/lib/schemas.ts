@@ -180,6 +180,19 @@ export const AgentSchema = z
     monthly_token_budget: z.number().optional(),
     enabled: z.boolean().optional(),
     notes: z.string().nullable().optional(),
+    // Sprint DC.4 — Agent Registry fields
+    display_name: z.string().optional(),
+    description: z.string().nullable().optional(),
+    role_summary: z.string().nullable().optional(),
+    handled_intents: z.string().nullable().optional(), // JSON array as text
+    framework: z.string().optional(),
+    endpoint_url: z.string().nullable().optional(),
+    requests_total: z.number().int().optional(),
+    requests_success: z.number().int().optional(),
+    requests_failed: z.number().int().optional(),
+    last_invoked_at: z.string().nullable().optional(),
+    created_at: z.string().nullable().optional(),
+    updated_at: z.string().nullable().optional(),
     // legacy UI fields
     monthly_budget_usd: z.number().optional(),
     spend_mtd_usd: z.number().optional(),
@@ -197,6 +210,12 @@ export const AgentSchema = z
     approval_no_edit_rate: a.approval_no_edit_rate ?? 0,
     total_proposals_30d: a.total_proposals_30d ?? 0,
     last_active_at: a.last_active_at ?? null,
+    // Sprint DC.4 registry defaults
+    display_name: a.display_name ?? "",
+    framework: a.framework ?? "adk",
+    requests_total: a.requests_total ?? 0,
+    requests_success: a.requests_success ?? 0,
+    requests_failed: a.requests_failed ?? 0,
   }));
 export type Agent = z.infer<typeof AgentSchema>;
 

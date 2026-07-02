@@ -173,6 +173,19 @@ class AgentOut(_Base):
     monthly_token_budget: int
     enabled: bool
     notes: str | None = None
+    # Sprint DC.4 — Agent Registry fields
+    display_name: str = ""
+    description: str | None = None
+    role_summary: str | None = None
+    handled_intents: str | None = None  # JSON array stored as text
+    framework: str = "adk"
+    endpoint_url: str | None = None
+    requests_total: int = 0
+    requests_success: int = 0
+    requests_failed: int = 0
+    last_invoked_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class AgentUpdate(_Base):

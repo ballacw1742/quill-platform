@@ -19,7 +19,7 @@ from app.schemas import (
     HealthOut,
     LitigationHoldRequest,
 )
-from app.security import require_admin_header, require_owner
+from app.security import require_admin_header, require_owner, get_current_user
 from app.services import approvals as svc
 from app.services import audit as audit_svc
 from app.services import scheduler_registry
@@ -77,6 +77,32 @@ async def update_agent(
     data = body.model_dump(exclude_none=True)
     for k, v in data.items():
         setattr(agent, k, v.value if hasattr(v, "value") else v)
+    await db.commit()
+    await db.refresh(agent)
+    return AgentOut.model_validate(agent)
+
+
+@router.patch(
+    "/agents/{agent_id}/toggle",
+    response_model=AgentOut,
+    summary="Toggle agent enabled/disabled (owner or partner only) — Sprint DC.4",
+)
+async def toggle_agent(
+    agent_id: str,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+) -> AgentOut:
+    """Enable or disable an agent. Requires owner or partner role."""
+    from app.enums import UserRole as _UserRole
+    from datetime import UTC as _UTC
+    allowed = {_UserRole.OWNER.value, _UserRole.PARTNER.value}
+    if user.role not in allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "owner or partner role required")
+    agent = await db.get(AgentRegistration, agent_id)
+    if agent is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "agent not found")
+    agent.enabled = not agent.enabled
+    agent.updated_at = __import__("datetime").datetime.now(_UTC)
     await db.commit()
     await db.refresh(agent)
     return AgentOut.model_validate(agent)

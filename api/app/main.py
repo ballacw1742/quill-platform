@@ -42,6 +42,14 @@ async def lifespan(app: FastAPI):
     mirror = get_mirror()
     await mirror.start()
     log.info("audit_mirror started (mode=%s)", mirror.backend.mode)
+    # Seed the 9 ADK agents into agent_registrations on startup
+    try:
+        from app.db import SessionLocal as async_session_maker  # noqa: N812
+        from app.routes.agents import seed_agents
+        async with async_session_maker() as session:
+            await seed_agents(session)
+    except Exception as _seed_exc:  # noqa: BLE001
+        log.warning("agent_seed.failed err=%s", _seed_exc)
     try:
         yield
     finally:
@@ -114,3 +122,4 @@ app.include_router(dev_chat.ws_router)  # Sprint DC.1 dev-chat WS (/ws/dev-chat)
 app.include_router(requests_routes.router)  # Requests tab — unified project submission
 app.include_router(sites_routes.router)     # Sprint QuillDC — DataSite proxy routes
 app.include_router(projects_routes.router)  # Sprint DC.2 — Projects module
+# Sprint DC.4: Agent Registry routes are in admin.py (GET/PATCH /v1/agents). Seed on startup via lifespan.
