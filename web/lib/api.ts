@@ -109,6 +109,31 @@ import {
   type DealActivity,
   type DealActivityListPage,
   type PipelineSummary,
+  // Sprint 2A — Customer Success
+  SupportTicketSchema,
+  TicketListPageSchema,
+  AccountNoteSchema,
+  NoteListPageSchema,
+  CustomerHealthSchema,
+  CustomerDetailSchema,
+  CustomerListPageSchema,
+  CustomerSummarySchema,
+  type SupportTicket,
+  type TicketListPage,
+  type AccountNote,
+  type NoteListPage,
+  type CustomerHealth,
+  type CustomerDetail,
+  type CustomerListPage,
+  type CustomerSummary,
+  EquipmentSchema,
+  EquipmentListPageSchema,
+  VendorSchema,
+  VendorListPageSchema,
+  type Equipment,
+  type EquipmentListPage,
+  type Vendor,
+  type VendorListPage,
 } from "@/lib/schemas";
 import { mockStore } from "@/lib/mock/store";
 
@@ -2695,6 +2720,338 @@ export function usePipelineSummary(opts?: UseQueryOptions<PipelineSummary | unde
     queryKey: ["pipeline-summary"],
     queryFn: async () =>
       apiFetch("/api/v1/pipeline/summary", { schema: PipelineSummarySchema }),
+    ...opts,
+  });
+}
+
+// ─── Sprint 2A — Customer Success API hooks ───────────────────────────────────
+
+/** GET /v1/customers/summary */
+export function useCustomerSummary(opts?: UseQueryOptions<CustomerSummary | undefined>) {
+  return useQuery<CustomerSummary | undefined>({
+    queryKey: ["customer-summary"],
+    queryFn: async () =>
+      apiFetch("/api/v1/customers/summary", { schema: CustomerSummarySchema }),
+    ...opts,
+  });
+}
+
+/** GET /v1/customers */
+export function useCustomers(opts?: UseQueryOptions<CustomerListPage | undefined>) {
+  return useQuery<CustomerListPage | undefined>({
+    queryKey: ["customers"],
+    queryFn: async () =>
+      apiFetch("/api/v1/customers", { schema: CustomerListPageSchema }),
+    ...opts,
+  });
+}
+
+/** GET /v1/customers/{id} */
+export function useCustomer(id: string, opts?: UseQueryOptions<CustomerDetail | undefined>) {
+  return useQuery<CustomerDetail | undefined>({
+    queryKey: ["customers", id],
+    queryFn: async () =>
+      apiFetch(`/api/v1/customers/${encodeURIComponent(id)}`, { schema: CustomerDetailSchema }),
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** PATCH /v1/customers/{id} */
+export function useUpdateCustomer(id: string) {
+  const qc = useQueryClient();
+  return useMutation<CustomerDetail, Error, Partial<CustomerDetail>>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/customers/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: CustomerDetailSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["customers", id] });
+      qc.invalidateQueries({ queryKey: ["customer-summary"] });
+    },
+  });
+}
+
+/** GET /v1/customers/{accountId}/tickets */
+export function useCustomerTickets(
+  accountId: string,
+  ticketStatus?: string | null,
+  opts?: UseQueryOptions<TicketListPage | undefined>,
+) {
+  return useQuery<TicketListPage | undefined>({
+    queryKey: ["customer-tickets", accountId, ticketStatus ?? "all"],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (ticketStatus) params.set("status", ticketStatus);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return apiFetch(`/api/v1/customers/${encodeURIComponent(accountId)}/tickets${qs}`, {
+        schema: TicketListPageSchema,
+      });
+    },
+    enabled: !!accountId,
+    ...opts,
+  });
+}
+
+/** POST /v1/customers/{accountId}/tickets */
+export function useCreateTicket(accountId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    SupportTicket,
+    Error,
+    { title: string; severity: string; description?: string }
+  >({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/customers/${encodeURIComponent(accountId)}/tickets`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: SupportTicketSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customer-tickets", accountId] });
+      qc.invalidateQueries({ queryKey: ["customers", accountId] });
+      qc.invalidateQueries({ queryKey: ["customer-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/customers/{accountId}/tickets/{ticketId} */
+export function useUpdateTicket(accountId: string, ticketId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    SupportTicket,
+    Error,
+    { status?: string; resolution_notes?: string; severity?: string; title?: string; description?: string }
+  >({
+    mutationFn: async (body) =>
+      apiFetch(
+        `/api/v1/customers/${encodeURIComponent(accountId)}/tickets/${encodeURIComponent(ticketId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(body),
+          schema: SupportTicketSchema,
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customer-tickets", accountId] });
+      qc.invalidateQueries({ queryKey: ["customers", accountId] });
+      qc.invalidateQueries({ queryKey: ["customer-summary"] });
+    },
+  });
+}
+
+/** GET /v1/customers/{accountId}/notes */
+export function useCustomerNotes(
+  accountId: string,
+  opts?: UseQueryOptions<NoteListPage | undefined>,
+) {
+  return useQuery<NoteListPage | undefined>({
+    queryKey: ["customer-notes", accountId],
+    queryFn: async () =>
+      apiFetch(`/api/v1/customers/${encodeURIComponent(accountId)}/notes`, {
+        schema: NoteListPageSchema,
+      }),
+    enabled: !!accountId,
+    ...opts,
+  });
+}
+
+/** POST /v1/customers/{accountId}/notes */
+export function useAddNote(accountId: string) {
+  const qc = useQueryClient();
+  return useMutation<AccountNote, Error, { text: string }>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/customers/${encodeURIComponent(accountId)}/notes`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: AccountNoteSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["customer-notes", accountId] });
+    },
+  });
+}
+
+/** GET /v1/customers/{accountId}/health */
+export function useCustomerHealth(
+  accountId: string,
+  opts?: UseQueryOptions<CustomerHealth | undefined>,
+) {
+  return useQuery<CustomerHealth | undefined>({
+    queryKey: ["customer-health", accountId],
+    queryFn: async () =>
+      apiFetch(`/api/v1/customers/${encodeURIComponent(accountId)}/health`, {
+        schema: CustomerHealthSchema,
+      }),
+    enabled: !!accountId,
+    ...opts,
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Supply Chain API hooks — Sprint 2B
+// ───────────────────────────────────────────────────────────────────────────
+
+/** GET /v1/equipment */
+export function useEquipment(
+  projectId?: string | null,
+  statusFilter?: string | null,
+  atRisk?: boolean | null,
+  opts?: UseQueryOptions<EquipmentListPage | undefined>,
+) {
+  return useQuery<EquipmentListPage | undefined>({
+    queryKey: ["equipment", projectId ?? "all", statusFilter ?? "all", atRisk ?? "all"],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (projectId) params.set("project_id", projectId);
+      if (statusFilter) params.set("status", statusFilter);
+      if (atRisk != null) params.set("at_risk", String(atRisk));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return apiFetch(`/api/v1/equipment${qs}`, { schema: EquipmentListPageSchema });
+    },
+    ...opts,
+  });
+}
+
+/** GET /v1/equipment/{id} */
+export function useEquipmentItem(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<Equipment | undefined>,
+) {
+  return useQuery<Equipment | undefined>({
+    queryKey: ["equipment", id],
+    queryFn: async () => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/equipment/${encodeURIComponent(id)}`, { schema: EquipmentSchema });
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** POST /v1/equipment */
+export function useCreateEquipment() {
+  const qc = useQueryClient();
+  return useMutation<Equipment, Error, Partial<Equipment>>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/equipment", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: EquipmentSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["equipment"] });
+      qc.invalidateQueries({ queryKey: ["supply-chain-summary"] });
+      qc.invalidateQueries({ queryKey: ["at-risk-equipment"] });
+    },
+  });
+}
+
+/** PATCH /v1/equipment/{id} */
+export function useUpdateEquipment(id: string) {
+  const qc = useQueryClient();
+  return useMutation<Equipment, Error, Partial<Equipment>>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/equipment/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: EquipmentSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["equipment"] });
+      qc.invalidateQueries({ queryKey: ["equipment", id] });
+      qc.invalidateQueries({ queryKey: ["supply-chain-summary"] });
+      qc.invalidateQueries({ queryKey: ["at-risk-equipment"] });
+    },
+  });
+}
+
+/** GET /v1/vendors */
+export function useVendors(
+  category?: string | null,
+  prequalified?: boolean | null,
+  opts?: UseQueryOptions<VendorListPage | undefined>,
+) {
+  return useQuery<VendorListPage | undefined>({
+    queryKey: ["vendors", category ?? "all", prequalified ?? "all"],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (category) params.set("category", category);
+      if (prequalified != null) params.set("prequalified", String(prequalified));
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return apiFetch(`/api/v1/vendors${qs}`, { schema: VendorListPageSchema });
+    },
+    ...opts,
+  });
+}
+
+/** GET /v1/vendors/{id} */
+export function useVendor(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<Vendor | undefined>,
+) {
+  return useQuery<Vendor | undefined>({
+    queryKey: ["vendors", id],
+    queryFn: async () => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/vendors/${encodeURIComponent(id)}`, { schema: VendorSchema });
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** POST /v1/vendors */
+export function useCreateVendor() {
+  const qc = useQueryClient();
+  return useMutation<Vendor, Error, Partial<Vendor>>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/vendors", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: VendorSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["supply-chain-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/vendors/{id} */
+export function useUpdateVendor(id: string) {
+  const qc = useQueryClient();
+  return useMutation<Vendor, Error, Partial<Vendor>>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/vendors/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: VendorSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["vendors", id] });
+      qc.invalidateQueries({ queryKey: ["supply-chain-summary"] });
+    },
+  });
+}
+
+/** GET /v1/supply-chain/summary */
+    queryKey: ["supply-chain-summary"],
+    queryFn: async () =>
+    ...opts,
+  });
+}
+
+/** GET /v1/supply-chain/at-risk */
+export function useAtRiskEquipment(opts?: UseQueryOptions<EquipmentListPage | undefined>) {
+  return useQuery<EquipmentListPage | undefined>({
+    queryKey: ["at-risk-equipment"],
+    queryFn: async () =>
+      apiFetch("/api/v1/supply-chain/at-risk", { schema: EquipmentListPageSchema }),
     ...opts,
   });
 }

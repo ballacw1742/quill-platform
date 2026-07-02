@@ -1796,3 +1796,102 @@ export const PipelineSummarySchema = z.object({
   win_rate_pct: z.number().nullable().optional(),
 });
 export type PipelineSummary = z.infer<typeof PipelineSummarySchema>;
+
+// ─── Sprint 2A — Customer Success ─────────────────────────────────────────────
+
+export const SupportTicketSchema = z.object({
+  id: z.string(),
+  account_id: z.string(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  severity: z.enum(["P1", "P2", "P3", "P4"]),
+  status: z.enum(["open", "in_progress", "resolved", "closed"]),
+  resolution_notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  resolved_at: z.string().nullable().optional(),
+});
+export type SupportTicket = z.infer<typeof SupportTicketSchema>;
+
+export const TicketListPageSchema = z.object({
+  items: z.array(SupportTicketSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type TicketListPage = z.infer<typeof TicketListPageSchema>;
+
+export const AccountNoteSchema = z.object({
+  id: z.string(),
+  account_id: z.string(),
+  text: z.string(),
+  created_by: z.string().nullable().optional(),
+  created_at: z.string(),
+});
+export type AccountNote = z.infer<typeof AccountNoteSchema>;
+
+export const NoteListPageSchema = z.object({
+  items: z.array(AccountNoteSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type NoteListPage = z.infer<typeof NoteListPageSchema>;
+
+export const CustomerHealthSchema = z.object({
+  ticket_score: z.number(),
+  payment_score: z.number(),
+  engagement_score: z.number(),
+  total: z.number(),
+  open_p1: z.number().int(),
+  open_p2: z.number().int(),
+  open_p3: z.number().int(),
+  open_tickets_total: z.number().int(),
+});
+export type CustomerHealth = z.infer<typeof CustomerHealthSchema>;
+
+export const CustomerDetailSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.string(),
+  industry: z.string().nullable().optional(),
+  website: z.string().nullable().optional(),
+  hq_city: z.string().nullable().optional(),
+  hq_state: z.string().nullable().optional(),
+  primary_contact_name: z.string().nullable().optional(),
+  primary_contact_email: z.string().nullable().optional(),
+  primary_contact_phone: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+  health: CustomerHealthSchema.nullable().optional(),
+  open_ticket_count: z.number().int().default(0),
+  won_deal: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+      stage: z.string(),
+      campus_id: z.string().nullable().optional(),
+      value_usd: z.number().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+});
+export type CustomerDetail = z.infer<typeof CustomerDetailSchema>;
+
+export const CustomerListPageSchema = z.object({
+  items: z.array(CustomerDetailSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type CustomerListPage = z.infer<typeof CustomerListPageSchema>;
+
+export const CustomerSummarySchema = z.object({
+  total_customers: z.number().int(),
+  open_tickets: z.number().int(),
+  has_critical_tickets: z.boolean(),
+  avg_health_score: z.number().nullable().optional(),
+  at_risk_count: z.number().int(),
+});
+export type CustomerSummary = z.infer<typeof CustomerSummarySchema>;
