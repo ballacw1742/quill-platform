@@ -1,15 +1,8 @@
 """Supply Chain — Sprint 2B
 
 Revision ID: 0020_supply_chain
-Revises: 0018_pipeline
+Revises: 0019_customers
 Create Date: 2026-07-02
-
-NOTE: This migration chains off 0018_pipeline (not 0019_customers) because
-Sprint 2A (customer success / 0019) is running in parallel and has not yet
-been merged. When Sprint 2A merges, the orchestrator should set the
-down_revision of whichever migration runs second to point at the other one.
-Severity: (invisible) — no user-visible impact; needs orchestrator adjudication
-at merge time.
 
 Changes:
   - New table: equipment
