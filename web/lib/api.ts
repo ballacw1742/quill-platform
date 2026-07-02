@@ -79,6 +79,36 @@ import {
   type ProjectContractLinkList,
   type ProjectEstimateLink,
   type ProjectEstimateLinkList,
+  // Sprint 1A — Facility Operations
+  CampusSchema,
+  CampusListResponseSchema,
+  CampusIncidentSchema,
+  CampusIncidentListResponseSchema,
+  CampusMetricSchema,
+  CampusMetricListResponseSchema,
+  type Campus,
+  type CampusListResponse,
+  type CampusIncident,
+  type CampusIncidentListResponse,
+  type CampusMetric,
+  type CampusMetricListResponse,
+  // Sprint 1B — Sales & Pipeline
+  AccountSchema,
+  AccountListPageSchema,
+  DealSchema,
+  DealWithAccountSchema,
+  DealListPageSchema,
+  DealActivitySchema,
+  DealActivityListPageSchema,
+  PipelineSummarySchema,
+  type Account,
+  type AccountListPage,
+  type Deal,
+  type DealWithAccount,
+  type DealListPage,
+  type DealActivity,
+  type DealActivityListPage,
+  type PipelineSummary,
 } from "@/lib/schemas";
 import { mockStore } from "@/lib/mock/store";
 
@@ -2292,5 +2322,379 @@ export function useLinkEstimate(projectId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["projects", projectId, "estimates"] });
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 1A — Facility Operations (Campuses)
+// ---------------------------------------------------------------------------
+
+/** GET /v1/campuses */
+export function useCampuses(statusFilter?: string) {
+  return useQuery<CampusListResponse>({
+    queryKey: ["campuses", { statusFilter }],
+    queryFn: async (): Promise<CampusListResponse> => {
+      const qs = statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : "";
+      return apiFetch(`/api/v1/campuses${qs}`, { schema: CampusListResponseSchema });
+    },
+  });
+}
+
+/** GET /v1/campuses/{id} */
+export function useCampus(id: string | null | undefined) {
+  return useQuery<Campus>({
+    queryKey: ["campuses", id],
+    queryFn: async (): Promise<Campus> => {
+      if (!id) throw new Error("campus id required");
+      return apiFetch(`/api/v1/campuses/${encodeURIComponent(id)}`, { schema: CampusSchema });
+    },
+    enabled: !!id,
+  });
+}
+
+/** POST /v1/campuses */
+export function useCreateCampus() {
+  const qc = useQueryClient();
+  return useMutation<Campus, Error, {
+    name: string;
+    address?: string | null;
+    mw_capacity?: number | null;
+    mw_live?: number | null;
+    status?: string;
+    pue_target?: number | null;
+    notes?: string | null;
+    project_id?: string | null;
+  }>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/campuses", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: CampusSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campuses"] });
+    },
+  });
+}
+
+/** PATCH /v1/campuses/{id} */
+export function useUpdateCampus(id: string) {
+  const qc = useQueryClient();
+  return useMutation<Campus, Error, Partial<{
+    name: string;
+    address: string;
+    mw_capacity: number;
+    mw_live: number;
+    status: string;
+    pue_target: number;
+    pue_current: number;
+    uptime_pct: number;
+    power_mw_current: number;
+    notes: string;
+    project_id: string;
+  }>>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/campuses/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: CampusSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campuses"] });
+      qc.invalidateQueries({ queryKey: ["campuses", id] });
+    },
+  });
+}
+
+/** GET /v1/campuses/{id}/incidents */
+export function useCampusIncidents(
+  campusId: string | null | undefined,
+  statusFilter?: string,
+) {
+  return useQuery<CampusIncidentListResponse>({
+    queryKey: ["campuses", campusId, "incidents", { statusFilter }],
+    queryFn: async (): Promise<CampusIncidentListResponse> => {
+      if (!campusId) throw new Error("campusId required");
+      const qs = statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : "";
+      return apiFetch(`/api/v1/campuses/${encodeURIComponent(campusId)}/incidents${qs}`, {
+        schema: CampusIncidentListResponseSchema,
+      });
+    },
+    enabled: !!campusId,
+  });
+}
+
+/** POST /v1/campuses/{id}/incidents */
+export function useCreateIncident(campusId: string) {
+  const qc = useQueryClient();
+  return useMutation<CampusIncident, Error, {
+    title: string;
+    severity: string;
+    description?: string | null;
+    impact?: string | null;
+  }>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/campuses/${encodeURIComponent(campusId)}/incidents`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: CampusIncidentSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campuses", campusId, "incidents"] });
+      qc.invalidateQueries({ queryKey: ["campuses", campusId] });
+      qc.invalidateQueries({ queryKey: ["campuses"] });
+    },
+  });
+}
+
+/** PATCH /v1/campuses/{id}/incidents/{incident_id} */
+export function useUpdateIncident(campusId: string, incidentId: string) {
+  const qc = useQueryClient();
+  return useMutation<CampusIncident, Error, Partial<{
+    status: string;
+    title: string;
+    description: string;
+    impact: string;
+    rca_notes: string;
+    resolved_at: string;
+  }>>({
+    mutationFn: async (body) =>
+      apiFetch(
+        `/api/v1/campuses/${encodeURIComponent(campusId)}/incidents/${encodeURIComponent(incidentId)}`,
+        { method: "PATCH", body: JSON.stringify(body), schema: CampusIncidentSchema },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campuses", campusId, "incidents"] });
+      qc.invalidateQueries({ queryKey: ["campuses", campusId] });
+    },
+  });
+}
+
+/** GET /v1/campuses/{id}/metrics */
+export function useCampusMetrics(
+  campusId: string | null | undefined,
+  days = 30,
+  metricType?: string,
+) {
+  return useQuery<CampusMetricListResponse>({
+    queryKey: ["campuses", campusId, "metrics", { days, metricType }],
+    queryFn: async (): Promise<CampusMetricListResponse> => {
+      if (!campusId) throw new Error("campusId required");
+      const params = new URLSearchParams({ days: String(days) });
+      if (metricType) params.set("metric_type", metricType);
+      return apiFetch(`/api/v1/campuses/${encodeURIComponent(campusId)}/metrics?${params}`, {
+        schema: CampusMetricListResponseSchema,
+      });
+    },
+    enabled: !!campusId,
+  });
+}
+
+/** POST /v1/campuses/{id}/metrics */
+export function useRecordMetric(campusId: string) {
+  const qc = useQueryClient();
+  return useMutation<CampusMetric, Error, {
+    metric_type: string;
+    value: number;
+    unit?: string | null;
+    recorded_at?: string | null;
+  }>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/campuses/${encodeURIComponent(campusId)}/metrics`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: CampusMetricSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campuses", campusId, "metrics"] });
+      qc.invalidateQueries({ queryKey: ["campuses", campusId] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 1B — Sales & Pipeline
+// ---------------------------------------------------------------------------
+
+/** GET /v1/accounts */
+export function useAccounts(
+  type?: string | null,
+  opts?: UseQueryOptions<AccountListPage | undefined>,
+) {
+  return useQuery<AccountListPage | undefined>({
+    queryKey: ["accounts", type ?? "all"],
+    queryFn: async () => {
+      const params = type ? `?type=${encodeURIComponent(type)}` : "";
+      return apiFetch(`/api/v1/accounts${params}`, { schema: AccountListPageSchema });
+    },
+    ...opts,
+  });
+}
+
+/** GET /v1/accounts/{id} */
+export function useAccount(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<Account | undefined>,
+) {
+  return useQuery<Account | undefined>({
+    queryKey: ["accounts", id],
+    queryFn: async () => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/accounts/${encodeURIComponent(id)}`, { schema: AccountSchema });
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** POST /v1/accounts */
+export function useCreateAccount() {
+  const qc = useQueryClient();
+  return useMutation<Account, Error, Partial<Account>>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/accounts", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: AccountSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+}
+
+/** PATCH /v1/accounts/{id} */
+export function useUpdateAccount(id: string) {
+  const qc = useQueryClient();
+  return useMutation<Account, Error, Partial<Account>>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/accounts/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: AccountSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+      qc.invalidateQueries({ queryKey: ["accounts", id] });
+    },
+  });
+}
+
+/** GET /v1/deals */
+export function useDeals(
+  stage?: string | null,
+  accountId?: string | null,
+  opts?: UseQueryOptions<DealListPage | undefined>,
+) {
+  return useQuery<DealListPage | undefined>({
+    queryKey: ["deals", stage ?? "all", accountId ?? "all"],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (stage) params.set("stage", stage);
+      if (accountId) params.set("account_id", accountId);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return apiFetch(`/api/v1/deals${qs}`, { schema: DealListPageSchema });
+    },
+    ...opts,
+  });
+}
+
+/** GET /v1/deals/{id} */
+export function useDeal(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<DealWithAccount | undefined>,
+) {
+  return useQuery<DealWithAccount | undefined>({
+    queryKey: ["deals", id],
+    queryFn: async () => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/deals/${encodeURIComponent(id)}`, { schema: DealWithAccountSchema });
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** POST /v1/deals */
+export function useCreateDeal() {
+  const qc = useQueryClient();
+  return useMutation<Deal, Error, Partial<Deal>>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/deals", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: DealSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["deals"] });
+      qc.invalidateQueries({ queryKey: ["pipeline-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/deals/{id} */
+export function useUpdateDeal(id: string) {
+  const qc = useQueryClient();
+  return useMutation<Deal, Error, Partial<Deal>>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/deals/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: DealSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["deals"] });
+      qc.invalidateQueries({ queryKey: ["deals", id] });
+      qc.invalidateQueries({ queryKey: ["pipeline-summary"] });
+      qc.invalidateQueries({ queryKey: ["accounts"] });
+    },
+  });
+}
+
+/** GET /v1/deals/{dealId}/activities */
+export function useDealActivities(
+  dealId: string | null | undefined,
+  opts?: UseQueryOptions<DealActivityListPage | undefined>,
+) {
+  return useQuery<DealActivityListPage | undefined>({
+    queryKey: ["deal-activities", dealId],
+    queryFn: async () => {
+      if (!dealId) return undefined;
+      return apiFetch(`/api/v1/deals/${encodeURIComponent(dealId)}/activities`, {
+        schema: DealActivityListPageSchema,
+      });
+    },
+    enabled: !!dealId,
+    ...opts,
+  });
+}
+
+/** POST /v1/deals/{dealId}/activities */
+export function useAddDealActivity(dealId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    DealActivity,
+    Error,
+    { activity_type: string; summary: string; created_by?: string }
+  >({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/deals/${encodeURIComponent(dealId)}/activities`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: DealActivitySchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["deal-activities", dealId] });
+    },
+  });
+}
+
+/** GET /v1/pipeline/summary */
+export function usePipelineSummary(opts?: UseQueryOptions<PipelineSummary | undefined>) {
+  return useQuery<PipelineSummary | undefined>({
+    queryKey: ["pipeline-summary"],
+    queryFn: async () =>
+      apiFetch("/api/v1/pipeline/summary", { schema: PipelineSummarySchema }),
+    ...opts,
   });
 }

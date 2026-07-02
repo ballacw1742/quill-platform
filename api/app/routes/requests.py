@@ -61,6 +61,15 @@ INTENT_TO_ADK_AGENT: dict[str, str] = {
     "site_research":   "datasite_site_researcher",
     "site_scoring":    "datasite_site_scorer",
     "site_status":     "datasite_site_status",
+    # Sprint 1A — Facility Operations
+    "facility_ops":    "quill_facility_ops",
+    "campus":          "quill_facility_ops",
+    "incident":        "quill_facility_ops",
+    "uptime":          "quill_facility_ops",
+    "pue":             "quill_facility_ops",
+    # Sprint 1B — Sales & Pipeline
+    "sales":           "quill_sales",
+    "pipeline":        "quill_sales",
 }
 
 log = logging.getLogger("quill.requests")
@@ -567,6 +576,12 @@ def classify_intent(message: str, filenames: list[str]) -> str:
     if "site" in text and any(w in text for w in ["evaluate", "feasibility", "data center potential", "hpc", "hyperscale", "colocation"]):
         return "site_evaluation"
 
+    # facility_ops — campus / PUE / uptime / incident keywords (check before general)
+    if any(w in text for w in ["campus", "pue", "power usage effectiveness", "uptime", "downtime", "facility ops", "facility operations", "data center campus", "live campus"]):
+        return "facility_ops"
+    if "incident" in text and any(w in text for w in ["campus", "data center", "p1", "p2", "p3", "p4", "outage", "degradation"]):
+        return "incident"
+
     if any(w in text for w in ["estimate", "cost", "budget", "price", "bid", "scope", "takeoff", "quantity"]):
         return "estimate"
     if any(w in text for w in ["schedule", "timeline", "gantt", "critical path", "milestone", "sequenc", "duration"]):
@@ -575,6 +590,9 @@ def classify_intent(message: str, filenames: list[str]) -> str:
         return "rfi"
     if any(w in text for w in ["contract", "agreement", "subcontract", "clause", "terms", "conditions", "liability"]):
         return "contract"
+    # Sprint 1B — Sales & Pipeline
+    if any(w in text for w in ["customer", "deal", "pipeline", "prospect", "sales", "contract value", "arr", "annual recurring", "workload type", "mw required", "advance deal", "close deal", "qualified lead", "proposal sent", "win rate"]):
+        return "sales"
     return "general"
 
 
@@ -589,6 +607,13 @@ def _intent_label(intent: str) -> str:
         "site_research": "Site Researcher",
         "site_scoring": "Site Scorer",
         "site_status": "Site Status",
+        "facility_ops": "Facility Ops Agent",
+        "campus": "Facility Ops Agent",
+        "incident": "Facility Ops Agent",
+        "uptime": "Facility Ops Agent",
+        "pue": "Facility Ops Agent",
+        "sales": "Sales Agent",
+        "pipeline": "Sales Agent",
     }
     return labels.get(intent, "Agent")
 
