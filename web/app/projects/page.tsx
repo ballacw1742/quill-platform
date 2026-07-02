@@ -139,6 +139,23 @@ function ProjectCard({
             {vb.label}
           </span>
         )}
+        {/* Sprint 0.2 — budget variance */}
+        {project.forecast_usd != null && project.budget_usd != null && project.forecast_usd > project.budget_usd && (
+          <span className="text-caption-1 font-semibold text-red-400 bg-red-400/10 rounded-full px-2 py-0.5">
+            Over Budget
+          </span>
+        )}
+        {/* Sprint 0.2 — milestone counts */}
+        {project.milestone_total > 0 && (
+          <span className="text-caption-1 text-label-tertiary tabular-nums">
+            {project.milestone_complete}/{project.milestone_total} milestones
+          </span>
+        )}
+        {project.milestone_overdue > 0 && (
+          <span className="text-caption-1 font-semibold text-red-400 bg-red-400/10 rounded-full px-2 py-0.5">
+            {project.milestone_overdue} overdue
+          </span>
+        )}
       </div>
 
       {/* Phase bar */}

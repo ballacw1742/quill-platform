@@ -58,6 +58,27 @@ import {
   type ContractListPage,
   type ContractStatus,
   type ContractUploadResponse,
+  // Sprint 0.2 — Projects hardening
+  ProjectMilestoneListSchema,
+  ProjectMilestoneSchema,
+  ProjectLogListSchema,
+  ProjectLogEntrySchema,
+  ProjectDocumentLinkListSchema,
+  ProjectDocumentLinkSchema,
+  ProjectContractLinkListSchema,
+  ProjectContractLinkSchema,
+  ProjectEstimateLinkListSchema,
+  ProjectEstimateLinkSchema,
+  type ProjectMilestone,
+  type ProjectMilestoneList,
+  type ProjectLogEntry,
+  type ProjectLogList,
+  type ProjectDocumentLink,
+  type ProjectDocumentLinkList,
+  type ProjectContractLink,
+  type ProjectContractLinkList,
+  type ProjectEstimateLink,
+  type ProjectEstimateLinkList,
 } from "@/lib/schemas";
 import { mockStore } from "@/lib/mock/store";
 
@@ -1982,20 +2003,22 @@ export function useCreateProject(
   });
 }
 
-/** PATCH /v1/projects/{id} — update phase / status / notes */
+/** PATCH /v1/projects/{id} — update phase / status / notes / budget */
+type ProjectUpdateBody = {
+  phase?: string;
+  status?: string;
+  notes?: string;
+  advance_phase?: boolean;
+  // Sprint 0.2
+  budget_usd?: number | null;
+  committed_usd?: number | null;
+  forecast_usd?: number | null;
+};
 export function useUpdateProject(
-  opts?: UseMutationOptions<
-    QuillProject,
-    Error,
-    { id: string; body: { phase?: string; status?: string; notes?: string; advance_phase?: boolean } }
-  >,
+  opts?: UseMutationOptions<QuillProject, Error, { id: string; body: ProjectUpdateBody }>,
 ) {
   const qc = useQueryClient();
-  return useMutation<
-    QuillProject,
-    Error,
-    { id: string; body: { phase?: string; status?: string; notes?: string; advance_phase?: boolean } }
-  >({
+  return useMutation<QuillProject, Error, { id: string; body: ProjectUpdateBody }>({
     mutationFn: async ({ id, body }) => {
       return apiFetch(`/api/v1/projects/${encodeURIComponent(id)}`, {
         method: "PATCH",
@@ -2008,5 +2031,266 @@ export function useUpdateProject(
       qc.invalidateQueries({ queryKey: ["projects"] });
     },
     ...opts,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 0.2 — Milestones
+// ---------------------------------------------------------------------------
+
+/** GET /v1/projects/{id}/milestones */
+export function useProjectMilestones(
+  projectId: string | null | undefined,
+  opts?: UseQueryOptions<ProjectMilestoneList | undefined>,
+) {
+  return useQuery<ProjectMilestoneList | undefined>({
+    queryKey: ["projects", projectId, "milestones"],
+    queryFn: async () => {
+      if (!projectId) return undefined;
+      return apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/milestones`, {
+        schema: ProjectMilestoneListSchema,
+      });
+    },
+    enabled: !!projectId,
+    ...opts,
+  });
+}
+
+/** POST /v1/projects/{id}/milestones */
+export function useCreateMilestone(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ProjectMilestone,
+    Error,
+    { name: string; due_date?: string | null; description?: string | null }
+  >({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/milestones`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ProjectMilestoneSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "milestones"] });
+    },
+  });
+}
+
+/** PATCH /v1/projects/{id}/milestones/{mid} */
+export function useUpdateMilestone(projectId: string, milestoneId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ProjectMilestone,
+    Error,
+    { name?: string; due_date?: string | null; description?: string | null; completed?: boolean }
+  >({
+    mutationFn: async (body) =>
+      apiFetch(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(milestoneId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(body),
+          schema: ProjectMilestoneSchema,
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "milestones"] });
+    },
+  });
+}
+
+/** DELETE /v1/projects/{id}/milestones/{mid} */
+export function useDeleteMilestone(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: async (milestoneId) =>
+      apiFetch(
+        `/api/v1/projects/${encodeURIComponent(projectId)}/milestones/${encodeURIComponent(milestoneId)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "milestones"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 0.2 — Construction Log
+// ---------------------------------------------------------------------------
+
+/** GET /v1/projects/{id}/log */
+export function useProjectLog(
+  projectId: string | null | undefined,
+  opts?: UseQueryOptions<ProjectLogList | undefined>,
+) {
+  return useQuery<ProjectLogList | undefined>({
+    queryKey: ["projects", projectId, "log"],
+    queryFn: async () => {
+      if (!projectId) return undefined;
+      return apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/log`, {
+        schema: ProjectLogListSchema,
+      });
+    },
+    enabled: !!projectId,
+    ...opts,
+  });
+}
+
+/** POST /v1/projects/{id}/log */
+export function useAddLogEntry(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<ProjectLogEntry, Error, { text: string; entry_type?: string }>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/log`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ProjectLogEntrySchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "log"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 0.2 — Budget (convenience wrapper around useUpdateProject)
+// ---------------------------------------------------------------------------
+
+/** PATCH /v1/projects/{id} — update just the budget fields */
+export function useUpdateProjectBudget(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    QuillProject,
+    Error,
+    { budget_usd?: number | null; committed_usd?: number | null; forecast_usd?: number | null }
+  >({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: ProjectSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId] });
+      qc.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 0.2 — Document links
+// ---------------------------------------------------------------------------
+
+/** GET /v1/projects/{id}/documents */
+export function useProjectDocumentLinks(
+  projectId: string | null | undefined,
+  opts?: UseQueryOptions<ProjectDocumentLinkList | undefined>,
+) {
+  return useQuery<ProjectDocumentLinkList | undefined>({
+    queryKey: ["projects", projectId, "documents"],
+    queryFn: async () => {
+      if (!projectId) return undefined;
+      return apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/documents`, {
+        schema: ProjectDocumentLinkListSchema,
+      });
+    },
+    enabled: !!projectId,
+    ...opts,
+  });
+}
+
+/** POST /v1/projects/{id}/documents */
+export function useAddDocumentLink(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    ProjectDocumentLink,
+    Error,
+    { name: string; document_id?: string | null; url?: string | null }
+  >({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/documents`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ProjectDocumentLinkSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 0.2 — Contract links
+// ---------------------------------------------------------------------------
+
+/** GET /v1/projects/{id}/contracts */
+export function useProjectContractLinks(
+  projectId: string | null | undefined,
+  opts?: UseQueryOptions<ProjectContractLinkList | undefined>,
+) {
+  return useQuery<ProjectContractLinkList | undefined>({
+    queryKey: ["projects", projectId, "contracts"],
+    queryFn: async () => {
+      if (!projectId) return undefined;
+      return apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/contracts`, {
+        schema: ProjectContractLinkListSchema,
+      });
+    },
+    enabled: !!projectId,
+    ...opts,
+  });
+}
+
+/** POST /v1/projects/{id}/contracts */
+export function useLinkContract(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<ProjectContractLink, Error, { contract_id: string }>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/contracts`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ProjectContractLinkSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "contracts"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 0.2 — Estimate links
+// ---------------------------------------------------------------------------
+
+/** GET /v1/projects/{id}/estimates */
+export function useProjectEstimateLinks(
+  projectId: string | null | undefined,
+  opts?: UseQueryOptions<ProjectEstimateLinkList | undefined>,
+) {
+  return useQuery<ProjectEstimateLinkList | undefined>({
+    queryKey: ["projects", projectId, "estimates"],
+    queryFn: async () => {
+      if (!projectId) return undefined;
+      return apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/estimates`, {
+        schema: ProjectEstimateLinkListSchema,
+      });
+    },
+    enabled: !!projectId,
+    ...opts,
+  });
+}
+
+/** POST /v1/projects/{id}/estimates */
+export function useLinkEstimate(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation<ProjectEstimateLink, Error, { estimate_id: string }>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/projects/${encodeURIComponent(projectId)}/estimates`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ProjectEstimateLinkSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "estimates"] });
+    },
   });
 }
