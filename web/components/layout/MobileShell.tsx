@@ -75,6 +75,7 @@ const MORE_TABS = [
   { href: "/operations", label: "Operations", icon: Building2 },  // Sprint 1A — Facility Ops
   { href: "/pipeline", label: "Pipeline", icon: TrendingUp },  // Sprint 1B — Sales & Pipeline
   { href: "/customers", label: "Customers", icon: Users },  // Sprint 2A — Customer Success
+  { href: "/supply-chain", label: "Supply Chain", icon: Package },  // Sprint 2B — Supply Chain
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
 

@@ -1895,3 +1895,91 @@ export const CustomerSummarySchema = z.object({
   at_risk_count: z.number().int(),
 });
 export type CustomerSummary = z.infer<typeof CustomerSummarySchema>;
+
+// ─── Supply Chain — Sprint 2B ─────────────────────────────────────────────────
+
+export const EQUIPMENT_CATEGORIES = [
+  "generator", "ups", "switchgear", "cooling", "pdu", "security", "fiber", "other",
+] as const;
+export type EquipmentCategory = typeof EQUIPMENT_CATEGORIES[number];
+
+export const EQUIPMENT_STATUSES = [
+  "not_ordered", "ordered", "in_transit", "received", "installed", "cancelled",
+] as const;
+export type EquipmentStatus = typeof EQUIPMENT_STATUSES[number];
+
+export const VENDOR_CATEGORIES = [
+  "generator", "ups", "switchgear", "cooling", "pdu", "security", "fiber",
+  "construction", "other",
+] as const;
+export type VendorCategory = typeof VENDOR_CATEGORIES[number];
+
+// ─── Equipment ────────────────────────────────────────────────────────────────
+
+export const EquipmentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  category: z.string(),
+  project_id: z.string().nullable().optional(),
+  manufacturer: z.string().nullable().optional(),
+  model_number: z.string().nullable().optional(),
+  quantity: z.number().int(),
+  unit_cost_usd: z.number().nullable().optional(),
+  lead_time_weeks: z.number().int().nullable().optional(),
+  order_date: z.string().nullable().optional(),       // ISO date YYYY-MM-DD
+  expected_delivery: z.string().nullable().optional(), // ISO date
+  actual_delivery: z.string().nullable().optional(),   // ISO date
+  status: z.string(),  // not_ordered | ordered | in_transit | received | installed | cancelled
+  vendor_id: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  at_risk: z.boolean().default(false),
+  total_cost_usd: z.number().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Equipment = z.infer<typeof EquipmentSchema>;
+
+export const EquipmentListPageSchema = z.object({
+  items: z.array(EquipmentSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type EquipmentListPage = z.infer<typeof EquipmentListPageSchema>;
+
+// ─── Vendor ───────────────────────────────────────────────────────────────────
+
+export const VendorSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  category: z.string(),
+  contact_name: z.string().nullable().optional(),
+  contact_email: z.string().nullable().optional(),
+  contact_phone: z.string().nullable().optional(),
+  website: z.string().nullable().optional(),
+  prequalified: z.boolean(),
+  performance_score: z.number().nullable().optional(),  // 0–10
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Vendor = z.infer<typeof VendorSchema>;
+
+export const VendorListPageSchema = z.object({
+  items: z.array(VendorSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type VendorListPage = z.infer<typeof VendorListPageSchema>;
+
+// ─── Supply Chain Summary ─────────────────────────────────────────────────────
+
+export const SupplyChainSummarySchema = z.object({
+  total_equipment_items: z.number().int(),
+  total_equipment_value_usd: z.number(),
+  at_risk_count: z.number().int(),
+  approved_vendor_count: z.number().int(),
+  vendor_count: z.number().int(),
+});
+export type SupplyChainSummary = z.infer<typeof SupplyChainSummarySchema>;
