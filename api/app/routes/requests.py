@@ -72,6 +72,13 @@ INTENT_TO_ADK_AGENT: dict[str, str] = {
     "pipeline":        "quill_sales",
     # Sprint 2A — Customer Success
     "customer_success": "quill_customer_success",
+    # Sprint 2B — Supply Chain
+    "supply_chain":    "quill_supply_chain",
+    "equipment":       "quill_supply_chain",
+    "vendor":          "quill_supply_chain",
+    "procurement":     "quill_supply_chain",
+    "lead_time":       "quill_supply_chain",
+    "delivery":        "quill_supply_chain",
 }
 
 log = logging.getLogger("quill.requests")
@@ -600,6 +607,9 @@ def classify_intent(message: str, filenames: list[str]) -> str:
     # Sprint 1B — Sales & Pipeline
     if any(w in text for w in ["customer", "deal", "pipeline", "prospect", "sales", "contract value", "arr", "annual recurring", "workload type", "mw required", "advance deal", "close deal", "qualified lead", "proposal sent", "win rate"]):
         return "sales"
+    # Sprint 2B — Supply Chain
+    if any(w in text for w in ["supply chain", "equipment", "vendor", "procurement", "lead time", "lead-time", "delivery", "generator", "switchgear", "ups system", "cooling unit", "at risk equipment", "at-risk equipment", "long lead", "long-lead"]):
+        return "supply_chain"
     return "general"
 
 
@@ -622,6 +632,13 @@ def _intent_label(intent: str) -> str:
         "sales": "Sales Agent",
         "pipeline": "Sales Agent",
         "customer_success": "Customer Success Agent",
+        # Sprint 2B — Supply Chain
+        "supply_chain": "Supply Chain Agent",
+        "equipment": "Supply Chain Agent",
+        "vendor": "Supply Chain Agent",
+        "procurement": "Supply Chain Agent",
+        "lead_time": "Supply Chain Agent",
+        "delivery": "Supply Chain Agent",
     }
     return labels.get(intent, "Agent")
 

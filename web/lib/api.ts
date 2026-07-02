@@ -130,10 +130,12 @@ import {
   EquipmentListPageSchema,
   VendorSchema,
   VendorListPageSchema,
+  SupplyChainSummarySchema,
   type Equipment,
   type EquipmentListPage,
   type Vendor,
   type VendorListPage,
+  type SupplyChainSummary,
 } from "@/lib/schemas";
 import { mockStore } from "@/lib/mock/store";
 
@@ -3040,8 +3042,11 @@ export function useUpdateVendor(id: string) {
 }
 
 /** GET /v1/supply-chain/summary */
+export function useSupplyChainSummary(opts?: UseQueryOptions<SupplyChainSummary | undefined>) {
+  return useQuery<SupplyChainSummary | undefined>({
     queryKey: ["supply-chain-summary"],
     queryFn: async () =>
+      apiFetch("/api/v1/supply-chain/summary", { schema: SupplyChainSummarySchema }),
     ...opts,
   });
 }
