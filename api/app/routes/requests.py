@@ -25,7 +25,9 @@ Auth: Bearer JWT (same as all other routes) + X-Agent-Secret for PATCH.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -45,19 +47,20 @@ from app.security import get_current_user, require_agent_secret
 
 _settings = get_settings()
 
-INTERNAL_API_URL: str = _settings.INTERNAL_API_URL
-DATASITE_URL: str = _settings.DATASITE_URL
+# ADK agents service URL — all intents route here via POST /invoke
+ADK_URL: str = os.environ.get("ADK_AGENTS_URL", _settings.INTERNAL_API_URL)
 
-AGENT_DISPATCH_MAP: dict[str, str | None] = {
-    "estimate": f"{INTERNAL_API_URL}/v1/agents/estimate",
-    "rfi": f"{INTERNAL_API_URL}/v1/agents/rfi",
-    "contract": f"{INTERNAL_API_URL}/v1/agents/contract",
-    "general": f"{INTERNAL_API_URL}/v1/agents/coordinator",
-    # DataSite intents — handled inline; None = no external endpoint call
-    "site_evaluation": None,
-    "site_research": None,
-    "site_scoring": None,
-    "site_status": None,
+# Maps intent → ADK agent name for POST /invoke
+INTENT_TO_ADK_AGENT: dict[str, str] = {
+    "estimate":        "quill_coordinator",
+    "schedule":        "quill_schedule_monitor",
+    "rfi":             "quill_rfi_triage",
+    "contract":        "quill_change_order",
+    "general":         "quill_coordinator",
+    "site_evaluation": "datasite_site_evaluator",
+    "site_research":   "datasite_site_researcher",
+    "site_scoring":    "datasite_site_scorer",
+    "site_status":     "datasite_site_status",
 }
 
 log = logging.getLogger("quill.requests")
@@ -174,12 +177,11 @@ def _parse_target_workload(text: str) -> str:
 
 
 async def _handle_datasite_inline(intent: str, message: str, user_id: str) -> str:
-    """Handle DataSite intents inline without an external HTTP call.
-
-    Returns a user-facing response string. Never raises — always returns a
-    meaningful message even on API errors.
+    """Legacy inline handler — kept for reference only. All DataSite intents
+    now route through ADK via _dispatch_to_agent. This function is no longer
+    called.
     """
-    quill_sites_url = f"{INTERNAL_API_URL}/v1/sites"
+    quill_sites_url = f"{ADK_URL}/v1/sites"
 
     if intent == "site_evaluation":
         parsed = _parse_address(message)
@@ -383,97 +385,114 @@ async def _dispatch_to_agent(
     drive_url: str | None,
     user_id: str,
 ) -> None:
-    """Async HTTP dispatcher — posts to the appropriate agent endpoint.
+    """Async HTTP dispatcher — routes all intents through ADK /invoke.
 
-    On success: calls PATCH /v1/requests/{id} internally to store the response.
-    On failure: marks the request as failed with the error message.
-    Wraps everything in try/except so a dispatch failure never crashes the caller.
+    All intents (PMO and DataSite) go to the ADK agents service via
+    POST {ADK_URL}/invoke with {agent, message, session_id}.
+
+    On success: stores the response in the DB and marks the request complete.
+    On failure: marks the request as failed.
+    Fire-and-forget: never raises — all exceptions are caught.
     """
-    import os
     from app.db import SessionLocal as async_session_maker  # noqa: N812
+    from app.models import AgentRegistration  # noqa: N812
 
-    # DataSite inline intents — handled here without an external HTTP call
-    if intent in ("site_evaluation", "site_research", "site_scoring", "site_status"):
-        response_text = await _handle_datasite_inline(intent, message, user_id)
-        try:
-            async with async_session_maker() as session:
-                record = await session.get(RequestRecord, request_id)
-                if record is not None:
-                    record.status = "complete"
-                    record.response = response_text
-                    record.output_module = "sites"
-                    record.updated_at = _utcnow()
-                    await session.commit()
-                    log.info("dispatch.datasite_inline request_id=%s intent=%s", request_id, intent)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("dispatch.datasite_inline_db_failed request_id=%s err=%s", request_id, exc)
-        return
+    # Look up which ADK agent handles this intent
+    agent_name = INTENT_TO_ADK_AGENT.get(intent, INTENT_TO_ADK_AGENT["general"])
+    adk_endpoint = f"{ADK_URL}/invoke"
 
-    endpoint = AGENT_DISPATCH_MAP.get(intent, AGENT_DISPATCH_MAP["general"])
-    payload = {
-        "request_id": request_id,
-        "intent": intent,
+    adk_payload = {
+        "agent": agent_name,
         "message": message,
-        "filenames": filenames,
-        "drive_url": drive_url,
-        "user_id": user_id,
-        "requested_at": _utcnow().isoformat(),
+        "session_id": request_id,
     }
 
     new_status = "failed"
     response_text: str | None = None
 
+    log.info(
+        "dispatch.adk request_id=%s intent=%s agent=%s",
+        request_id, intent, agent_name,
+    )
+
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            resp = await client.post(endpoint, json=payload)
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(adk_endpoint, json=adk_payload)
             if resp.status_code < 400:
                 new_status = "complete"
                 try:
                     body = resp.json()
-                    # If agent returns a stub / not-implemented marker, treat as processing
-                    if isinstance(body, dict) and body.get("status") == "agent_not_implemented":
-                        new_status = "processing"
-                        response_text = "Agent not yet implemented — request queued."
-                    else:
-                        response_text = json.dumps(body) if not isinstance(body, str) else body
+                    response_text = body.get("response", "") if isinstance(body, dict) else str(body)
                 except Exception:
                     response_text = resp.text[:2000]
             else:
-                response_text = f"Agent returned {resp.status_code}: {resp.text[:500]}"
+                response_text = f"ADK agent returned {resp.status_code}: {resp.text[:500]}"
                 new_status = "failed"
     except httpx.ConnectError as exc:
-        log.warning("dispatch.connect_error request_id=%s endpoint=%s err=%s", request_id, endpoint, exc)
-        response_text = f"Agent unreachable ({endpoint}): {exc}"
+        log.warning(
+            "dispatch.connect_error request_id=%s endpoint=%s err=%s",
+            request_id, adk_endpoint, exc,
+        )
+        response_text = f"ADK agent unreachable ({adk_endpoint}): {exc}"
+        new_status = "failed"
+    except httpx.TimeoutException as exc:
+        log.warning(
+            "dispatch.timeout request_id=%s agent=%s err=%s",
+            request_id, agent_name, exc,
+        )
+        response_text = f"ADK agent timed out after 120s (agent={agent_name})"
         new_status = "failed"
     except Exception as exc:  # noqa: BLE001
         log.exception("dispatch.unexpected_error request_id=%s", request_id)
         response_text = f"Unexpected dispatch error: {exc}"
         new_status = "failed"
 
-    # Skip DB update for processing state (agent will call PATCH when done)
-    if new_status == "processing":
-        log.info("dispatch.queued request_id=%s intent=%s", request_id, intent)
-        # Still write the marker file as a backup for the external coordinator
-        _write_dispatch_marker(request_id, intent, message, filenames, drive_url, user_id)
-        return
+    # Determine output_module for DataSite intents
+    output_module: str | None = None
+    if intent in ("site_evaluation", "site_research", "site_scoring", "site_status"):
+        output_module = "sites"
 
-    # Update the DB record directly (same process, share DB session)
+    # Update the DB record (fire-and-forget — never blocks or raises)
     try:
-        # Use a fresh session since we're in a background task
         async with async_session_maker() as session:
             record = await session.get(RequestRecord, request_id)
             if record is not None:
                 record.status = new_status
                 record.response = response_text
+                if output_module:
+                    record.output_module = output_module
                 record.updated_at = _utcnow()
                 await session.commit()
                 log.info(
-                    "dispatch.complete request_id=%s status=%s",
-                    request_id,
-                    new_status,
+                    "dispatch.complete request_id=%s intent=%s agent=%s status=%s",
+                    request_id, intent, agent_name, new_status,
                 )
     except Exception as exc:  # noqa: BLE001
         log.warning("dispatch.db_update_failed request_id=%s err=%s", request_id, exc)
+
+    # Fire-and-forget: update agent usage stats (never blocks or raises)
+    asyncio.create_task(
+        _update_agent_stats(agent_name, new_status)
+    )
+
+
+async def _update_agent_stats(agent_id: str, dispatch_status: str) -> None:
+    """Update AgentRegistration usage counters. Fire-and-forget — never raises."""
+    from app.db import SessionLocal as async_session_maker  # noqa: N812
+    from app.models import AgentRegistration
+    try:
+        async with async_session_maker() as session:
+            agent = await session.get(AgentRegistration, agent_id)
+            if agent is not None:
+                agent.requests_total = (agent.requests_total or 0) + 1
+                if dispatch_status == "complete":
+                    agent.requests_success = (agent.requests_success or 0) + 1
+                else:
+                    agent.requests_failed = (agent.requests_failed or 0) + 1
+                agent.last_invoked_at = _utcnow()
+                await session.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.debug("agent_stats.update_failed agent_id=%s err=%s", agent_id, exc)
 
 
 def _write_dispatch_marker(

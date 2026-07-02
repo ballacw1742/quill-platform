@@ -357,6 +357,22 @@ export function useSetTrustTier() {
   });
 }
 
+/** Sprint DC.4 — Toggle agent enabled/disabled via PATCH /v1/agents/{id}/toggle */
+export function useToggleAgent() {
+  const qc = useQueryClient();
+  return useMutation<Agent, Error, { agent_id: string }>({
+    mutationFn: async ({ agent_id }): Promise<Agent> => {
+      return (await apiFetch(`/api/v1/agents/${agent_id}/toggle`, {
+        method: "PATCH",
+        schema: AgentSchema,
+      })) as Agent;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["agents"] });
+    },
+  });
+}
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export function useHealth() {

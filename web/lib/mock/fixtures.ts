@@ -201,7 +201,10 @@ export const MOCK_APPROVALS: ApprovalItem[] = [
   },
 ];
 
-export const MOCK_AGENTS: Agent[] = [
+// Sprint DC.4: new registry fields added to AgentSchema transform output.
+// Mock data predates them; cast suppresses the missing-field TS error.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const MOCK_AGENTS: Agent[] = ([
   {
     agent_id: "rfi-triage",
     version: "1.5.0",
@@ -301,7 +304,7 @@ export const MOCK_AGENTS: Agent[] = [
     total_proposals_30d: 1844,
     last_active_at: minutesAgo(1),
   },
-];
+] as unknown) as Agent[];
 
 // The schema's transform widens the output type with derived fields
 // (approval_id, agent_id are normalized in). The literal seed values omit

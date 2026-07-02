@@ -211,7 +211,7 @@ class AuditMirrorClaim(Base):
 
 
 # ---------------------------------------------------------------------------
-# AgentRegistration — per-agent trust + budget
+# AgentRegistration — per-agent trust + budget + registry metadata
 # ---------------------------------------------------------------------------
 class AgentRegistration(Base):
     __tablename__ = "agent_registrations"
@@ -227,6 +227,18 @@ class AgentRegistration(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow
     )
+
+    # Sprint DC.4 — Agent Registry expansion
+    display_name: Mapped[str] = mapped_column(String(128), default="")
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    handled_intents: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array stored as text
+    framework: Mapped[str] = mapped_column(String(32), default="adk")  # adk | datasite | internal
+    endpoint_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    requests_total: Mapped[int] = mapped_column(Integer, default=0)
+    requests_success: Mapped[int] = mapped_column(Integer, default=0)
+    requests_failed: Mapped[int] = mapped_column(Integer, default=0)
+    last_invoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 # ---------------------------------------------------------------------------
