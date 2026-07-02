@@ -1608,3 +1608,191 @@ export const ProjectEstimateLinkListSchema = z.object({
   total: z.number().int(),
 });
 export type ProjectEstimateLinkList = z.infer<typeof ProjectEstimateLinkListSchema>;
+
+// ─── Facility Operations — Campuses ──────────────────────────────────────────
+// Sprint 1A — maps to /v1/campuses endpoints
+
+export const CAMPUS_STATUSES = ["commissioning", "live", "maintenance", "decommissioned"] as const;
+export type CampusStatus = typeof CAMPUS_STATUSES[number];
+
+export const INCIDENT_SEVERITIES = ["P1", "P2", "P3", "P4"] as const;
+export type IncidentSeverity = typeof INCIDENT_SEVERITIES[number];
+
+export const INCIDENT_STATUSES = ["open", "investigating", "resolved", "closed"] as const;
+export type IncidentStatus = typeof INCIDENT_STATUSES[number];
+
+export const METRIC_TYPES = ["pue", "uptime_pct", "power_mw", "temp_avg", "cooling_efficiency"] as const;
+export type MetricType = typeof METRIC_TYPES[number];
+
+export const CampusSchema = z.object({
+  id: z.string(),
+  project_id: z.string().nullable().optional(),
+  name: z.string(),
+  address: z.string().nullable().optional(),
+  mw_capacity: z.number().nullable().optional(),
+  mw_live: z.number().nullable().optional(),
+  status: z.string(),  // commissioning | live | maintenance | decommissioned
+  pue_target: z.number().nullable().optional(),
+  pue_current: z.number().nullable().optional(),
+  uptime_pct: z.number().nullable().optional(),
+  power_mw_current: z.number().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  active_p1_p2_count: z.number().int().default(0),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Campus = z.infer<typeof CampusSchema>;
+
+export const CampusListResponseSchema = z.object({
+  items: z.array(CampusSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type CampusListResponse = z.infer<typeof CampusListResponseSchema>;
+
+export const CampusIncidentSchema = z.object({
+  id: z.string(),
+  campus_id: z.string(),
+  severity: z.string(),  // P1 | P2 | P3 | P4
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  status: z.string(),  // open | investigating | resolved | closed
+  impact: z.string().nullable().optional(),
+  opened_at: z.string(),
+  resolved_at: z.string().nullable().optional(),
+  rca_notes: z.string().nullable().optional(),
+  created_by: z.string().nullable().optional(),
+  updated_at: z.string(),
+});
+export type CampusIncident = z.infer<typeof CampusIncidentSchema>;
+
+export const CampusIncidentListResponseSchema = z.object({
+  items: z.array(CampusIncidentSchema),
+  total: z.number().int(),
+});
+export type CampusIncidentListResponse = z.infer<typeof CampusIncidentListResponseSchema>;
+
+export const CampusMetricSchema = z.object({
+  id: z.string(),
+  campus_id: z.string(),
+  metric_type: z.string(),
+  value: z.number(),
+  unit: z.string().nullable().optional(),
+  recorded_at: z.string(),
+});
+export type CampusMetric = z.infer<typeof CampusMetricSchema>;
+
+export const CampusMetricListResponseSchema = z.object({
+  items: z.array(CampusMetricSchema),
+  total: z.number().int(),
+});
+export type CampusMetricListResponse = z.infer<typeof CampusMetricListResponseSchema>;
+
+// ─── Sprint 1B — Sales & Pipeline ────────────────────────────────────────────
+
+export const ACCOUNT_TYPES = ["prospect", "customer"] as const;
+export type AccountType = typeof ACCOUNT_TYPES[number];
+
+export const DEAL_STAGES = ["prospect", "qualified", "proposal", "negotiating", "won", "lost"] as const;
+export type DealStage = typeof DEAL_STAGES[number];
+
+export const WORKLOAD_TYPES = ["ai_hpc", "hyperscale", "enterprise_colo", "edge", "mixed"] as const;
+export type WorkloadType = typeof WORKLOAD_TYPES[number];
+
+export const ACTIVITY_TYPES = ["call", "email", "meeting", "proposal_sent", "contract_sent", "note"] as const;
+export type ActivityType = typeof ACTIVITY_TYPES[number];
+
+// ─── Account ──────────────────────────────────────────────────────────────────
+
+export const AccountSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  type: z.string(),  // prospect | customer
+  industry: z.string().nullable().optional(),
+  website: z.string().nullable().optional(),
+  hq_city: z.string().nullable().optional(),
+  hq_state: z.string().nullable().optional(),
+  primary_contact_name: z.string().nullable().optional(),
+  primary_contact_email: z.string().nullable().optional(),
+  primary_contact_phone: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Account = z.infer<typeof AccountSchema>;
+
+export const AccountListPageSchema = z.object({
+  items: z.array(AccountSchema),
+  total: z.number().int(),
+});
+export type AccountListPage = z.infer<typeof AccountListPageSchema>;
+
+// ─── Deal ─────────────────────────────────────────────────────────────────────
+
+export const DealSchema = z.object({
+  id: z.string(),
+  account_id: z.string(),
+  name: z.string(),
+  stage: z.string(),  // prospect | qualified | proposal | negotiating | won | lost
+  value_usd: z.number().nullable().optional(),
+  mw_required: z.number().nullable().optional(),
+  workload_type: z.string().nullable().optional(),
+  probability_pct: z.number().int().nullable().optional(),
+  expected_close: z.string().nullable().optional(),  // ISO date YYYY-MM-DD
+  campus_id: z.string().nullable().optional(),
+  project_id: z.string().nullable().optional(),
+  lost_reason: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Deal = z.infer<typeof DealSchema>;
+
+export const DealWithAccountSchema = DealSchema.extend({
+  account: AccountSchema,
+});
+export type DealWithAccount = z.infer<typeof DealWithAccountSchema>;
+
+export const DealListPageSchema = z.object({
+  items: z.array(DealSchema),
+  total: z.number().int(),
+});
+export type DealListPage = z.infer<typeof DealListPageSchema>;
+
+// ─── Deal Activity ────────────────────────────────────────────────────────────
+
+export const DealActivitySchema = z.object({
+  id: z.string(),
+  deal_id: z.string(),
+  activity_type: z.string(),  // call | email | meeting | proposal_sent | contract_sent | note
+  summary: z.string(),
+  created_by: z.string().nullable().optional(),
+  created_at: z.string(),
+});
+export type DealActivity = z.infer<typeof DealActivitySchema>;
+
+export const DealActivityListPageSchema = z.object({
+  items: z.array(DealActivitySchema),
+  total: z.number().int(),
+});
+export type DealActivityListPage = z.infer<typeof DealActivityListPageSchema>;
+
+// ─── Pipeline Summary ─────────────────────────────────────────────────────────
+
+export const StageStatsSchema = z.object({
+  stage: z.string(),
+  count: z.number().int(),
+  total_mw: z.number(),
+  total_value_usd: z.number(),
+});
+export type StageStats = z.infer<typeof StageStatsSchema>;
+
+export const PipelineSummarySchema = z.object({
+  stages: z.array(StageStatsSchema),
+  total_active_deals: z.number().int(),
+  total_active_mw: z.number(),
+  total_active_value_usd: z.number(),
+  win_rate_pct: z.number().nullable().optional(),
+});
+export type PipelineSummary = z.infer<typeof PipelineSummarySchema>;
