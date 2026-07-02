@@ -3282,3 +3282,477 @@ export function useAgentActivity(opts?: UseQueryOptions<AgentActivityList>) {
     ...opts,
   });
 }
+
+// =============================================================================
+// Sprint 4A — Compliance Register API hooks
+// =============================================================================
+
+import type {
+  ComplianceSummary,
+  Obligation,
+  ObligationListPage,
+  RegulatoryItem,
+  RegulatoryListPage,
+  InsurancePolicy,
+  InsuranceListPage,
+  Checklist,
+  ChecklistListPage,
+  ChecklistWithItems,
+  ChecklistItem,
+} from "@/lib/schemas";
+import {
+  ComplianceSummarySchema,
+  ObligationListPageSchema,
+  ObligationSchema,
+  RegulatoryListPageSchema,
+  RegulatoryItemSchema,
+  InsuranceListPageSchema,
+  InsurancePolicySchema,
+  ChecklistListPageSchema,
+  ChecklistSchema,
+  ChecklistWithItemsSchema,
+  ChecklistItemSchema,
+} from "@/lib/schemas";
+
+/** GET /v1/compliance/summary */
+export function useComplianceSummary(opts?: UseQueryOptions<ComplianceSummary | undefined>) {
+  return useQuery<ComplianceSummary | undefined>({
+    queryKey: ["compliance-summary"],
+    queryFn: async () =>
+      apiFetch("/api/v1/compliance/summary", { schema: ComplianceSummarySchema }),
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** GET /v1/compliance/obligations */
+export function useObligations(
+  statusFilter?: string,
+  contractId?: string,
+  opts?: UseQueryOptions<ObligationListPage | undefined>,
+) {
+  return useQuery<ObligationListPage | undefined>({
+    queryKey: ["compliance-obligations", statusFilter ?? "all", contractId ?? "all"],
+    queryFn: async () => {
+      const qs = new URLSearchParams();
+      if (statusFilter) qs.set("status", statusFilter);
+      if (contractId) qs.set("contract_id", contractId);
+      const qStr = qs.toString();
+      return apiFetch(`/api/v1/compliance/obligations${qStr ? `?${qStr}` : ""}`, {
+        schema: ObligationListPageSchema,
+      });
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/compliance/obligations */
+export function useCreateObligation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch("/api/v1/compliance/obligations", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ObligationSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-obligations"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/compliance/obligations/{id} */
+export function useUpdateObligation(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch(`/api/v1/compliance/obligations/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: ObligationSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-obligations"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** GET /v1/compliance/regulatory */
+export function useRegulatoryItems(
+  statusFilter?: string,
+  jurisdiction?: string,
+  opts?: UseQueryOptions<RegulatoryListPage | undefined>,
+) {
+  return useQuery<RegulatoryListPage | undefined>({
+    queryKey: ["compliance-regulatory", statusFilter ?? "all", jurisdiction ?? "all"],
+    queryFn: async () => {
+      const qs = new URLSearchParams();
+      if (statusFilter) qs.set("status", statusFilter);
+      if (jurisdiction) qs.set("jurisdiction", jurisdiction);
+      const qStr = qs.toString();
+      return apiFetch(`/api/v1/compliance/regulatory${qStr ? `?${qStr}` : ""}`, {
+        schema: RegulatoryListPageSchema,
+      });
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/compliance/regulatory */
+export function useCreateRegulatoryItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch("/api/v1/compliance/regulatory", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: RegulatoryItemSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-regulatory"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/compliance/regulatory/{id} */
+export function useUpdateRegulatoryItem(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch(`/api/v1/compliance/regulatory/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: RegulatoryItemSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-regulatory"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** GET /v1/compliance/insurance */
+export function useInsurancePolicies(
+  statusFilter?: string,
+  opts?: UseQueryOptions<InsuranceListPage | undefined>,
+) {
+  return useQuery<InsuranceListPage | undefined>({
+    queryKey: ["compliance-insurance", statusFilter ?? "all"],
+    queryFn: async () => {
+      const qs = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : "";
+      return apiFetch(`/api/v1/compliance/insurance${qs}`, {
+        schema: InsuranceListPageSchema,
+      });
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/compliance/insurance */
+export function useCreateInsurancePolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch("/api/v1/compliance/insurance", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: InsurancePolicySchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-insurance"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/compliance/insurance/{id} */
+export function useUpdateInsurancePolicy(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch(`/api/v1/compliance/insurance/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: InsurancePolicySchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-insurance"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** GET /v1/compliance/checklists */
+export function useChecklists(
+  framework?: string,
+  statusFilter?: string,
+  opts?: UseQueryOptions<ChecklistListPage | undefined>,
+) {
+  return useQuery<ChecklistListPage | undefined>({
+    queryKey: ["compliance-checklists", framework ?? "all", statusFilter ?? "all"],
+    queryFn: async () => {
+      const qs = new URLSearchParams();
+      if (framework) qs.set("framework", framework);
+      if (statusFilter) qs.set("status", statusFilter);
+      const qStr = qs.toString();
+      return apiFetch(`/api/v1/compliance/checklists${qStr ? `?${qStr}` : ""}`, {
+        schema: ChecklistListPageSchema,
+      });
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/compliance/checklists */
+export function useCreateChecklist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch("/api/v1/compliance/checklists", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ChecklistSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-checklists"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** GET /v1/compliance/checklists/{id} */
+export function useChecklistDetail(
+  checklistId: string,
+  opts?: UseQueryOptions<ChecklistWithItems | undefined>,
+) {
+  return useQuery<ChecklistWithItems | undefined>({
+    queryKey: ["compliance-checklist", checklistId],
+    queryFn: async () =>
+      apiFetch(`/api/v1/compliance/checklists/${encodeURIComponent(checklistId)}`, {
+        schema: ChecklistWithItemsSchema,
+      }),
+    staleTime: 30_000,
+    ...opts,
+  });
+}
+
+/** PATCH /v1/compliance/checklists/{id}/items/{item_id} */
+export function useUpdateChecklistItem(checklistId: string, itemId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { checked?: boolean; evidence_url?: string; notes?: string }) =>
+      apiFetch(
+        `/api/v1/compliance/checklists/${encodeURIComponent(checklistId)}/items/${encodeURIComponent(itemId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(body),
+          schema: ChecklistItemSchema,
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-checklist", checklistId] });
+      qc.invalidateQueries({ queryKey: ["compliance-checklists"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+// =============================================================================
+// Sprint 4B — Customer Portal API hooks
+// =============================================================================
+//
+// Portal uses a SEPARATE session token stored as `portal_session_token`.
+// All portal hooks go through `portalFetch` so they never mix credentials
+// with the internal Quill app.
+
+function getPortalToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem("portal_session_token");
+}
+
+export function setPortalToken(token: string | null) {
+  if (typeof window === "undefined") return;
+  if (token) window.localStorage.setItem("portal_session_token", token);
+  else window.localStorage.removeItem("portal_session_token");
+}
+
+async function portalFetch<T>(
+  path: string,
+  opts: RequestInit & { schema?: z.ZodType<T> } = {},
+): Promise<T> {
+  const token = getPortalToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts.headers || {}),
+    },
+    ...opts,
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new ApiError(res.status, text || res.statusText);
+  }
+  if (res.status === 204) return undefined as unknown as T;
+  const data = await res.json();
+  return opts.schema ? opts.schema.parse(data) : (data as T);
+}
+
+// ---- Portal types (inline — no schema file dependency needed for portal) ----
+
+export interface PortalMe {
+  account_id: string;
+  name: string;
+  email: string | null;
+  linked_campus_id: string | null;
+  linked_campus_name: string | null;
+  linked_deal_id: string | null;
+}
+
+export interface PortalUptime {
+  campus_id: string | null;
+  campus_name: string | null;
+  uptime_pct: number | null;
+  status: string | null;
+  mw_capacity: number | null;
+  mw_live: number | null;
+  message: string | null;
+}
+
+export interface PortalTicket {
+  id: string;
+  title: string;
+  description: string | null;
+  severity: string;
+  status: string;
+  resolution_notes: string | null;
+  created_at: string;
+  updated_at: string;
+  resolved_at: string | null;
+}
+
+export interface PortalTicketList {
+  items: PortalTicket[];
+  total: number;
+}
+
+export interface PortalInvoice {
+  id: string;
+  invoice_number: string | null;
+  amount_usd: number;
+  status: string;
+  issue_date: string;
+  due_date: string;
+  paid_date: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface PortalInvoiceList {
+  items: PortalInvoice[];
+  total: number;
+}
+
+export interface PortalUsage {
+  campus_name: string | null;
+  contracted_mw: number | null;
+  status: string;
+  message: string;
+}
+
+// ---- Portal hooks ----
+
+/** GET /v1/portal/me — customer profile + linked campus/deal */
+export function usePortalMe(opts?: UseQueryOptions<PortalMe>) {
+  return useQuery<PortalMe>({
+    queryKey: ["portal-me"],
+    queryFn: async () => portalFetch<PortalMe>("/api/v1/portal/me"),
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** GET /v1/portal/uptime — campus uptime for the customer */
+export function usePortalUptime(opts?: UseQueryOptions<PortalUptime>) {
+  return useQuery<PortalUptime>({
+    queryKey: ["portal-uptime"],
+    queryFn: async () => portalFetch<PortalUptime>("/api/v1/portal/uptime"),
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** GET /v1/portal/tickets?status= — customer's own tickets */
+export function usePortalTickets(statusFilter?: string, opts?: UseQueryOptions<PortalTicketList>) {
+  return useQuery<PortalTicketList>({
+    queryKey: ["portal-tickets", statusFilter],
+    queryFn: async () => {
+      const qs = statusFilter ? `?status=${statusFilter}` : "";
+      return portalFetch<PortalTicketList>(`/api/v1/portal/tickets${qs}`);
+    },
+    staleTime: 30_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/portal/tickets — submit a new ticket */
+export function useCreatePortalTicket() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { title: string; severity: string; description?: string }) =>
+      portalFetch<PortalTicket>("/api/v1/portal/tickets", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["portal-tickets"] });
+    },
+  });
+}
+
+/** PATCH /v1/portal/tickets/{id} — add a comment to own ticket */
+export function usePatchPortalTicket(ticketId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { comment: string }) =>
+      portalFetch<PortalTicket>(`/api/v1/portal/tickets/${ticketId}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["portal-tickets"] });
+    },
+  });
+}
+
+/** GET /v1/portal/invoices?status= — customer's own invoices */
+export function usePortalInvoices(statusFilter?: string, opts?: UseQueryOptions<PortalInvoiceList>) {
+  return useQuery<PortalInvoiceList>({
+    queryKey: ["portal-invoices", statusFilter],
+    queryFn: async () => {
+      const qs = statusFilter && statusFilter !== "all" ? `?status=${statusFilter}` : "";
+      return portalFetch<PortalInvoiceList>(`/api/v1/portal/invoices${qs}`);
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** GET /v1/portal/usage — usage stub */
+export function usePortalUsage(opts?: UseQueryOptions<PortalUsage>) {
+  return useQuery<PortalUsage>({
+    queryKey: ["portal-usage"],
+    queryFn: async () => portalFetch<PortalUsage>("/api/v1/portal/usage"),
+    staleTime: 300_000,
+    ...opts,
+  });
+}

@@ -3,6 +3,7 @@
 Endpoints:
     POST /v1/auth/register                       (dev-only fallback, gated)
     POST /v1/auth/login                          (dev-only fallback, gated)
+    POST /v1/auth/portal-login                   (Sprint 4B — customer portal)
     GET  /v1/auth/me
     POST /v1/auth/passkey/register/begin
     POST /v1/auth/passkey/register/complete
@@ -20,6 +21,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +29,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.enums import UserRole
 from app.models import User, WebAuthnCredential
+from app.models_pipeline import Account
 from app.schemas import (
     ActionAssertionOut,
     LoginRequest,
@@ -114,6 +117,74 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> Token
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(get_current_user)) -> UserOut:
     return UserOut.model_validate(user)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 4B — Customer Portal login
+# ---------------------------------------------------------------------------
+
+class PortalTokenOut(BaseModel):
+    """Slimmer token payload for the customer portal."""
+    access_token: str
+    token_type: str = "bearer"
+    account_id: str
+
+
+@router.post(
+    "/portal-login",
+    response_model=PortalTokenOut,
+    summary="Customer portal email/password login.",
+)
+async def portal_login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> PortalTokenOut:
+    """Authenticate a customer account (type=customer) and return a portal JWT.
+
+    Returns 403 if the matching account exists but has type != 'customer'.
+    Returns 401 for invalid credentials (email not found or wrong password).
+    """
+    from datetime import timedelta
+    from jose import jwt as _jwt
+    from app.security import verify_password, ALGO
+
+    # Look up matching account by primary_contact_email
+    res = await db.execute(
+        select(Account).where(Account.primary_contact_email == body.email)
+    )
+    account = res.scalars().first()
+
+    if account is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+
+    # Check account type before doing any password work
+    if account.type == "prospect":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Account not yet activated as a customer.",
+        )
+    if account.type != "customer":
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Portal access restricted to customers.")
+
+    # Accounts use primary_contact_email for login. For password we look up
+    # the matching User by email, since passwords live on User records.
+    # Fallback: if no User record exists, the account has no portal password yet.
+    user_res = await db.execute(select(User).where(User.email == body.email))
+    user = user_res.scalars().first()
+    if user is None or not user.password_hash or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid credentials")
+
+    # Issue a portal-scoped JWT (sub = account.id, role = customer)
+    import uuid as _uuid
+    now = datetime.now(UTC)
+    token_ttl = timedelta(hours=12)
+    payload = {
+        "sub": account.id,
+        "email": account.primary_contact_email,
+        "role": "customer",
+        "account_id": account.id,
+        "iat": int(now.timestamp()),
+        "exp": int((now + token_ttl).timestamp()),
+    }
+    token = _jwt.encode(payload, _settings.SECRET_KEY, algorithm=ALGO)
+    return PortalTokenOut(access_token=token, account_id=account.id)
 
 
 # ---------------------------------------------------------------------------

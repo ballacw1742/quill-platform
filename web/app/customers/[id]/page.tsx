@@ -490,6 +490,49 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
         )}
       </div>
 
+      {/* Portal Access — Sprint 4B */}
+      <p className="text-footnote font-semibold text-label-tertiary uppercase tracking-wide mb-2 mt-4">Portal Access</p>
+      <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-3 mb-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <span
+            className={`text-caption-1 font-semibold rounded-full px-2 py-0.5 ${
+              customer.type === "customer"
+                ? "bg-green-500/20 text-green-400"
+                : "bg-yellow-500/20 text-yellow-400"
+            }`}
+          >
+            {customer.type === "customer" ? "Portal Access Enabled" : "Portal Access Not Active"}
+          </span>
+        </div>
+        {customer.type === "customer" && (
+          <>
+            <div>
+              <p className="text-caption-1 text-label-secondary">Login Email</p>
+              <p className="text-body text-label-primary font-medium">
+                {customer.primary_contact_email ?? "—"}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard
+                  .writeText("https://quillpm.com/portal/login")
+                  .then(() => alert("Portal URL copied!"))
+                  .catch(() => {});
+              }}
+              className="flex items-center gap-1.5 text-caption-1 font-semibold text-accent bg-accent/10 rounded-full px-3 py-1.5 active:scale-95"
+            >
+              Copy Portal Login URL
+            </button>
+          </>
+        )}
+        {customer.type !== "customer" && (
+          <p className="text-caption-1 text-label-tertiary">
+            Set account type to &ldquo;Customer&rdquo; to enable portal access.
+          </p>
+        )}
+      </div>
+
       {/* Save */}
       <button
         type="button"
