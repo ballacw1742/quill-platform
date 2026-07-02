@@ -1983,3 +1983,121 @@ export const SupplyChainSummarySchema = z.object({
   vendor_count: z.number().int(),
 });
 export type SupplyChainSummary = z.infer<typeof SupplyChainSummarySchema>;
+
+// ─── Finance — Sprint 3A ──────────────────────────────────────────────────────
+
+export const BUDGET_CATEGORIES = [
+  "land", "construction", "equipment", "opex", "contingency", "other",
+] as const;
+export type BudgetCategory = typeof BUDGET_CATEGORIES[number];
+
+export const INVOICE_STATUSES = [
+  "draft", "sent", "paid", "overdue", "cancelled",
+] as const;
+export type InvoiceStatus = typeof INVOICE_STATUSES[number];
+
+export const FinanceSummarySchema = z.object({
+  total_arr_usd: z.number(),
+  total_pipeline_value_usd: z.number(),
+  total_capex_committed_usd: z.number(),
+  total_project_budget_usd: z.number(),
+  total_project_forecast_usd: z.number(),
+  budget_variance_usd: z.number(),
+  total_outstanding_invoices_usd: z.number(),
+  overdue_invoices_count: z.number().int(),
+});
+export type FinanceSummary = z.infer<typeof FinanceSummarySchema>;
+
+export const ArrLineSchema = z.object({
+  deal_id: z.string(),
+  deal_name: z.string(),
+  account_id: z.string(),
+  account_name: z.string(),
+  value_usd: z.number().nullable().optional(),
+  mw_required: z.number().nullable().optional(),
+  campus_id: z.string().nullable().optional(),
+});
+export type ArrLine = z.infer<typeof ArrLineSchema>;
+
+export const ArrResponseSchema = z.object({
+  items: z.array(ArrLineSchema),
+  total: z.number().int(),
+});
+export type ArrResponse = z.infer<typeof ArrResponseSchema>;
+
+export const CapexLineSchema = z.object({
+  project_id: z.string(),
+  project_name: z.string(),
+  budget_usd: z.number().nullable().optional(),
+  committed_usd: z.number().nullable().optional(),
+  forecast_usd: z.number().nullable().optional(),
+  equipment_total_usd: z.number(),
+});
+export type CapexLine = z.infer<typeof CapexLineSchema>;
+
+export const CapexResponseSchema = z.object({
+  items: z.array(CapexLineSchema),
+  total: z.number().int(),
+});
+export type CapexResponse = z.infer<typeof CapexResponseSchema>;
+
+export const BudgetLineSchema = z.object({
+  id: z.string(),
+  project_id: z.string().nullable().optional(),
+  category: z.string(),
+  description: z.string(),
+  budget_usd: z.number(),
+  committed_usd: z.number(),
+  actual_usd: z.number(),
+  period: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type BudgetLine = z.infer<typeof BudgetLineSchema>;
+
+export const BudgetLineListSchema = z.object({
+  items: z.array(BudgetLineSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type BudgetLineList = z.infer<typeof BudgetLineListSchema>;
+
+export const InvoiceSchema = z.object({
+  id: z.string(),
+  account_id: z.string().nullable().optional(),
+  deal_id: z.string().nullable().optional(),
+  invoice_number: z.string().nullable().optional(),
+  amount_usd: z.number(),
+  status: z.string(),
+  issue_date: z.string(),
+  due_date: z.string(),
+  paid_date: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Invoice = z.infer<typeof InvoiceSchema>;
+
+export const InvoiceListSchema = z.object({
+  items: z.array(InvoiceSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type InvoiceList = z.infer<typeof InvoiceListSchema>;
+
+export const AgingBucketSchema = z.object({
+  label: z.string(),
+  count: z.number().int(),
+  total_usd: z.number(),
+});
+export type AgingBucket = z.infer<typeof AgingBucketSchema>;
+
+export const ArAgingSchema = z.object({
+  buckets: z.array(AgingBucketSchema),
+  total_outstanding_usd: z.number(),
+  overdue_invoices_count: z.number().int(),
+});
+export type ArAging = z.infer<typeof ArAgingSchema>;
