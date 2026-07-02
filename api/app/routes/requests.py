@@ -79,6 +79,13 @@ INTENT_TO_ADK_AGENT: dict[str, str] = {
     "procurement":     "quill_supply_chain",
     "lead_time":       "quill_supply_chain",
     "delivery":        "quill_supply_chain",
+    # Sprint 3B — Executive Intelligence
+    "intelligence":    "quill_intelligence",
+    "brief":           "quill_intelligence",
+    "overview":        "quill_intelligence",
+    "summary":         "quill_intelligence",
+    "kpi":             "quill_intelligence",
+    "dashboard":       "quill_intelligence",
 }
 
 log = logging.getLogger("quill.requests")
@@ -610,6 +617,12 @@ def classify_intent(message: str, filenames: list[str]) -> str:
     # Sprint 2B — Supply Chain
     if any(w in text for w in ["supply chain", "equipment", "vendor", "procurement", "lead time", "lead-time", "delivery", "generator", "switchgear", "ups system", "cooling unit", "at risk equipment", "at-risk equipment", "long lead", "long-lead"]):
         return "supply_chain"
+    # Sprint 3B — Executive Intelligence (check last, broad terms)
+    if any(w in text for w in ["intelligence", "dashboard", "kpi", "brief", "morning brief", "scorecard", "how is the company", "company overview", "portfolio overview", "portfolio summary", "overall status"]):
+        return "intelligence"
+    if "overview" in text or "summary" in text:
+        if any(w in text for w in ["company", "portfolio", "all modules", "all divisions", "across", "executive"]):
+            return "intelligence"
     return "general"
 
 
@@ -639,6 +652,13 @@ def _intent_label(intent: str) -> str:
         "procurement": "Supply Chain Agent",
         "lead_time": "Supply Chain Agent",
         "delivery": "Supply Chain Agent",
+        # Sprint 3B — Executive Intelligence
+        "intelligence": "Intelligence Agent",
+        "brief": "Intelligence Agent",
+        "overview": "Intelligence Agent",
+        "summary": "Intelligence Agent",
+        "kpi": "Intelligence Agent",
+        "dashboard": "Intelligence Agent",
     }
     return labels.get(intent, "Agent")
 

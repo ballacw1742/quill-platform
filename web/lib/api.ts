@@ -136,6 +136,32 @@ import {
   type Vendor,
   type VendorListPage,
   type SupplyChainSummary,
+  // Sprint 3A — Finance
+  FinanceSummarySchema,
+  ArrResponseSchema,
+  CapexResponseSchema,
+  BudgetLineSchema,
+  BudgetLineListSchema,
+  InvoiceSchema,
+  InvoiceListSchema,
+  ArAgingSchema,
+  type FinanceSummary,
+  type ArrResponse,
+  type CapexResponse,
+  type BudgetLine,
+  type BudgetLineList,
+  type Invoice,
+  type InvoiceList,
+  type ArAging,
+  // Sprint 3B — Intelligence
+  KpiSnapshotSchema,
+  ExceptionListSchema,
+  BriefSchema,
+  AgentActivityListSchema,
+  type KpiSnapshot,
+  type ExceptionList,
+  type Brief,
+  type AgentActivityList,
 } from "@/lib/schemas";
 import { mockStore } from "@/lib/mock/store";
 
@@ -3057,6 +3083,202 @@ export function useAtRiskEquipment(opts?: UseQueryOptions<EquipmentListPage | un
     queryKey: ["at-risk-equipment"],
     queryFn: async () =>
       apiFetch("/api/v1/supply-chain/at-risk", { schema: EquipmentListPageSchema }),
+    ...opts,
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Finance API hooks — Sprint 3A
+// ───────────────────────────────────────────────────────────────────────────
+
+/** GET /v1/finance/summary */
+export function useFinanceSummary(opts?: UseQueryOptions<FinanceSummary | undefined>) {
+  return useQuery<FinanceSummary | undefined>({
+    queryKey: ["finance-summary"],
+    queryFn: async () =>
+      apiFetch("/api/v1/finance/summary", { schema: FinanceSummarySchema }),
+    ...opts,
+  });
+}
+
+/** GET /v1/finance/arr */
+export function useArrBreakdown(opts?: UseQueryOptions<ArrResponse | undefined>) {
+  return useQuery<ArrResponse | undefined>({
+    queryKey: ["finance-arr"],
+    queryFn: async () =>
+      apiFetch("/api/v1/finance/arr", { schema: ArrResponseSchema }),
+    ...opts,
+  });
+}
+
+/** GET /v1/finance/capex */
+export function useCapexBreakdown(opts?: UseQueryOptions<CapexResponse | undefined>) {
+  return useQuery<CapexResponse | undefined>({
+    queryKey: ["finance-capex"],
+    queryFn: async () =>
+      apiFetch("/api/v1/finance/capex", { schema: CapexResponseSchema }),
+    ...opts,
+  });
+}
+
+/** GET /v1/finance/budget-lines */
+export function useBudgetLines(
+  projectId?: string | null,
+  opts?: UseQueryOptions<BudgetLineList | undefined>,
+) {
+  return useQuery<BudgetLineList | undefined>({
+    queryKey: ["budget-lines", projectId ?? "all"],
+    queryFn: async () => {
+      const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+      return apiFetch(`/api/v1/finance/budget-lines${qs}`, { schema: BudgetLineListSchema });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/finance/budget-lines */
+export function useCreateBudgetLine() {
+  const qc = useQueryClient();
+  return useMutation<BudgetLine, Error, Partial<BudgetLine>>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/finance/budget-lines", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: BudgetLineSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budget-lines"] });
+      qc.invalidateQueries({ queryKey: ["finance-summary"] });
+      qc.invalidateQueries({ queryKey: ["finance-capex"] });
+    },
+  });
+}
+
+/** PATCH /v1/finance/budget-lines/{id} */
+export function useUpdateBudgetLine(id: string) {
+  const qc = useQueryClient();
+  return useMutation<BudgetLine, Error, Partial<BudgetLine>>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/finance/budget-lines/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: BudgetLineSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budget-lines"] });
+      qc.invalidateQueries({ queryKey: ["finance-summary"] });
+      qc.invalidateQueries({ queryKey: ["finance-capex"] });
+    },
+  });
+}
+
+/** GET /v1/finance/invoices */
+export function useInvoices(
+  accountId?: string | null,
+  statusFilter?: string | null,
+  opts?: UseQueryOptions<InvoiceList | undefined>,
+) {
+  return useQuery<InvoiceList | undefined>({
+    queryKey: ["invoices", accountId ?? "all", statusFilter ?? "all"],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (accountId) params.set("account_id", accountId);
+      if (statusFilter) params.set("status", statusFilter);
+      const qs = params.toString() ? `?${params.toString()}` : "";
+      return apiFetch(`/api/v1/finance/invoices${qs}`, { schema: InvoiceListSchema });
+    },
+    ...opts,
+  });
+}
+
+/** POST /v1/finance/invoices */
+export function useCreateInvoice() {
+  const qc = useQueryClient();
+  return useMutation<Invoice, Error, Partial<Invoice>>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/finance/invoices", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: InvoiceSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["finance-summary"] });
+      qc.invalidateQueries({ queryKey: ["finance-ar-aging"] });
+    },
+  });
+}
+
+/** PATCH /v1/finance/invoices/{id} */
+export function useUpdateInvoice(id: string) {
+  const qc = useQueryClient();
+  return useMutation<Invoice, Error, Partial<Invoice>>({
+    mutationFn: async (body) =>
+      apiFetch(`/api/v1/finance/invoices/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: InvoiceSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["finance-summary"] });
+      qc.invalidateQueries({ queryKey: ["finance-ar-aging"] });
+    },
+  });
+}
+
+/** GET /v1/finance/invoices/aging */
+export function useArAging(opts?: UseQueryOptions<ArAging | undefined>) {
+  return useQuery<ArAging | undefined>({
+    queryKey: ["finance-ar-aging"],
+    queryFn: async () =>
+      apiFetch("/api/v1/finance/invoices/aging", { schema: ArAgingSchema }),
+    ...opts,
+  });
+}
+
+// ─── Intelligence — Sprint 3B ─────────────────────────────────────────────────
+
+/** GET /v1/intelligence/kpis — company-wide KPI snapshot */
+export function useKpis(opts?: UseQueryOptions<KpiSnapshot>) {
+  return useQuery<KpiSnapshot>({
+    queryKey: ["intelligence-kpis"],
+    queryFn: async () =>
+      apiFetch("/api/v1/intelligence/kpis", { schema: KpiSnapshotSchema }),
+    staleTime: 60_000, // 1 min — KPIs are expensive to compute
+    ...opts,
+  });
+}
+
+/** GET /v1/intelligence/exceptions — cross-module exception feed */
+export function useExceptions(opts?: UseQueryOptions<ExceptionList>) {
+  return useQuery<ExceptionList>({
+    queryKey: ["intelligence-exceptions"],
+    queryFn: async () =>
+      apiFetch("/api/v1/intelligence/exceptions", { schema: ExceptionListSchema }),
+    staleTime: 30_000,
+    ...opts,
+  });
+}
+
+/** GET /v1/intelligence/brief — structured morning brief */
+export function useBrief(opts?: UseQueryOptions<Brief>) {
+  return useQuery<Brief>({
+    queryKey: ["intelligence-brief"],
+    queryFn: async () =>
+      apiFetch("/api/v1/intelligence/brief", { schema: BriefSchema }),
+    staleTime: 300_000, // 5 min
+    ...opts,
+  });
+}
+
+/** GET /v1/intelligence/activity — recent agent activity (last 24h) */
+export function useAgentActivity(opts?: UseQueryOptions<AgentActivityList>) {
+  return useQuery<AgentActivityList>({
+    queryKey: ["intelligence-activity"],
+    queryFn: async () =>
+      apiFetch("/api/v1/intelligence/activity", { schema: AgentActivityListSchema }),
+    staleTime: 60_000,
     ...opts,
   });
 }
