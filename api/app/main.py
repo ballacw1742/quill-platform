@@ -23,12 +23,14 @@ from app import models_customers as _models_customers  # noqa: F401 — register
 from app import models_operations as _models_operations  # noqa: F401 — registers operations ORM models with Base.metadata
 from app import models_supply_chain as _models_supply_chain  # noqa: F401 — registers supply chain ORM models with Base.metadata
 from app import models_finance as _models_finance  # noqa: F401 — registers finance ORM models with Base.metadata
+from app import models_compliance as _models_compliance  # noqa: F401 — registers compliance ORM models with Base.metadata
 from app.routes import admin, approvals, audit, auth, contracts, dev_chat, documents, estimates, realtime, requests as requests_routes, sites as sites_routes, projects as projects_routes
 from app.routes import pipeline as pipeline_routes, operations as operations_routes
 from app.routes import customers as customers_routes
 from app.routes import supply_chain as supply_chain_routes
 from app.routes import intelligence as intelligence_routes
 from app.routes import finance as finance_routes
+from app.routes import compliance as compliance_routes
 from app.services import sentry as sentry_svc
 from app.services.audit_mirror import get_mirror
 from app.services.sla import run_forever as sla_run_forever
@@ -138,4 +140,5 @@ app.include_router(customers_routes.router)  # Sprint 2A — Customer Success mo
 app.include_router(supply_chain_routes.router)  # Sprint 2B — Supply Chain module
 app.include_router(intelligence_routes.router)   # Sprint 3B — Executive Intelligence
 app.include_router(finance_routes.router)  # Sprint 3A — Finance module
+app.include_router(compliance_routes.router)  # Sprint 4A — Compliance Register
 # Sprint DC.4: Agent Registry routes are in admin.py (GET/PATCH /v1/agents). Seed on startup via lifespan.

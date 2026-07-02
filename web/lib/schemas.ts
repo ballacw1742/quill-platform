@@ -2174,3 +2174,184 @@ export const AgentActivityListSchema = z.object({
   window_hours: z.number().int(),
 });
 export type AgentActivityList = z.infer<typeof AgentActivityListSchema>;
+
+// ─── Compliance Register — Sprint 4A ─────────────────────────────────────────
+
+export const OBLIGATION_TYPES = [
+  "payment", "notice", "reporting", "renewal", "termination", "other",
+] as const;
+export type ObligationType = typeof OBLIGATION_TYPES[number];
+
+export const OBLIGATION_STATUSES = ["open", "complete", "overdue", "waived"] as const;
+export type ObligationStatus = typeof OBLIGATION_STATUSES[number];
+
+export const RECURRENCES = ["one_time", "monthly", "quarterly", "annual"] as const;
+export type Recurrence = typeof RECURRENCES[number];
+
+export const REGULATORY_FRAMEWORKS = [
+  "ferc", "nerc", "epa", "fisma", "soc2", "iso27001", "gdpr", "ccpa", "state", "other",
+] as const;
+export type RegulatoryFramework = typeof REGULATORY_FRAMEWORKS[number];
+
+export const REGULATORY_STATUSES = ["open", "complete", "in_progress", "waived"] as const;
+export type RegulatoryStatus = typeof REGULATORY_STATUSES[number];
+
+export const INSURANCE_TYPES = [
+  "property", "casualty", "directors_officers", "cyber",
+  "builders_risk", "professional", "other",
+] as const;
+export type InsuranceType = typeof INSURANCE_TYPES[number];
+
+export const INSURANCE_STATUSES = ["active", "expiring", "expired", "cancelled"] as const;
+export type InsuranceStatus = typeof INSURANCE_STATUSES[number];
+
+export const CHECKLIST_FRAMEWORKS = ["soc2", "iso27001", "fisma", "nist", "custom"] as const;
+export type ChecklistFramework = typeof CHECKLIST_FRAMEWORKS[number];
+
+export const CHECKLIST_STATUSES = ["active", "complete", "archived"] as const;
+export type ChecklistStatus = typeof CHECKLIST_STATUSES[number];
+
+// ── Obligation ──────────────────────────────────────────────────────────────
+export const ObligationSchema = z.object({
+  id: z.string(),
+  contract_id: z.string().nullable().optional(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  obligation_type: z.string(),
+  due_date: z.string().nullable().optional(),
+  recurrence: z.string().nullable().optional(),
+  status: z.string(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Obligation = z.infer<typeof ObligationSchema>;
+
+export const ObligationListPageSchema = z.object({
+  items: z.array(ObligationSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type ObligationListPage = z.infer<typeof ObligationListPageSchema>;
+
+// ── Regulatory item ─────────────────────────────────────────────────────────
+export const RegulatoryItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  framework: z.string(),
+  jurisdiction: z.string().nullable().optional(),
+  due_date: z.string().nullable().optional(),
+  recurrence: z.string().nullable().optional(),
+  status: z.string(),
+  responsible_party: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type RegulatoryItem = z.infer<typeof RegulatoryItemSchema>;
+
+export const RegulatoryListPageSchema = z.object({
+  items: z.array(RegulatoryItemSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type RegulatoryListPage = z.infer<typeof RegulatoryListPageSchema>;
+
+// ── Insurance policy ────────────────────────────────────────────────────────
+export const InsurancePolicySchema = z.object({
+  id: z.string(),
+  policy_name: z.string(),
+  policy_type: z.string(),
+  carrier: z.string().nullable().optional(),
+  policy_number: z.string().nullable().optional(),
+  coverage_amount_usd: z.number().nullable().optional(),
+  premium_annual_usd: z.number().nullable().optional(),
+  effective_date: z.string().nullable().optional(),
+  expiry_date: z.string().nullable().optional(),
+  status: z.string(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type InsurancePolicy = z.infer<typeof InsurancePolicySchema>;
+
+export const InsuranceListPageSchema = z.object({
+  items: z.array(InsurancePolicySchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type InsuranceListPage = z.infer<typeof InsuranceListPageSchema>;
+
+// ── Checklist ───────────────────────────────────────────────────────────────
+export const ChecklistItemSchema = z.object({
+  id: z.string(),
+  checklist_id: z.string(),
+  control_id: z.string().nullable().optional(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  checked: z.boolean(),
+  checked_at: z.string().nullable().optional(),
+  evidence_url: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ChecklistItem = z.infer<typeof ChecklistItemSchema>;
+
+export const ChecklistSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  framework: z.string(),
+  campus_id: z.string().nullable().optional(),
+  status: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Checklist = z.infer<typeof ChecklistSchema>;
+
+export const ChecklistWithItemsSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  framework: z.string(),
+  campus_id: z.string().nullable().optional(),
+  status: z.string(),
+  items: z.array(ChecklistItemSchema),
+  total_items: z.number().int(),
+  checked_items: z.number().int(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type ChecklistWithItems = z.infer<typeof ChecklistWithItemsSchema>;
+
+export const ChecklistListPageSchema = z.object({
+  items: z.array(ChecklistSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export type ChecklistListPage = z.infer<typeof ChecklistListPageSchema>;
+
+// ── Compliance summary ──────────────────────────────────────────────────────
+export const UpcomingDeadlineSchema = z.object({
+  deadline_type: z.string(),
+  id: z.string(),
+  title: z.string(),
+  due_date: z.string().nullable().optional(),
+  days_until_due: z.number().int().nullable().optional(),
+  status: z.string(),
+  framework_or_type: z.string(),
+});
+export type UpcomingDeadline = z.infer<typeof UpcomingDeadlineSchema>;
+
+export const ComplianceSummarySchema = z.object({
+  overdue_obligations: z.number().int(),
+  expiring_insurance_30d: z.number().int(),
+  open_regulatory_items: z.number().int(),
+  checklists_complete_pct: z.number(),
+  upcoming_deadlines: z.array(UpcomingDeadlineSchema),
+});
+export type ComplianceSummary = z.infer<typeof ComplianceSummarySchema>;
