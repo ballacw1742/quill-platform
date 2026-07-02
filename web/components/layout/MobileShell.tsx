@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bot, Building2, Calculator, ClipboardList, FileText, FolderKanban, Inbox, MessageSquare, MoreHorizontal, Package, Sparkles, Terminal, TrendingUp, User, Users, X } from "lucide-react";
+import { Bot, Brain, Building2, Calculator, ClipboardList, DollarSign, FileText, FolderKanban, Inbox, MessageSquare, MoreHorizontal, Package, Sparkles, Terminal, TrendingUp, User, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useSession } from "@/lib/api";
@@ -76,6 +76,8 @@ const MORE_TABS = [
   { href: "/pipeline", label: "Pipeline", icon: TrendingUp },  // Sprint 1B — Sales & Pipeline
   { href: "/customers", label: "Customers", icon: Users },  // Sprint 2A — Customer Success
   { href: "/supply-chain", label: "Supply Chain", icon: Package },  // Sprint 2B — Supply Chain
+  { href: "/intelligence", label: "Intelligence", icon: Brain },  // Sprint 3B — Executive Intelligence
+  { href: "/finance", label: "Finance", icon: DollarSign },  // Sprint 3A — Finance
   { href: "/profile", label: "Profile", icon: User },
 ] as const;
 

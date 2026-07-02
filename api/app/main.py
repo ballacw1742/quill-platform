@@ -22,10 +22,13 @@ from app import models_pipeline as _models_pipeline  # noqa: F401 — registers 
 from app import models_customers as _models_customers  # noqa: F401 — registers customer success ORM models with Base.metadata
 from app import models_operations as _models_operations  # noqa: F401 — registers operations ORM models with Base.metadata
 from app import models_supply_chain as _models_supply_chain  # noqa: F401 — registers supply chain ORM models with Base.metadata
+from app import models_finance as _models_finance  # noqa: F401 — registers finance ORM models with Base.metadata
 from app.routes import admin, approvals, audit, auth, contracts, dev_chat, documents, estimates, realtime, requests as requests_routes, sites as sites_routes, projects as projects_routes
 from app.routes import pipeline as pipeline_routes, operations as operations_routes
 from app.routes import customers as customers_routes
 from app.routes import supply_chain as supply_chain_routes
+from app.routes import intelligence as intelligence_routes
+from app.routes import finance as finance_routes
 from app.services import sentry as sentry_svc
 from app.services.audit_mirror import get_mirror
 from app.services.sla import run_forever as sla_run_forever
@@ -133,4 +136,6 @@ app.include_router(operations_routes.router)  # Sprint 1A — Facility Operation
 app.include_router(pipeline_routes.router)  # Sprint 1B — Sales & Pipeline
 app.include_router(customers_routes.router)  # Sprint 2A — Customer Success module
 app.include_router(supply_chain_routes.router)  # Sprint 2B — Supply Chain module
+app.include_router(intelligence_routes.router)   # Sprint 3B — Executive Intelligence
+app.include_router(finance_routes.router)  # Sprint 3A — Finance module
 # Sprint DC.4: Agent Registry routes are in admin.py (GET/PATCH /v1/agents). Seed on startup via lifespan.
