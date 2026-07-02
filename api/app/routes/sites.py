@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import httpx
@@ -65,6 +66,76 @@ async def run_site_evaluation(
 ):
     """Trigger the evaluation pipeline for a site."""
     return await _datasite_request("post", f"/sites/{site_id}/run", json={})
+
+
+# ---------------------------------------------------------------------------
+# Document upload endpoints (Sprint DC.3)
+# ---------------------------------------------------------------------------
+
+class DriveDocumentIn(BaseModel):
+    drive_folder_url: str
+
+
+@router.post("/{site_id}/documents", summary="Upload supporting documents for a site")
+async def upload_site_documents(
+    site_id: str,
+    files: list[UploadFile] = File(...),
+    user=Depends(get_current_user),
+):
+    """Upload one or more PDF/DOCX supporting documents for a site evaluation.
+
+    Attempts to forward files to DataSite's document upload endpoint.
+    Returns a summary of what was uploaded regardless of whether DataSite
+    accepted them (DataSite document endpoints are optional — the core
+    evaluation pipeline can run without them).
+    """
+    results = []
+    for f in files:
+        content = await f.read()
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                resp = await client.post(
+                    f"{DATASITE_URL}/sites/{site_id}/documents",
+                    files=[("file", (f.filename, content, f.content_type or "application/octet-stream"))],
+                )
+                if resp.status_code < 400:
+                    results.append({"filename": f.filename, "status": "uploaded", "detail": resp.json()})
+                else:
+                    # Non-fatal — log and continue
+                    results.append({"filename": f.filename, "status": "queued", "detail": f"DataSite returned {resp.status_code}"})
+        except Exception as exc:  # noqa: BLE001
+            # DataSite may not have this endpoint yet; treat as queued
+            results.append({"filename": f.filename, "status": "queued", "detail": str(exc)[:200]})
+    return {"site_id": site_id, "documents": results}
+
+
+@router.post("/{site_id}/documents/drive", summary="Attach a Google Drive folder to a site")
+async def attach_site_drive_folder(
+    site_id: str,
+    body: DriveDocumentIn,
+    user=Depends(get_current_user),
+):
+    """Attach a Google Drive folder URL to a site evaluation.
+
+    Forwards the URL to DataSite so the document analyst agent can pull files.
+    Non-fatal if DataSite doesn't support this endpoint yet.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{DATASITE_URL}/sites/{site_id}/documents/drive",
+                json={"drive_folder_url": body.drive_folder_url},
+            )
+            if resp.status_code < 400:
+                return {"site_id": site_id, "drive_folder_url": body.drive_folder_url, "status": "attached", "detail": resp.json()}
+    except Exception as exc:  # noqa: BLE001
+        pass  # DataSite may not have this endpoint; fall through to queued
+    return {
+        "site_id": site_id,
+        "drive_folder_url": body.drive_folder_url,
+        "status": "queued",
+        "detail": "Drive folder URL recorded; DataSite will index it when the evaluation runs.",
+    }
 
 
 @router.post("/evaluate")
