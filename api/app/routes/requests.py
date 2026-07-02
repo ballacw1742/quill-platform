@@ -70,6 +70,8 @@ INTENT_TO_ADK_AGENT: dict[str, str] = {
     # Sprint 1B — Sales & Pipeline
     "sales":           "quill_sales",
     "pipeline":        "quill_sales",
+    # Sprint 2A — Customer Success
+    "customer_success": "quill_customer_success",
 }
 
 log = logging.getLogger("quill.requests")
@@ -590,6 +592,11 @@ def classify_intent(message: str, filenames: list[str]) -> str:
         return "rfi"
     if any(w in text for w in ["contract", "agreement", "subcontract", "clause", "terms", "conditions", "liability"]):
         return "contract"
+    # Sprint 2A — Customer Success (check before pipeline/sales to catch customer-specific keywords)
+    if any(w in text for w in ["support", "ticket", "health score", "churn", "customer success", "customer health", "at-risk customer", "account health", "open ticket", "p1 ticket", "p2 ticket"]):
+        return "customer_success"
+    if "customer" in text and any(w in text for w in ["health", "churn", "success", "support", "ticket", "at risk"]):
+        return "customer_success"
     # Sprint 1B — Sales & Pipeline
     if any(w in text for w in ["customer", "deal", "pipeline", "prospect", "sales", "contract value", "arr", "annual recurring", "workload type", "mw required", "advance deal", "close deal", "qualified lead", "proposal sent", "win rate"]):
         return "sales"
@@ -614,6 +621,7 @@ def _intent_label(intent: str) -> str:
         "pue": "Facility Ops Agent",
         "sales": "Sales Agent",
         "pipeline": "Sales Agent",
+        "customer_success": "Customer Success Agent",
     }
     return labels.get(intent, "Agent")
 
