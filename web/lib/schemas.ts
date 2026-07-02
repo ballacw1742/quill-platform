@@ -1476,6 +1476,14 @@ export const ProjectSchema = z.object({
   phase: z.string(),
   status: z.string(),
   notes: z.string().nullable().optional(),
+  // Sprint 0.2 — budget fields
+  budget_usd: z.number().nullable().optional(),
+  committed_usd: z.number().nullable().optional(),
+  forecast_usd: z.number().nullable().optional(),
+  // Sprint 0.2 — computed milestone stats (from list + detail endpoints)
+  milestone_total: z.number().int().default(0),
+  milestone_complete: z.number().int().default(0),
+  milestone_overdue: z.number().int().default(0),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -1501,3 +1509,102 @@ export const ProjectCreateSchema = z.object({
   notes: z.string().optional(),
 });
 export type ProjectCreate = z.infer<typeof ProjectCreateSchema>;
+
+// ─── Projects Sprint 0.2 — extended project schema with budget fields ─────────
+
+export const ProjectExtendedSchema = ProjectSchema.extend({
+  budget_usd: z.number().nullable().optional(),
+  committed_usd: z.number().nullable().optional(),
+  forecast_usd: z.number().nullable().optional(),
+});
+export type QuillProjectExtended = z.infer<typeof ProjectExtendedSchema>;
+
+// ─── Milestones ───────────────────────────────────────────────────────────────
+
+export const ProjectMilestoneSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  name: z.string(),
+  description: z.string().nullable().optional(),
+  due_date: z.string().nullable().optional(),  // ISO date string YYYY-MM-DD
+  completed_at: z.string().nullable().optional(),
+  created_at: z.string(),
+});
+export type ProjectMilestone = z.infer<typeof ProjectMilestoneSchema>;
+
+export const ProjectMilestoneListSchema = z.object({
+  items: z.array(ProjectMilestoneSchema),
+  total: z.number().int(),
+});
+export type ProjectMilestoneList = z.infer<typeof ProjectMilestoneListSchema>;
+
+// ─── Log entries ──────────────────────────────────────────────────────────────
+
+export const LOG_ENTRY_TYPES = ["general", "issue", "milestone", "decision"] as const;
+export type LogEntryType = typeof LOG_ENTRY_TYPES[number];
+
+export const ProjectLogEntrySchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  user_id: z.string().nullable().optional(),
+  entry_type: z.string(),  // general | issue | milestone | decision
+  text: z.string(),
+  created_at: z.string(),
+});
+export type ProjectLogEntry = z.infer<typeof ProjectLogEntrySchema>;
+
+export const ProjectLogListSchema = z.object({
+  items: z.array(ProjectLogEntrySchema),
+  total: z.number().int(),
+});
+export type ProjectLogList = z.infer<typeof ProjectLogListSchema>;
+
+// ─── Document links ───────────────────────────────────────────────────────────
+
+export const ProjectDocumentLinkSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  document_id: z.string().nullable().optional(),
+  name: z.string(),
+  url: z.string().nullable().optional(),
+  created_at: z.string(),
+});
+export type ProjectDocumentLink = z.infer<typeof ProjectDocumentLinkSchema>;
+
+export const ProjectDocumentLinkListSchema = z.object({
+  items: z.array(ProjectDocumentLinkSchema),
+  total: z.number().int(),
+});
+export type ProjectDocumentLinkList = z.infer<typeof ProjectDocumentLinkListSchema>;
+
+// ─── Contract links ───────────────────────────────────────────────────────────
+
+export const ProjectContractLinkSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  contract_id: z.string(),
+  created_at: z.string(),
+});
+export type ProjectContractLink = z.infer<typeof ProjectContractLinkSchema>;
+
+export const ProjectContractLinkListSchema = z.object({
+  items: z.array(ProjectContractLinkSchema),
+  total: z.number().int(),
+});
+export type ProjectContractLinkList = z.infer<typeof ProjectContractLinkListSchema>;
+
+// ─── Estimate links ───────────────────────────────────────────────────────────
+
+export const ProjectEstimateLinkSchema = z.object({
+  id: z.string(),
+  project_id: z.string(),
+  estimate_id: z.string(),
+  created_at: z.string(),
+});
+export type ProjectEstimateLink = z.infer<typeof ProjectEstimateLinkSchema>;
+
+export const ProjectEstimateLinkListSchema = z.object({
+  items: z.array(ProjectEstimateLinkSchema),
+  total: z.number().int(),
+});
+export type ProjectEstimateLinkList = z.infer<typeof ProjectEstimateLinkListSchema>;
