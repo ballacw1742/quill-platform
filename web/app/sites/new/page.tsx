@@ -11,7 +11,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Building2, Loader2 } from "lucide-react";
+import { ArrowLeft, Building2, Loader2, FolderOpen, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { useCreateSite } from "@/lib/api";
@@ -96,6 +96,7 @@ interface FormState {
   zoning_status: string;
   flood_zone: string;
   notes: string;
+  drive_folder_url: string;
 }
 
 const INITIAL_STATE: FormState = {
@@ -110,6 +111,7 @@ const INITIAL_STATE: FormState = {
   zoning_status: "",
   flood_zone: "no",
   notes: "",
+  drive_folder_url: "",
 };
 
 const WORKLOAD_OPTIONS = [
@@ -133,11 +135,55 @@ export default function NewSitePage() {
   const router = useRouter();
   const [form, setForm] = React.useState<FormState>(INITIAL_STATE);
   const [errors, setErrors] = React.useState<Partial<Record<keyof FormState, string>>>({});
+  const [uploadFiles, setUploadFiles] = React.useState<File[]>([]);
+  const [submitStep, setSubmitStep] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   const createSite = useCreateSite({
-    onSuccess: (site) => {
-      router.push(`/sites/${site.site_id}`);
+    onSuccess: async (site) => {
+      const siteId = site.site_id;
+      // Step 2: Attach Drive folder if provided
+      if (form.drive_folder_url.trim()) {
+        setSubmitStep("Attaching Drive folder…");
+        try {
+          const token = typeof window !== "undefined" ? localStorage.getItem("quill_token") : null;
+          await fetch(`/api/v1/sites/${encodeURIComponent(siteId)}/documents/drive`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ drive_folder_url: form.drive_folder_url.trim() }),
+          });
+        } catch {
+          // Non-fatal — continue to file upload and redirect
+        }
+      }
+      // Step 3: Upload supporting documents one at a time
+      if (uploadFiles.length > 0) {
+        setSubmitStep(`Uploading ${uploadFiles.length} document(s)…`);
+        const token = typeof window !== "undefined" ? localStorage.getItem("quill_token") : null;
+        for (const file of uploadFiles) {
+          try {
+            const fd = new FormData();
+            fd.append("files", file);
+            await fetch(`/api/v1/sites/${encodeURIComponent(siteId)}/documents`, {
+              method: "POST",
+              headers: {
+                ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              },
+              body: fd,
+            });
+          } catch {
+            // Non-fatal — document upload failure shouldn't block redirect
+          }
+        }
+      }
+      // Step 4: Redirect to site detail
+      router.push(`/sites/${siteId}`);
     },
     onError: (err) => {
+      setSubmitStep(null);
       setErrors({ address: err.message ?? "Submission failed." });
     },
   });
@@ -147,6 +193,16 @@ export default function NewSitePage() {
       setForm((prev) => ({ ...prev, [key]: e.target.value }));
       setErrors((prev) => ({ ...prev, [key]: undefined }));
     };
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    setUploadFiles(files);
+  }
+
+  function removeFile(idx: number) {
+    setUploadFiles((prev) => prev.filter((_, i) => i !== idx));
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   function validate(): boolean {
@@ -164,6 +220,7 @@ export default function NewSitePage() {
     e.preventDefault();
     if (!validate()) return;
 
+    setSubmitStep("Creating site record…");
     const payload: Record<string, any> = {
       address: form.address.trim(),
       city: form.city.trim(),
@@ -175,19 +232,17 @@ export default function NewSitePage() {
     if (form.acres) payload.acres = parseFloat(form.acres);
     if (form.target_mw) payload.target_mw = parseFloat(form.target_mw);
     // Store extras in a notes-like field; DataSite's CreateSiteRequest is lean
-    // Additional fields stored in the notes for now
     const noteParts: string[] = [];
     if (form.fiber_providers) noteParts.push(`Fiber providers: ${form.fiber_providers}`);
     if (form.zoning_status) noteParts.push(`Zoning: ${form.zoning_status}`);
     if (form.flood_zone === "yes") noteParts.push("Flood zone: yes");
     if (form.notes) noteParts.push(form.notes);
-    // (DataSite CreateSiteRequest has no notes field — we send extra context in a custom field)
     if (noteParts.length > 0) payload.notes = noteParts.join(" | ");
 
     createSite.mutate(payload);
   }
 
-  const isPending = createSite.isPending;
+  const isPending = createSite.isPending || submitStep !== null;
 
   return (
     <MobileShell>
@@ -322,15 +377,84 @@ export default function NewSitePage() {
           </div>
         </FormCard>
 
-        {/* Notes */}
+        {/* Notes + Drive + Docs */}
         <FormCard>
           <p className="text-callout font-semibold text-label-primary mb-4">Additional Notes</p>
-          <FieldTextarea
-            placeholder="Any other context about this site…"
-            value={form.notes}
-            onChange={set("notes")}
-            rows={4}
-          />
+
+          <div className="mb-4">
+            <FieldTextarea
+              placeholder="Any other context about this site…"
+              value={form.notes}
+              onChange={set("notes")}
+              rows={4}
+            />
+          </div>
+
+          {/* Google Drive Folder */}
+          <div className="mb-4">
+            <FieldLabel>Google Drive Folder (optional)</FieldLabel>
+            <div className="relative">
+              <FolderOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-label-tertiary pointer-events-none" />
+              <FieldInput
+                placeholder="https://drive.google.com/drive/folders/…"
+                value={form.drive_folder_url}
+                onChange={set("drive_folder_url")}
+                className="pl-9"
+                type="url"
+                inputMode="url"
+              />
+            </div>
+            <p className="text-caption-1 text-label-quaternary mt-1">
+              Share a Drive folder containing site docs — the research agents will index it.
+            </p>
+          </div>
+
+          {/* File Upload */}
+          <div>
+            <FieldLabel>Supporting Documents (optional)</FieldLabel>
+            <label
+              className={cn(
+                "flex flex-col items-center justify-center gap-2 w-full",
+                "rounded-xl border border-dashed border-separator/60 bg-bg-elevated",
+                "px-4 py-5 cursor-pointer transition-colors",
+                "hover:border-accent/50 hover:bg-accent/5",
+              )}
+            >
+              <Paperclip className="h-5 w-5 text-label-tertiary" />
+              <span className="text-caption-1 text-label-secondary text-center">
+                {uploadFiles.length > 0
+                  ? `${uploadFiles.length} file${uploadFiles.length > 1 ? "s" : ""} selected`
+                  : "Tap to attach PDF or DOCX files"}
+              </span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx"
+                multiple
+                className="sr-only"
+                onChange={handleFileChange}
+              />
+            </label>
+            <p className="text-caption-1 text-label-quaternary mt-1">
+              Phase 1 ESA, geotech reports, utility LOIs, title docs, appraisals
+            </p>
+            {uploadFiles.length > 0 && (
+              <ul className="mt-2 space-y-1">
+                {uploadFiles.map((f, i) => (
+                  <li key={i} className="flex items-center justify-between gap-2 text-caption-1 text-label-secondary">
+                    <span className="truncate">{f.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeFile(i)}
+                      className="text-label-tertiary hover:text-red-400 transition-colors shrink-0 text-caption-1"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </FormCard>
 
         {/* Submit */}
@@ -348,7 +472,7 @@ export default function NewSitePage() {
           {isPending ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Submitting…
+              {submitStep ?? "Submitting…"}
             </>
           ) : (
             <>
