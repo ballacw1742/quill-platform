@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bot, Brain, Building2, Calculator, ClipboardList, DollarSign, FileText, FolderKanban, Inbox, MessageSquare, MoreHorizontal, Package, Sparkles, Terminal, TrendingUp, User, Users, X } from "lucide-react";
+import { Bot, Building2, Calculator, ClipboardList, DollarSign, FileText, FolderKanban, Inbox, MessageSquare, MoreHorizontal, Package, Sparkles, Terminal, TrendingUp, User, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
 import { useApprovals, useSession } from "@/lib/api";
