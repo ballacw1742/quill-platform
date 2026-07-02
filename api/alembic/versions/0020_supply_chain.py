@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0020_supply_chain"
-down_revision = "0018_pipeline"
+down_revision = "0019_customers"
 branch_labels = None
 depends_on = None
 
