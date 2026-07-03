@@ -3282,3 +3282,285 @@ export function useAgentActivity(opts?: UseQueryOptions<AgentActivityList>) {
     ...opts,
   });
 }
+
+// =============================================================================
+// Sprint 4A — Compliance Register API hooks
+// =============================================================================
+
+import type {
+  ComplianceSummary,
+  Obligation,
+  ObligationListPage,
+  RegulatoryItem,
+  RegulatoryListPage,
+  InsurancePolicy,
+  InsuranceListPage,
+  Checklist,
+  ChecklistListPage,
+  ChecklistWithItems,
+  ChecklistItem,
+} from "@/lib/schemas";
+import {
+  ComplianceSummarySchema,
+  ObligationListPageSchema,
+  ObligationSchema,
+  RegulatoryListPageSchema,
+  RegulatoryItemSchema,
+  InsuranceListPageSchema,
+  InsurancePolicySchema,
+  ChecklistListPageSchema,
+  ChecklistSchema,
+  ChecklistWithItemsSchema,
+  ChecklistItemSchema,
+} from "@/lib/schemas";
+
+/** GET /v1/compliance/summary */
+export function useComplianceSummary(opts?: UseQueryOptions<ComplianceSummary | undefined>) {
+  return useQuery<ComplianceSummary | undefined>({
+    queryKey: ["compliance-summary"],
+    queryFn: async () =>
+      apiFetch("/api/v1/compliance/summary", { schema: ComplianceSummarySchema }),
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** GET /v1/compliance/obligations */
+export function useObligations(
+  statusFilter?: string,
+  contractId?: string,
+  opts?: UseQueryOptions<ObligationListPage | undefined>,
+) {
+  return useQuery<ObligationListPage | undefined>({
+    queryKey: ["compliance-obligations", statusFilter ?? "all", contractId ?? "all"],
+    queryFn: async () => {
+      const qs = new URLSearchParams();
+      if (statusFilter) qs.set("status", statusFilter);
+      if (contractId) qs.set("contract_id", contractId);
+      const qStr = qs.toString();
+      return apiFetch(`/api/v1/compliance/obligations${qStr ? `?${qStr}` : ""}`, {
+        schema: ObligationListPageSchema,
+      });
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/compliance/obligations */
+export function useCreateObligation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch("/api/v1/compliance/obligations", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ObligationSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-obligations"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/compliance/obligations/{id} */
+export function useUpdateObligation(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch(`/api/v1/compliance/obligations/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: ObligationSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-obligations"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** GET /v1/compliance/regulatory */
+export function useRegulatoryItems(
+  statusFilter?: string,
+  jurisdiction?: string,
+  opts?: UseQueryOptions<RegulatoryListPage | undefined>,
+) {
+  return useQuery<RegulatoryListPage | undefined>({
+    queryKey: ["compliance-regulatory", statusFilter ?? "all", jurisdiction ?? "all"],
+    queryFn: async () => {
+      const qs = new URLSearchParams();
+      if (statusFilter) qs.set("status", statusFilter);
+      if (jurisdiction) qs.set("jurisdiction", jurisdiction);
+      const qStr = qs.toString();
+      return apiFetch(`/api/v1/compliance/regulatory${qStr ? `?${qStr}` : ""}`, {
+        schema: RegulatoryListPageSchema,
+      });
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/compliance/regulatory */
+export function useCreateRegulatoryItem() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch("/api/v1/compliance/regulatory", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: RegulatoryItemSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-regulatory"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/compliance/regulatory/{id} */
+export function useUpdateRegulatoryItem(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch(`/api/v1/compliance/regulatory/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: RegulatoryItemSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-regulatory"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** GET /v1/compliance/insurance */
+export function useInsurancePolicies(
+  statusFilter?: string,
+  opts?: UseQueryOptions<InsuranceListPage | undefined>,
+) {
+  return useQuery<InsuranceListPage | undefined>({
+    queryKey: ["compliance-insurance", statusFilter ?? "all"],
+    queryFn: async () => {
+      const qs = statusFilter ? `?status=${encodeURIComponent(statusFilter)}` : "";
+      return apiFetch(`/api/v1/compliance/insurance${qs}`, {
+        schema: InsuranceListPageSchema,
+      });
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/compliance/insurance */
+export function useCreateInsurancePolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch("/api/v1/compliance/insurance", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: InsurancePolicySchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-insurance"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** PATCH /v1/compliance/insurance/{id} */
+export function useUpdateInsurancePolicy(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch(`/api/v1/compliance/insurance/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+        schema: InsurancePolicySchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-insurance"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** GET /v1/compliance/checklists */
+export function useChecklists(
+  framework?: string,
+  statusFilter?: string,
+  opts?: UseQueryOptions<ChecklistListPage | undefined>,
+) {
+  return useQuery<ChecklistListPage | undefined>({
+    queryKey: ["compliance-checklists", framework ?? "all", statusFilter ?? "all"],
+    queryFn: async () => {
+      const qs = new URLSearchParams();
+      if (framework) qs.set("framework", framework);
+      if (statusFilter) qs.set("status", statusFilter);
+      const qStr = qs.toString();
+      return apiFetch(`/api/v1/compliance/checklists${qStr ? `?${qStr}` : ""}`, {
+        schema: ChecklistListPageSchema,
+      });
+    },
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/compliance/checklists */
+export function useCreateChecklist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Record<string, unknown>) =>
+      apiFetch("/api/v1/compliance/checklists", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: ChecklistSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-checklists"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}
+
+/** GET /v1/compliance/checklists/{id} */
+export function useChecklistDetail(
+  checklistId: string,
+  opts?: UseQueryOptions<ChecklistWithItems | undefined>,
+) {
+  return useQuery<ChecklistWithItems | undefined>({
+    queryKey: ["compliance-checklist", checklistId],
+    queryFn: async () =>
+      apiFetch(`/api/v1/compliance/checklists/${encodeURIComponent(checklistId)}`, {
+        schema: ChecklistWithItemsSchema,
+      }),
+    staleTime: 30_000,
+    ...opts,
+  });
+}
+
+/** PATCH /v1/compliance/checklists/{id}/items/{item_id} */
+export function useUpdateChecklistItem(checklistId: string, itemId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { checked?: boolean; evidence_url?: string; notes?: string }) =>
+      apiFetch(
+        `/api/v1/compliance/checklists/${encodeURIComponent(checklistId)}/items/${encodeURIComponent(itemId)}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(body),
+          schema: ChecklistItemSchema,
+        },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["compliance-checklist", checklistId] });
+      qc.invalidateQueries({ queryKey: ["compliance-checklists"] });
+      qc.invalidateQueries({ queryKey: ["compliance-summary"] });
+    },
+  });
+}

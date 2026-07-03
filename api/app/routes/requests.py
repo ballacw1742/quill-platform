@@ -86,6 +86,14 @@ INTENT_TO_ADK_AGENT: dict[str, str] = {
     "summary":         "quill_intelligence",
     "kpi":             "quill_intelligence",
     "dashboard":       "quill_intelligence",
+    # Sprint 4A — Compliance Register
+    "compliance":      "quill_compliance",
+    "regulatory":      "quill_compliance",
+    "insurance":       "quill_compliance",
+    "obligation":      "quill_compliance",
+    "filing":          "quill_compliance",
+    "soc2":            "quill_compliance",
+    "fisma":           "quill_compliance",
 }
 
 log = logging.getLogger("quill.requests")
@@ -617,6 +625,9 @@ def classify_intent(message: str, filenames: list[str]) -> str:
     # Sprint 2B — Supply Chain
     if any(w in text for w in ["supply chain", "equipment", "vendor", "procurement", "lead time", "lead-time", "delivery", "generator", "switchgear", "ups system", "cooling unit", "at risk equipment", "at-risk equipment", "long lead", "long-lead"]):
         return "supply_chain"
+    # Sprint 4A — Compliance Register (check before intelligence, specific terms)
+    if any(w in text for w in ["compliance", "regulatory", "regulation", "obligation", "filing", "soc 2", "soc2", "iso 27001", "iso27001", "fisma", "nist", "ferc", "nerc", "epa", "gdpr", "ccpa", "insurance policy", "insurance renewal", "expiring insurance", "overdue obligation", "compliance checklist", "compliance register"]):
+        return "compliance"
     # Sprint 3B — Executive Intelligence (check last, broad terms)
     if any(w in text for w in ["intelligence", "dashboard", "kpi", "brief", "morning brief", "scorecard", "how is the company", "company overview", "portfolio overview", "portfolio summary", "overall status"]):
         return "intelligence"
@@ -659,6 +670,14 @@ def _intent_label(intent: str) -> str:
         "summary": "Intelligence Agent",
         "kpi": "Intelligence Agent",
         "dashboard": "Intelligence Agent",
+        # Sprint 4A — Compliance Register
+        "compliance": "Compliance Agent",
+        "regulatory": "Compliance Agent",
+        "insurance": "Compliance Agent",
+        "obligation": "Compliance Agent",
+        "filing": "Compliance Agent",
+        "soc2": "Compliance Agent",
+        "fisma": "Compliance Agent",
     }
     return labels.get(intent, "Agent")
 
