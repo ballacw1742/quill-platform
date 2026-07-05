@@ -26,6 +26,13 @@ from .progress_capture.agent import agent as progress_capture
 from .safety_aggregator.agent import agent as safety_aggregator
 from .schedule_reader.agent import agent as schedule_reader
 from .request_intake.agent import agent as request_intake
+# Sprint 5.2 — specialist data agents
+from .facility_ops.agent import agent as facility_ops
+from .sales.agent import agent as sales
+from .customer_success.agent import agent as customer_success
+from .finance.agent import agent as finance
+from .intelligence.agent import agent as intelligence
+from .compliance.agent import agent as compliance
 
 ALL_SUB_AGENTS = [
     comms_drafter,
@@ -55,4 +62,11 @@ ALL_SUB_AGENTS = [
     safety_aggregator,
     schedule_reader,
     request_intake,
+    # Sprint 5.2 — specialist data agents
+    facility_ops,
+    sales,
+    customer_success,
+    finance,
+    intelligence,
+    compliance,
 ]
