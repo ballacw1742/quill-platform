@@ -64,6 +64,7 @@ class CustomerOut(BaseModel):
     primary_contact_email: Optional[str]
     primary_contact_phone: Optional[str]
     notes: Optional[str]
+    campus_id: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -79,6 +80,8 @@ class CustomerUpdate(BaseModel):
     primary_contact_email: Optional[str] = None
     primary_contact_phone: Optional[str] = None
     notes: Optional[str] = None
+    # Sprint 5.1 — Campus ↔ Customer link
+    campus_id: Optional[str] = None
 
 
 class TicketCreate(BaseModel):
@@ -303,12 +306,20 @@ async def customer_summary(
 async def list_customers(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    campus_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
-    """List all customer accounts (type=customer only)."""
+    """List all customer accounts (type=customer only).
+
+    Sprint 5.1 — an optional ?campus_id filter lets Operations look up the
+    customer(s) served by a given campus (Campus ↔ Customer link).
+    """
     base = select(Account).where(Account.type == "customer")
     count_q = select(func.count()).select_from(Account).where(Account.type == "customer")
+    if campus_id:
+        base = base.where(Account.campus_id == campus_id)
+        count_q = count_q.where(Account.campus_id == campus_id)
 
     total = (await db.execute(count_q)).scalar_one()
     result = await db.execute(base.order_by(Account.name).offset(offset).limit(limit))
@@ -331,6 +342,7 @@ async def list_customers(
                 primary_contact_email=acct.primary_contact_email,
                 primary_contact_phone=acct.primary_contact_phone,
                 notes=acct.notes,
+                campus_id=acct.campus_id,
                 created_at=acct.created_at,
                 updated_at=acct.updated_at,
                 health=health,
@@ -364,6 +376,7 @@ async def get_customer(
         primary_contact_email=acct.primary_contact_email,
         primary_contact_phone=acct.primary_contact_phone,
         notes=acct.notes,
+        campus_id=acct.campus_id,
         created_at=acct.created_at,
         updated_at=acct.updated_at,
         health=health,

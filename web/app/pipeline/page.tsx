@@ -62,10 +62,11 @@ function isOverdue(dateStr: string | null | undefined): boolean {
 
 // ── Deal Card ─────────────────────────────────────────────────────────────────
 
-function DealCard({ deal, accountName, onClick }: {
+function DealCard({ deal, accountName, onClick, onViewCustomer }: {
   deal: Deal;
   accountName?: string;
   onClick: () => void;
+  onViewCustomer?: () => void;
 }) {
   return (
     <button
@@ -114,17 +115,40 @@ function DealCard({ deal, accountName, onClick }: {
           </span>
         )}
       </div>
+
+      {/* Sprint 5.1 — Won deals link straight to the promoted customer account */}
+      {deal.stage === "won" && onViewCustomer && (
+        <span
+          role="link"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            onViewCustomer();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              e.preventDefault();
+              onViewCustomer();
+            }
+          }}
+          className="mt-2 inline-block text-caption-2 font-semibold text-accent hover:underline cursor-pointer"
+        >
+          View Customer →
+        </span>
+      )}
     </button>
   );
 }
 
 // ── Kanban Column ─────────────────────────────────────────────────────────────
 
-function KanbanColumn({ stage, deals, accountMap, onDealClick }: {
+function KanbanColumn({ stage, deals, accountMap, onDealClick, onViewCustomer }: {
   stage: { key: string; label: string; color: string };
   deals: Deal[];
   accountMap: Record<string, string>;
   onDealClick: (id: string) => void;
+  onViewCustomer: (accountId: string) => void;
 }) {
   return (
     <div
@@ -148,6 +172,7 @@ function KanbanColumn({ stage, deals, accountMap, onDealClick }: {
             deal={d}
             accountName={accountMap[d.account_id]}
             onClick={() => onDealClick(d.id)}
+            onViewCustomer={() => onViewCustomer(d.account_id)}
           />
         ))
       )}
@@ -460,6 +485,7 @@ export default function PipelinePage() {
               deals={dealsByStage[stage.key] ?? []}
               accountMap={accountMap}
               onDealClick={(id) => router.push(`/pipeline/deals/${id}`)}
+              onViewCustomer={(accountId) => router.push(`/customers/${accountId}`)}
             />
           ))}
         </div>

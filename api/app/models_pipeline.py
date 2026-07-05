@@ -51,6 +51,9 @@ class Account(Base):
     primary_contact_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     primary_contact_phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # Sprint 5.1 — Campus ↔ Customer link. Soft FK to campuses.id (not enforced at
+    # DB level, matching the Deal.campus_id / Campus.project_id conventions).
+    campus_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False, index=True
     )

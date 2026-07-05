@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   Users,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -31,6 +32,7 @@ import {
   useCustomerNotes,
   useAddNote,
   useUpdateCustomer,
+  useCampuses,
 } from "@/lib/api";
 import type { CustomerDetail, SupportTicket, AccountNote } from "@/lib/schemas";
 
@@ -378,6 +380,9 @@ function NotesTab({ accountId }: { accountId: string }) {
 
 function DetailsTab({ customer }: { customer: CustomerDetail }) {
   const updateCustomer = useUpdateCustomer(customer.id);
+  const { data: campuses } = useCampuses();
+  const [campusId, setCampusId] = React.useState(customer.campus_id ?? "");
+  const [assigningCampus, setAssigningCampus] = React.useState(false);
   const [name, setName] = React.useState(customer.name);
   const [industry, setIndustry] = React.useState(customer.industry ?? "");
   const [website, setWebsite] = React.useState(customer.website ?? "");
@@ -405,6 +410,17 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
       setTimeout(() => setSaved(false), 2000);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleAssignCampus(value: string) {
+    setCampusId(value);
+    setAssigningCampus(true);
+    try {
+      // Empty string clears the link (null); otherwise link the selected campus.
+      await updateCustomer.mutateAsync({ campus_id: value || null });
+    } finally {
+      setAssigningCampus(false);
     }
   }
 
@@ -473,10 +489,21 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
       {/* Linked Campus & Deal */}
       <p className="text-footnote font-semibold text-label-tertiary uppercase tracking-wide mb-2 mt-4">Linked</p>
       <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-3 mb-3">
-        <p className="text-caption-1 text-label-secondary mb-1">Campus</p>
-        <p className="text-body text-label-primary">
-          {customer.won_deal?.campus_id ?? "No campus linked"}
-        </p>
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-caption-1 text-label-secondary">Assign Campus</p>
+          {assigningCampus && <Loader2 className="h-3.5 w-3.5 animate-spin text-label-tertiary" />}
+        </div>
+        <select
+          className="w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary focus:outline-none"
+          value={campusId}
+          disabled={assigningCampus}
+          onChange={(e) => handleAssignCampus(e.target.value)}
+        >
+          <option value="">No campus linked</option>
+          {(campuses?.items ?? []).map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
       </div>
       <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-3 mb-4">
         <p className="text-caption-1 text-label-secondary mb-1">Most Recent Won Deal</p>
