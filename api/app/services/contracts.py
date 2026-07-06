@@ -447,6 +447,26 @@ class ContractsService:
         await session.commit()
         return contract
 
+    # ---- Blob access (Sprint 4 — remote daemons) -------------------------
+    def read_extracted_text(self, upload_id: str, filename: str) -> str | None:
+        """Return the extracted plain text for one uploaded file, or None.
+
+        Sprint 4: the contract dispatcher daemons may run on a different host
+        than the API. This gives them an HTTP path to the full extracted text
+        (the manifest's ``extraction_summary`` is capped at 4000 chars).
+        """
+        key = _extracted_key(upload_id, f"{_safe_name(filename)}.txt")
+        try:
+            return _read_blob(key).decode("utf-8")
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, UnicodeDecodeError) as exc:
+            log.warning(
+                "contracts.extracted_read_failed upload_id=%s file=%s err=%s",
+                upload_id, filename, exc,
+            )
+            return None
+
     # ---- Background text extraction --------------------------------------
     async def _run_extraction_async(self, upload_id: str) -> None:
         """Best-effort background text extraction.

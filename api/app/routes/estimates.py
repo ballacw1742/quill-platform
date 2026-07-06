@@ -485,6 +485,38 @@ async def dispatch_estimation_route(
 
 
 # ---------------------------------------------------------------------------
+# GET /{upload_id}/extracted/{filename} — Sprint 4 (remote daemons)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{upload_id}/extracted/{filename}",
+    summary="Fetch the per-file extraction artifact JSON (daemon/agent use)",
+)
+async def get_extracted_artifact_route(
+    upload_id: str,
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user_or_agent),  # noqa: ARG001
+) -> Response:
+    """Serve the extraction artifact written by the background extractor.
+
+    Sprint 4: the classification/estimation dispatcher daemons can run on a
+    different host than the API, so the API-local blob store must be
+    reachable over HTTP. Auth: any authenticated user or the agent service
+    account (X-Agent-Secret).
+    """
+    est = await estimates_service.get_status(db, upload_id)
+    if est is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "upload not found")
+    body = estimates_service.read_extracted_artifact(upload_id, filename)
+    if body is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"extraction artifact not found for {filename!r}",
+        )
+    return Response(content=body, media_type="application/json")
+
+
+# ---------------------------------------------------------------------------
 # GET /{upload_id}/export
 # ---------------------------------------------------------------------------
 @router.get(

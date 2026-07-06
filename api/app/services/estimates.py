@@ -446,6 +446,27 @@ class EstimatesService:
         await session.commit()
         return est
 
+    # ---- Blob access (Sprint 4 — remote daemons) -------------------------
+    def read_extracted_artifact(self, upload_id: str, filename: str) -> bytes | None:
+        """Return the raw per-file extraction artifact JSON, or None if absent.
+
+        Sprint 4: the classification/estimation dispatcher daemons may run on
+        a different host than the API. This gives them an HTTP path to the
+        extraction artifacts that ``_run_extraction_async`` wrote to the
+        API-local blob store.
+        """
+        key = _extracted_key(upload_id, f"{filename}.json")
+        try:
+            return _read_blob(key)
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as exc:
+            log.warning(
+                "estimates.extracted_read_failed upload_id=%s file=%s err=%s",
+                upload_id, filename, exc,
+            )
+            return None
+
     # ---- Extraction (background) ----------------------------------------
     async def _run_extraction_async(self, upload_id: str) -> None:
         """Best-effort background extraction. Reads files from blob, runs
