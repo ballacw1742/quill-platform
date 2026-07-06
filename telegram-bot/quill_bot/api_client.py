@@ -98,7 +98,13 @@ class QuillAPIClient:
         params: dict[str, Any] = {"status": "pending", "limit": limit, "offset": offset}
         if lane is not None:
             params["lane"] = lane
-        return await self._req("GET", "/v1/approvals", params=params)
+        data = await self._req("GET", "/v1/approvals", params=params)
+        # Sprint 5.5 (G7) — the API returns the canonical list envelope
+        # {items, total, limit, offset}; callers here expect the bare list.
+        # (Daily Brief crashed against prod on `pending[:10]` before this.)
+        if isinstance(data, dict):
+            return data.get("items") or []
+        return data
 
     async def get_approval(self, approval_id: str) -> dict[str, Any]:
         return await self._req("GET", f"/v1/approvals/{approval_id}")
