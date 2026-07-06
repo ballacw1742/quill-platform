@@ -736,6 +736,7 @@ async def list_checklists(
     request: Request,
     framework: Optional[str] = Query(default=None),
     status_filter: Optional[str] = Query(default=None, alias="status"),
+    campus_id: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -746,6 +747,10 @@ async def list_checklists(
         q = q.where(ComplianceChecklist.framework == framework)
     if status_filter:
         q = q.where(ComplianceChecklist.status == status_filter)
+    if campus_id:
+        # Sprint 5.5 (G10) — KNOWN_ISSUES #4: filter was documented but never
+        # implemented; rows carry campus_id since the campus-template deploy.
+        q = q.where(ComplianceChecklist.campus_id == campus_id)
 
     count_q = select(func.count()).select_from(q.subquery())
     total = (await db.execute(count_q)).scalar_one()

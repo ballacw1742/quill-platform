@@ -225,6 +225,13 @@ function ActionChip({
   onTap: (chip: CatalogChip) => void;
 }) {
   const [pressed, setPressed] = React.useState(false);
+  // Sprint 5.5 (G8) — honesty badge: workflow-fleet agents aren't invocable
+  // via POST /v1/requests; their chips reroute to the intent's ADK executor.
+  // Badge the reroute so the demo never claims an agent ran when it didn't.
+  const rerouted = !chip.direct;
+  const hoverText = rerouted
+    ? `Runs via ${chip.executorAgentName}${chip.template ? ` — ${chip.template.trim()}` : ""}`
+    : `${chip.agentName}${chip.template ? ` — ${chip.template.trim()}` : ""}`;
   return (
     <button
       type="button"
@@ -234,8 +241,12 @@ function ActionChip({
       onPointerUp={() => setPressed(false)}
       onPointerLeave={() => setPressed(false)}
       onPointerCancel={() => setPressed(false)}
-      title={`${chip.agentName}${chip.template ? ` — ${chip.template.trim()}` : ""}`}
-      aria-label={`${chip.label} (${chip.agentName})`}
+      title={hoverText}
+      aria-label={
+        rerouted
+          ? `${chip.label} (runs via ${chip.executorAgentName})`
+          : `${chip.label} (${chip.agentName})`
+      }
       className={cn(
         "glass min-h-[44px] rounded-full px-4 py-2 text-left",
         "text-callout font-medium text-label-primary",
@@ -244,6 +255,11 @@ function ActionChip({
       )}
     >
       {chip.label}
+      {rerouted && (
+        <span className="ml-1.5 align-middle text-[11px] font-normal text-label-tertiary">
+          via {chip.executorAgentName}
+        </span>
+      )}
     </button>
   );
 }

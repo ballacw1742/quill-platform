@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     ACTION_ASSERTION_TTL_SECONDS: int = Field(default=60)
     # Keep email/password login as a developer fallback (default off in prod).
     DEV_AUTH_FALLBACK: bool = Field(default=True)
+    # Sprint 5.5 (G13 / KNOWN_ISSUES #9) — open self-registration is disabled by
+    # default. When false, POST /v1/auth/register requires an owner bearer token
+    # (owner provisions/invites accounts). Set true only for local dev/demo seeding.
+    ALLOW_SELF_REGISTER: bool = Field(default=False)
     SESSION_TTL_HOURS: int = Field(default=4)
 
     # Observability

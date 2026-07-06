@@ -53,6 +53,17 @@ export interface CatalogChip {
   intent: string;
   agentId: string;
   agentName: string;
+  /**
+   * Sprint 5.5 (G8) — honesty: agent_id of the ADK agent that will ACTUALLY
+   * execute this chip's intent (mirror of the API's INTENT_TO_ADK_AGENT).
+   * Workflow-fleet agents are runtime daemons — they are not invocable via
+   * POST /v1/requests, so their chips reroute to the intent's ADK executor.
+   */
+  executorAgentId: string;
+  /** Human display name for the executor (registry name when available). */
+  executorAgentName: string;
+  /** True when the badged agent is the one that actually runs the request. */
+  direct: boolean;
 }
 
 export interface CatalogAgent {
@@ -120,6 +131,49 @@ export const VALID_API_INTENTS = new Set([
   "facility_ops", "sales", "customer_success", "finance",
   "intelligence", "compliance", "supply_chain",
 ]);
+
+/**
+ * Sprint 5.5 (G8) — mirror of INTENT_TO_ADK_AGENT in
+ * api/app/routes/requests.py: which ADK agent actually executes each
+ * canonical intent when POST /v1/requests dispatches. Keep in sync.
+ */
+export const INTENT_EXECUTORS: Record<string, string> = {
+  estimate: "quill_coordinator",
+  schedule: "quill_schedule_monitor",
+  rfi: "quill_rfi_triage",
+  contract: "quill_change_order",
+  general: "quill_coordinator",
+  site_evaluation: "datasite_site_evaluator",
+  site_research: "datasite_site_researcher",
+  site_scoring: "datasite_site_scorer",
+  site_status: "datasite_site_status",
+  facility_ops: "quill_facility_ops",
+  sales: "quill_sales",
+  customer_success: "quill_customer_success",
+  supply_chain: "quill_supply_chain",
+  finance: "quill_finance",
+  intelligence: "quill_intelligence",
+  compliance: "quill_compliance",
+};
+
+/** Executor display names used when the registry row isn't in the payload. */
+const EXECUTOR_FALLBACK_NAMES: Record<string, string> = {
+  quill_coordinator: "Quill Coordinator",
+  quill_schedule_monitor: "Schedule Monitor",
+  quill_rfi_triage: "RFI Triage Agent",
+  quill_change_order: "Change Order Agent",
+  datasite_site_evaluator: "Site Evaluator",
+  datasite_site_researcher: "Site Researcher",
+  datasite_site_scorer: "Site Scorer",
+  datasite_site_status: "Site Status",
+  quill_facility_ops: "Facility Operations Agent",
+  quill_sales: "Sales & Pipeline Agent",
+  quill_customer_success: "Customer Success Agent",
+  quill_supply_chain: "Supply Chain Agent",
+  quill_finance: "Finance Agent",
+  quill_intelligence: "Executive Intelligence Agent",
+  quill_compliance: "Compliance Agent",
+};
 
 interface ChipDef {
   /** Dedupe key — several raw intents can map to the same chip. */
@@ -360,14 +414,21 @@ export function chipsForAgent(agent: RegistryAgentLike): CatalogChip[] {
     }
   }
 
-  return defs.slice(0, MAX_CHIPS_PER_AGENT).map((d) => ({
-    id: `${agent.agent_id}:${d.key}`,
-    label: d.label,
-    template: d.template,
-    intent: d.intent,
-    agentId: agent.agent_id,
-    agentName: name,
-  }));
+  return defs.slice(0, MAX_CHIPS_PER_AGENT).map((d) => {
+    const executorAgentId = INTENT_EXECUTORS[d.intent] ?? INTENT_EXECUTORS.general;
+    return {
+      id: `${agent.agent_id}:${d.key}`,
+      label: d.label,
+      template: d.template,
+      intent: d.intent,
+      agentId: agent.agent_id,
+      agentName: name,
+      executorAgentId,
+      executorAgentName:
+        EXECUTOR_FALLBACK_NAMES[executorAgentId] ?? humanizeIntent(executorAgentId),
+      direct: executorAgentId === agent.agent_id,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -381,6 +442,12 @@ export function chipsForAgent(agent: RegistryAgentLike): CatalogChip[] {
 export function buildCatalog(agents: RegistryAgentLike[]): CatalogSection[] {
   const byModule = new Map<string, CatalogAgent[]>();
 
+  // Registry display names for executor attribution (G8 honesty badges).
+  const nameById = new Map<string, string>();
+  for (const agent of agents) {
+    if (agent.display_name) nameById.set(agent.agent_id, agent.display_name);
+  }
+
   for (const agent of agents) {
     if (agent.enabled === false) continue;
     const key = moduleKeyForAgent(agent);
@@ -389,7 +456,10 @@ export function buildCatalog(agents: RegistryAgentLike[]): CatalogSection[] {
       name: agent.display_name || agent.agent_id,
       description: agent.description ?? "",
       roleSummary: agent.role_summary ?? "",
-      chips: chipsForAgent(agent),
+      chips: chipsForAgent(agent).map((c) => ({
+        ...c,
+        executorAgentName: nameById.get(c.executorAgentId) ?? c.executorAgentName,
+      })),
     };
     const list = byModule.get(key) ?? [];
     list.push(entry);

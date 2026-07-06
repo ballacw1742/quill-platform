@@ -122,7 +122,22 @@ async def create_approval(
         await session.refresh(item)
 
     await session.commit()
-    await broadcaster.publish({"type": "approval.created", "id": item.id, "status": item.status})
+    # Sprint 5.5 (G7) — additive fields so push consumers (Telegram bot's
+    # notifier.classify_event) can render lane/workflow/priority without a
+    # follow-up fetch. Existing consumers only read type/id/status.
+    await broadcaster.publish({
+        "type": "approval.created",
+        "id": item.id,
+        "status": item.status,
+        "lane": item.lane,
+        "workflow": item.workflow,
+        "priority": item.priority,
+        "agent_id": item.agent_id,
+        "payload": {
+            "safety_critical": bool((item.payload or {}).get("safety_critical")),
+            "critical_path": bool((item.payload or {}).get("critical_path")),
+        },
+    })
     return item
 
 
