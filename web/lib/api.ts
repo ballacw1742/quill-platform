@@ -2034,6 +2034,111 @@ export function useRunSiteEvaluation(
   });
 }
 
+// ── Sprint 2: site → project advance (execute-on-approve) ────────────────────
+
+export type SiteAdvanceStatus = {
+  site_id: string;
+  status: "none" | "pending_approval" | "advanced";
+  approval_id?: string;
+  project_id?: string;
+  project_name?: string;
+};
+
+/** GET /v1/sites/{id}/advance — advance state for the site detail page */
+export function useSiteAdvanceStatus(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<SiteAdvanceStatus | undefined>,
+) {
+  return useQuery<SiteAdvanceStatus | undefined>({
+    queryKey: ["sites", id, "advance"],
+    queryFn: async (): Promise<SiteAdvanceStatus | undefined> => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(id)}/advance`);
+    },
+    enabled: !!id,
+    refetchInterval: 15000,
+    ...opts,
+  });
+}
+
+/** POST /v1/sites/{id}/advance — request advance (creates a Lane-2 approval) */
+export function useAdvanceSite(
+  opts?: UseMutationOptions<SiteAdvanceStatus, Error, string>,
+) {
+  const qc = useQueryClient();
+  return useMutation<SiteAdvanceStatus, Error, string>({
+    mutationFn: async (siteId: string) => {
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(siteId)}/advance`, {
+        method: "POST",
+        body: "{}",
+      });
+    },
+    onSuccess: (_, siteId) => {
+      qc.invalidateQueries({ queryKey: ["sites", siteId, "advance"] });
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+    },
+    ...opts,
+  });
+}
+
+// ── Sprint 2: Drive-folder document intake (honest per-document status) ─────
+
+export type DriveIntakeDocument = {
+  file_id?: string;
+  filename: string;
+  mime_type?: string;
+  size?: number;
+  doc_type?: string;
+  status: "indexed" | "uploaded" | "skipped" | "failed";
+  detail?: string;
+};
+
+export type DriveIntake = {
+  intake_id?: string;
+  site_id: string;
+  drive_folder_url?: string;
+  status: "none" | "completed" | "completed_with_errors" | "failed";
+  error?: string | null;
+  documents: DriveIntakeDocument[];
+  created_at?: string | null;
+};
+
+/** GET /v1/sites/{id}/documents/drive — latest Drive intake run */
+export function useSiteDriveIntake(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<DriveIntake | undefined>,
+) {
+  return useQuery<DriveIntake | undefined>({
+    queryKey: ["sites", id, "driveIntake"],
+    queryFn: async (): Promise<DriveIntake | undefined> => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(id)}/documents/drive`);
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** POST /v1/sites/{id}/documents/drive — run the Drive intake (synchronous) */
+export function useRunDriveIntake(
+  opts?: UseMutationOptions<DriveIntake, Error, { siteId: string; folderUrl: string }>,
+) {
+  const qc = useQueryClient();
+  return useMutation<DriveIntake, Error, { siteId: string; folderUrl: string }>({
+    mutationFn: async ({ siteId, folderUrl }) => {
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(siteId)}/documents/drive`, {
+        method: "POST",
+        body: JSON.stringify({ drive_folder_url: folderUrl }),
+      });
+    },
+    onSuccess: (_, { siteId }) => {
+      qc.invalidateQueries({ queryKey: ["sites", siteId, "driveIntake"] });
+      qc.invalidateQueries({ queryKey: ["sites", siteId] });
+    },
+    ...opts,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
