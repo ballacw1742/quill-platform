@@ -36,7 +36,7 @@ SEED_AGENTS: list[dict] = [
     },
     {
         "agent_id": "quill_rfi_triage",
-        "display_name": "RFI Triage",
+        "display_name": "RFI Triage Agent",
         "description": "Processes Requests for Information — triages, routes to the right party, and drafts responses.",
         "role_summary": "RFI Management",
         "handled_intents": ["rfi"],
