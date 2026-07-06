@@ -91,11 +91,11 @@ function AgentCard({
             <Bot className="h-4 w-4 text-accent" />
           </div>
           <div className="min-w-0">
-            <div className="text-headline text-label-primary truncate">
+            <div className="text-headline text-label-primary break-words">
               {agent.display_name || agent.agent_id}
             </div>
             {agent.role_summary && (
-              <div className="text-footnote text-label-secondary truncate">
+              <div className="text-footnote text-label-secondary break-words">
                 {agent.role_summary}
               </div>
             )}
@@ -125,7 +125,7 @@ function AgentCard({
 
       {/* Description */}
       {agent.description && (
-        <p className="text-callout text-label-secondary line-clamp-2">
+        <p className="text-callout text-label-secondary break-words">
           {agent.description}
         </p>
       )}
