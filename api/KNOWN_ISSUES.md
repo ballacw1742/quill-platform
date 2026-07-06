@@ -184,3 +184,5 @@ execute loop against a locally booted API with real Anthropic calls):
    text extraction"). Installed manually in dev; add to deps in the next
    housekeeping commit (prod image evidently has them via other channels —
    verify during the post-merge prod gate).
+
+<!-- ci: sprint4 deploy retrigger 2026-07-06 -->
