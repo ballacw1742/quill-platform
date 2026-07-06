@@ -27,6 +27,7 @@ from runtime.json_extractor import JSONExtractionError, extract_json
 from runtime.lane_router import LaneDecision, route_lane
 from runtime.llm_client import LLMClient, LLMError, LLMResponse
 from runtime.notifications import sentry as sentry_svc
+from runtime.output_normalizer import normalize_artifact_output
 from runtime.queue_client import QueueClient
 from runtime.validator import validate_output
 
@@ -193,6 +194,18 @@ class Agent:
         except JSONExtractionError as e:
             run_kwargs["error"] = f"json_extraction: {e}"
             return AgentRun(**run_kwargs)
+
+        # Sprint 4 (KI G.4 #5): repair known-benign output quirks (summary
+        # over-length, citation purpose→kind alias, evidence category case)
+        # before schema validation so real bugs still fail loudly.
+        output, normalizer_fixes = normalize_artifact_output(output)
+        if normalizer_fixes:
+            log.info(
+                "agent.run.output_normalized",
+                agent_id=spec.agent_id,
+                fixes=normalizer_fixes,
+            )
+            run_kwargs["extra"] = {"normalizer_fixes": normalizer_fixes}
 
         ok, errors = validate_output(output, spec.schema)
         out_hash = hash_output(output)

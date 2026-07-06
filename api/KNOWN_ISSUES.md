@@ -110,6 +110,15 @@ has a **user-visible severity** tag (per CONTRIBUTING_AGENTS.md \u00a76):
    pipeline all worked. Tracked for the next agent-prompt revision in
    `agentic-pmo-prompts/`.
 
+   **Resolved (Sprint 4, 2026-07-06):** two-sided fix. (a) The prompts
+   repo's schemas now accept free-form evidence categories and treat
+   citation `purpose` as an alias of `kind` (anyOf). (b) The runtime
+   gained `runtime/output_normalizer.py`, applied in `Agent.run()` before
+   validation: clamps `summary` to the 280-char base-schema cap, backfills
+   citation `kind` from `purpose` (or defaults to `other` when only `ref`
+   is present), and snake-cases/clamps evidence categories. Covered by
+   `runtime/tests/test_output_normalizer.py`.
+
 6. **`(invisible)` Smoke test bypasses the API + Approval Queue layer.**
    For cost/control reasons the smoke runs the runtime `Agent.run()`
    in-process and writes nothing to the queue. End-to-end including
