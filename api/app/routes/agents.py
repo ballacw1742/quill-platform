@@ -180,6 +180,88 @@ FLEET_CONFIG: dict[str, tuple[TrustTier, Lane]] = {
 }
 
 
+# Display metadata for the workflow fleet — upserted on every startup seed
+# (same treatment as the ADK agents) so the registry UI shows proper names,
+# descriptions, and role summaries. Trust tier / lane / budget stay insert-only.
+FLEET_METADATA: dict[str, dict[str, str]] = {
+    "coordinator": {
+        "display_name": "Fleet Coordinator",
+        "description": "Orchestrates the workflow fleet — routes incoming work to the right specialist agent, sequences multi-agent workflows, and tracks task completion across the fleet.",
+        "role_summary": "Fleet Orchestration",
+    },
+    "rfi-triage": {
+        "display_name": "RFI Triage",
+        "description": "Classifies incoming RFIs by discipline and urgency, checks for duplicates against open RFIs, and routes each to the right reviewer with a suggested priority.",
+        "role_summary": "RFI Intake & Routing",
+    },
+    "rfi-drafter": {
+        "display_name": "RFI Response Drafter",
+        "description": "Drafts RFI responses from spec sections, drawings, and prior correspondence, with citations to source documents for reviewer sign-off.",
+        "role_summary": "RFI Response Drafting",
+    },
+    "submittal-triage": {
+        "display_name": "Submittal Triage",
+        "description": "Logs incoming submittals, matches them to spec sections and the submittal register, and routes them to the responsible reviewer with due-date tracking.",
+        "role_summary": "Submittal Intake & Routing",
+    },
+    "submittal-spec-validator": {
+        "display_name": "Submittal Spec Validator",
+        "description": "Checks submittal contents against the governing spec section — flags missing data, non-compliant products, and deviations before human review.",
+        "role_summary": "Spec Compliance Checking",
+    },
+    "schedule-reader": {
+        "display_name": "Schedule Reader",
+        "description": "Parses project schedules to answer questions about activities, dates, float, and logic ties, and surfaces upcoming milestones and slipped activities.",
+        "role_summary": "Schedule Analysis",
+    },
+    "critical-path-watch": {
+        "display_name": "Critical Path Watch",
+        "description": "Monitors schedule updates for critical-path changes — flags new drivers, float erosion, and milestone risk before they become delays.",
+        "role_summary": "Critical Path Monitoring",
+    },
+    "dfr-synthesizer": {
+        "display_name": "Daily Field Report Synthesizer",
+        "description": "Compiles daily field reports from crew notes, photos, weather, and delivery logs into a structured DFR ready for superintendent review.",
+        "role_summary": "Field Reporting",
+    },
+    "safety-aggregator": {
+        "display_name": "Safety Aggregator",
+        "description": "Aggregates safety observations, incidents, and toolbox-talk records across sites — tracks trends and flags recurring hazards for the safety team.",
+        "role_summary": "Safety Tracking",
+    },
+    "progress-capture": {
+        "display_name": "Progress Capture",
+        "description": "Records installed quantities and percent-complete against the schedule of values, keeping progress data current for billing and earned-value tracking.",
+        "role_summary": "Progress Tracking",
+    },
+    "co-estimator": {
+        "display_name": "Change Order Estimator",
+        "description": "Prices change orders — builds cost breakdowns from unit rates, quotes, and historical data, and drafts the CO package for estimator review.",
+        "role_summary": "Change Order Pricing",
+    },
+    "daily-brief": {
+        "display_name": "Daily Brief",
+        "description": "Produces the morning project brief — overnight developments, today's priorities, open approvals, and items at risk, delivered before the workday starts.",
+        "role_summary": "Daily Briefing",
+    },
+    "ccb-prep": {
+        "display_name": "Change Control Board Prep",
+        "description": "Prepares Change Control Board packets — assembles pending change orders with pricing, schedule impact, and recommendations into a review-ready agenda.",
+        "role_summary": "CCB Preparation",
+    },
+    "owner-reporting": {
+        "display_name": "Owner Reporting",
+        "description": "Assembles recurring owner reports — progress summaries, budget status, schedule health, and open issues — formatted for external distribution.",
+        "role_summary": "Owner Communications",
+    },
+    "procurement-watch": {
+        "display_name": "Procurement Watch",
+        "description": "Tracks procurement and long-lead items against required-on-site dates — flags at-risk deliveries and expediting needs before they impact the schedule.",
+        "role_summary": "Procurement Tracking",
+    },
+}
+
+
 async def seed_agents(session: AsyncSession) -> None:
     """Seed the agent registry: ADK agents (upsert) + workflow fleet (insert-only).
 
@@ -205,14 +287,14 @@ async def seed_agents(session: AsyncSession) -> None:
         agent.framework = data["framework"]
         agent.endpoint_url = data["endpoint_url"]
 
-    # Workflow fleet — register any missing slugs (parity with all envs).
+    # Workflow fleet — insert missing slugs (parity with all envs), then
+    # upsert display metadata (names/descriptions) same as the ADK agents.
+    # Trust tier, lane, and budget remain insert-only (admin-owned).
     for slug in AGENT_FLEET:
-        existing = await session.get(AgentRegistration, slug)
-        if existing is not None:
-            continue
-        tier, default_lane = FLEET_CONFIG.get(slug, (TrustTier.TIER_0, Lane.SINGLE))
-        session.add(
-            AgentRegistration(
+        agent = await session.get(AgentRegistration, slug)
+        if agent is None:
+            tier, default_lane = FLEET_CONFIG.get(slug, (TrustTier.TIER_0, Lane.SINGLE))
+            agent = AgentRegistration(
                 agent_id=slug,
                 version="0.1.0",
                 trust_tier=tier.value,
@@ -220,7 +302,14 @@ async def seed_agents(session: AsyncSession) -> None:
                 monthly_token_budget=1_000_000,
                 enabled=True,
             )
-        )
+            session.add(agent)
+
+        meta = FLEET_METADATA.get(slug)
+        if meta is not None:
+            agent.display_name = meta["display_name"]
+            agent.description = meta["description"]
+            agent.role_summary = meta["role_summary"]
+            agent.framework = "internal"
 
     await session.commit()
     log.info(
