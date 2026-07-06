@@ -14,11 +14,13 @@ COPY runtime /app/runtime
 RUN pip install --upgrade pip \
     && pip install /app/runtime[worker] "fastapi>=0.110" "uvicorn[standard]>=0.27"
 
-# The estimator dispatcher imports one pure-python shared module from the API
-# source tree (app.services.estimator_input — no I/O, no API deps). We mount
-# the api source on PYTHONPATH rather than duplicating the module.
+# The classification + estimator dispatchers import pure-python shared
+# modules from the API source tree (app.services.classifier_input /
+# app.services.estimator_input — no I/O, no API deps). We mount the api
+# source on PYTHONPATH rather than duplicating the modules.
 COPY api/app/__init__.py /app/api/app/__init__.py
 COPY api/app/services/__init__.py /app/api/app/services/__init__.py
+COPY api/app/services/classifier_input.py /app/api/app/services/classifier_input.py
 COPY api/app/services/estimator_input.py /app/api/app/services/estimator_input.py
 ENV PYTHONPATH=/app/api
 
