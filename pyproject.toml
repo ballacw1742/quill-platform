@@ -34,6 +34,9 @@ dependencies = [
     "python-multipart>=0.0.20",
     "pdfplumber>=0.11",
     "pypdfium2>=4.30",
+    # Sprint 4 — contract text extraction imports (were missing; KNOWN_ISSUES Sprint 4 #6)
+    "pypdf>=4.0",
+    "python-docx>=1.1",
     "ifcopenshell>=0.7",
     "ezdxf>=1.3",
     "google-auth>=2.28",
