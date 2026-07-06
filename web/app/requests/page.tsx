@@ -141,7 +141,9 @@ export default function RequestsPage() {
   return (
     <MobileShell>
       <div className="flex flex-col min-h-screen">
-        <TopBar hero title="Requests" />
+        {/* Non-sticky hero: the large title scrolls away (iOS pattern) so the
+            long catalog never slides underneath a pinned translucent header. */}
+        <TopBar hero sticky={false} title="Requests" />
 
         {/* Agent selector — explicit override, always visible below the bar */}
         <AgentSelector selected={selectedAgent} onSelect={handleAgentSelect} />
@@ -177,7 +179,8 @@ export default function RequestsPage() {
                 </div>
               </>
             )}
-            <div ref={threadEndRef} aria-hidden />
+            {/* scroll-mb keeps scrollIntoView targets clear of the fixed composer */}
+            <div ref={threadEndRef} aria-hidden className="scroll-mb-[260px]" />
           </div>
         </div>
 
