@@ -82,6 +82,10 @@ import {
   // Sprint 1A — Facility Operations
   CampusSchema,
   CampusListResponseSchema,
+  DeployTemplateCatalogSchema,
+  DeploymentReportSchema,
+  type DeployTemplateCatalog,
+  type DeploymentReport,
   CampusIncidentSchema,
   CampusIncidentListResponseSchema,
   CampusMetricSchema,
@@ -2467,6 +2471,48 @@ export function useUpdateCampus(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["campuses"] });
       qc.invalidateQueries({ queryKey: ["campuses", id] });
+    },
+  });
+}
+
+// ─── Sprint 5.4 — Campus Template Automation ─────────────────────────────────
+
+/** GET /v1/campuses/deploy-templates — template catalog for the deploy flow */
+export function useDeployTemplateCatalog(enabled = true) {
+  return useQuery<DeployTemplateCatalog>({
+    queryKey: ["campuses", "deploy-templates"],
+    queryFn: async (): Promise<DeployTemplateCatalog> =>
+      apiFetch("/api/v1/campuses/deploy-templates", { schema: DeployTemplateCatalogSchema }),
+    enabled,
+    staleTime: 5 * 60 * 1000, // catalog is static template data
+  });
+}
+
+/** POST /v1/campuses/deploy-from-template — 48h campus deployment workflow */
+export function useDeployCampusFromTemplate() {
+  const qc = useQueryClient();
+  return useMutation<DeploymentReport, Error, {
+    project_id: string;
+    name: string;
+    campus_type: string;
+    jurisdiction: string;
+    region: string;
+    address?: string | null;
+    mw_capacity?: number | null;
+    pue_target?: number | null;
+    notes?: string | null;
+  }>({
+    mutationFn: async (body) =>
+      apiFetch("/api/v1/campuses/deploy-from-template", {
+        method: "POST",
+        body: JSON.stringify(body),
+        schema: DeploymentReportSchema,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["campuses"] });
+      qc.invalidateQueries({ queryKey: ["equipment"] });
+      qc.invalidateQueries({ queryKey: ["vendors"] });
+      qc.invalidateQueries({ queryKey: ["compliance"] });
     },
   });
 }
