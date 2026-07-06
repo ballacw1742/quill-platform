@@ -161,6 +161,23 @@ class DocumentsService:
             log.warning("documents.meta_serialize_failed artifact_id=%s err=%s", artifact_id, exc)
             meta_payload = None
 
+        # Sprint 4: contracts.list_reviews looks reviews up via
+        # meta.contract_upload_id + meta.artifact, so contract_review
+        # documents store the wrapped shape instead of the bare artifact.
+        if (
+            (approval.workflow or "") == "contract_review.publish"
+            and isinstance(meta_payload, dict)
+            and not meta_payload.get("_truncated")
+        ):
+            _p = approval.payload or {}
+            _cuid = _p.get("contract_upload_id") or (
+                (_p.get("context") or {}).get("contract_upload_id")
+            )
+            meta_payload = {
+                "artifact": meta_payload,
+                "contract_upload_id": _cuid,
+            }
+
         doc = Document(
             artifact_id=artifact_id,
             artifact_type=artifact_type,

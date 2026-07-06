@@ -417,6 +417,7 @@ class ContractsService:
         upload_id: str | None,
         artifact_id: str,
         actor: str = "system",
+        fields: dict[str, Any] | None = None,
     ) -> Contract | None:
         """Called by approvals.execute_approval when a contract_extraction
         artifact is approved + executed. Stamps the Contract row with the
@@ -432,6 +433,27 @@ class ContractsService:
             return None
         contract.classification_artifact_id = artifact_id
         contract.status = "extracted"
+        # Sprint 4 fix: this docstring always promised denormalized stamping,
+        # but nothing ever wrote extracted_fields — which permanently blocked
+        # the reviewer daemon (it skips contracts with extracted_fields=None).
+        if fields:
+            contract.extracted_fields = fields
+            ct = fields.get("contract_type")
+            if isinstance(ct, str) and ct:
+                contract.contract_type = ct
+            parties = fields.get("parties")
+            if isinstance(parties, (list, dict)) and parties:
+                contract.parties = parties
+            for col in ("effective_date", "expiration_date"):
+                v = fields.get(col)
+                if isinstance(v, str) and v:
+                    try:
+                        setattr(contract, col, datetime.fromisoformat(v))
+                    except ValueError:
+                        pass  # non-ISO date string — leave column unset
+            tv = fields.get("total_value_usd")
+            if isinstance(tv, (int, float)):
+                contract.total_value_usd = tv
         contract.updated_at = _utcnow()
         await audit_svc.record_event(
             session,

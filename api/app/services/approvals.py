@@ -296,6 +296,12 @@ def _is_publish_artifact(item: ApprovalItem) -> bool:
     # Sprint Contracts.3: contract drafts also publish a Document on approval
     if wf in _CONTRACT_DRAFT_WORKFLOWS:
         return True
+    # Sprint 4 fix: contract reviews were always *documented* as published
+    # Documents (see contracts.list_reviews / GET /{upload_id}/reviews), but
+    # this predicate never included the workflow, so no Document was ever
+    # created and the reviews list stayed permanently empty.
+    if wf in _CONTRACT_REVIEW_WORKFLOWS:
+        return True
     payload = item.payload or {}
     proposed = payload.get("proposed_action") if isinstance(payload, dict) else None
     if isinstance(proposed, dict) and proposed.get("kind") == PUBLISH_ACTION_KIND:
@@ -520,6 +526,7 @@ async def execute_approval(
                 upload_id=contract_upload_id,
                 artifact_id=artifact_id,
                 actor=actor,
+                fields=payload_artifact if isinstance(payload_artifact, dict) else None,
             )
         except Exception as exc:  # noqa: BLE001
             import logging

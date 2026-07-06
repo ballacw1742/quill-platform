@@ -542,10 +542,20 @@ async def export_estimate(
     # format-appropriate export. Real CSV / XER / PDF exporters land in
     # G.2 (CSV) and G.4 (XER, PDF). md path is fully implemented today.
     from app.models import Document
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
 
+    # Sprint 4 fix: approvals.execute stamps package_artifact_id with the
+    # published Document's *row id* when the agent artifact carries no 'id'
+    # (pm_artifact_base uses 'artifact_id'), while documents are keyed by
+    # Document.artifact_id. Accept either identity so the export resolves
+    # for both stamping shapes.
     res = await db.execute(
-        select(Document).where(Document.artifact_id == est.package_artifact_id)
+        select(Document).where(
+            or_(
+                Document.artifact_id == est.package_artifact_id,
+                Document.id == est.package_artifact_id,
+            )
+        )
     )
     doc = res.scalar_one_or_none()
     if doc is None:
