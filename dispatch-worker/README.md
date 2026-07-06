@@ -22,8 +22,8 @@ One container, four supervised asyncio loops (from `runtime/runtime/`):
 | classification | design-classifier | estimates `status=queued` | `aace_classification.publish` approval |
 | estimator | estimator-scheduler | estimates `status=estimating` | `cost_schedule_package.publish` approval |
 
-Crashed loops restart with exponential backoff (5s → 5m). `GET /healthz`
-reports per-loop liveness; `GET /statusz` reports state-store counts.
+Crashed loops restart with exponential backoff (5s → 5m). `GET /health`
+reports per-loop liveness; `GET /status` reports state-store counts.
 
 ## Architecture decisions
 
@@ -78,7 +78,7 @@ code path; nothing new.
 Deploy: `.github/workflows/worker-deploy.yml` (paths `runtime/**`,
 `dispatch-worker/**`). Cloud Run service `quill-dispatch-worker`, min-instances=1,
 CPU always allocated, Cloud SQL instance attached, no unauthenticated
-ingress (health checks via ID-token curl).
+ingress (health checks via ID-token curl at `/health` — note `/healthz`/`/statusz` are intercepted by the Google Frontend on `*.run.app` and never reach the app).
 
 ## One-time state migration
 

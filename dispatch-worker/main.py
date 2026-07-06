@@ -19,8 +19,11 @@ dispatchers are service-to-service agents and never hold a human JWT.
 
 HTTP surface (Cloud Run requires a listener on $PORT):
 
-- ``GET /healthz``  — liveness: supervisor + per-dispatcher task state
-- ``GET /statusz``  — per-dispatcher state-store summary (done/error counts)
+- ``GET /health``  — liveness: supervisor + per-dispatcher task state
+- ``GET /status``  — per-dispatcher state-store summary (done/error counts)
+
+(Note: ``/healthz`` and ``/statusz`` are intercepted by the Google Frontend
+on ``*.run.app`` domains and never reach the container — verified 2026-07-06.)
 """
 
 from __future__ import annotations
@@ -189,8 +192,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="quill-dispatch-worker", lifespan=lifespan)
 
 
-@app.get("/healthz")
-async def healthz() -> dict[str, Any]:
+@app.get("/health")
+async def health() -> dict[str, Any]:
     details = {name: sup.health() for name, sup in _supervisors.items()}
     all_alive = bool(details) and all(d["alive"] for d in details.values())
     return {
@@ -200,8 +203,8 @@ async def healthz() -> dict[str, Any]:
     }
 
 
-@app.get("/statusz")
-async def statusz() -> dict[str, Any]:
+@app.get("/status")
+async def status_view() -> dict[str, Any]:
     """State-store summaries (hits Postgres; keep off the health-check path)."""
     out: dict[str, Any] = {}
     for name, sup in _supervisors.items():
