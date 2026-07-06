@@ -1,0 +1,168 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/pm_artifact_base.schema.json",
+  "title": "PMArtifactBase",
+  "description": "Shared base shape for every PM-flavor agent artifact (status updates, coordinator artifacts, PM analyses, comms drafts, knowledge entries). Per-agent schemas extend this via $ref + a metadata sub-schema. The Documents workspace renders any artifact uniformly: title -> summary -> body_markdown -> type-specific metadata.",
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "artifact_id",
+    "title",
+    "summary",
+    "body_markdown",
+    "metadata",
+    "citations",
+    "confidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_type": {
+      "type": "string",
+      "description": "Discriminator for which PM agent produced this artifact. Per-agent schemas restrict this enum to a single value.",
+      "enum": [
+        "status_update",
+        "coordinator_artifact",
+        "pm_analysis",
+        "comms_draft",
+        "knowledge_entry",
+        "aace_classification",
+        "cost_schedule_package"
+      ]
+    },
+    "artifact_id": {
+      "type": "string",
+      "description": "Stable identifier (UUID v4 or kebab-case slug) assigned by the runtime. Reused across revisions only via parent_id; each new draft gets a fresh artifact_id.",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "parent_id": {
+      "type": ["string", "null"],
+      "description": "If this artifact supersedes a prior draft, the prior artifact_id. Null for fresh drafts.",
+      "maxLength": 64
+    },
+    "title": {
+      "type": "string",
+      "description": "Human-facing title rendered in the Documents tab.",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "summary": {
+      "type": "string",
+      "description": "One-paragraph TL;DR. Used in list views and Telegram notifications.",
+      "minLength": 1,
+      "maxLength": 280
+    },
+    "body_markdown": {
+      "type": "string",
+      "description": "Full artifact body as GitHub-flavored Markdown. Renderable as-is in the Documents tab and exportable to Drive.",
+      "minLength": 1
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Type-specific structured fields. Per-agent schemas tighten this with their own required keys; the base accepts any object."
+    },
+    "suggested_distribution": {
+      "type": ["array", "null"],
+      "description": "Recommended recipient roles or email addresses (e.g. 'owner_pm', 'gc_super', 'charles@...'). Null when no distribution is appropriate (internal-only artifacts).",
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+      "uniqueItems": true,
+      "maxItems": 50
+    },
+    "citations": {
+      "type": "array",
+      "description": "Sources backing the claims in the artifact. Required even if the agent's only inputs were prior approved artifacts (cite those).",
+      "items": { "$ref": "#/$defs/citation" },
+      "minItems": 0,
+      "maxItems": 200
+    },
+    "confidence": {
+      "type": "number",
+      "description": "Self-reported confidence in [0.0, 1.0]. Below 0.70 forces tier-0 mandatory review regardless of trust_tier_default.",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "escalation_reasons": {
+      "type": "array",
+      "description": "Short tags describing why this artifact needs attention. Routing logic reads these to bump trust tier or attach reviewers.",
+      "items": { "$ref": "#/$defs/escalation_tag" },
+      "uniqueItems": true,
+      "maxItems": 32
+    }
+  },
+  "$defs": {
+    "citation": {
+      "type": "object",
+      "description": "A single source backing a claim in the artifact. 'kind' (preferred) or 'purpose' (alias) identifies the source class; 'ref' is the human-readable pointer; 'note' is optional disambiguation. At least one of 'kind' or 'purpose' must be present so downstream consumers always have a descriptor; both are accepted to match natural agent output.",
+      "required": ["ref"],
+      "additionalProperties": false,
+      "anyOf": [
+        { "required": ["kind"] },
+        { "required": ["purpose"] }
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "Canonical source class. Conventional values listed for routing consistency, but free-form values are accepted so schema validation catches real bugs rather than prompt-style nuance.",
+          "minLength": 1,
+          "maxLength": 64,
+          "examples": [
+            "spec_section",
+            "drawing",
+            "rfi",
+            "submittal",
+            "dfr",
+            "schedule_activity",
+            "procurement_record",
+            "approval_artifact",
+            "knowledge_entry",
+            "meeting_minutes",
+            "contract_clause",
+            "bim_element",
+            "email",
+            "other"
+          ]
+        },
+        "purpose": {
+          "type": "string",
+          "description": "Free-form purpose-style alias for 'kind' (e.g., 'rate_source', 'quantity_basis', 'design_input'). Accepted because some agents naturally emit 'purpose' instead of 'kind'; consumers should treat 'purpose' as semantically equivalent to 'kind'.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "ref": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "description": "Pointer to the source: spec section number, drawing sheet, RFI ID, prior artifact_id, etc. Must exist in the input context; never invented."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Optional short note on what this citation supports (which claim, which paragraph)."
+        }
+      }
+    },
+    "escalation_tag": {
+      "type": "string",
+      "description": "Short, machine-friendly tag. Conventional values are listed for routing consistency, but free-form tags are allowed.",
+      "minLength": 1,
+      "maxLength": 64,
+      "examples": [
+        "prompt_injection_detected",
+        "missing_data",
+        "conflicting_data",
+        "out_of_scope",
+        "vague_input",
+        "owner_facing",
+        "external_distribution",
+        "cost_impact",
+        "schedule_impact",
+        "safety",
+        "low_confidence",
+        "data_freshness_stale",
+        "pii_redacted",
+        "design_change",
+        "affects_long_lead_equipment"
+      ]
+    }
+  }
+}

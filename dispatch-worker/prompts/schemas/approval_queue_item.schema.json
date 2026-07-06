@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/approval_queue_item.schema.json",
+  "title": "ApprovalQueueItem",
+  "description": "A proposed action emitted by an Agentic PMO agent. Lands in the Approval Queue and is reviewed by a human according to the lane / trust tier defined in Doc 03.",
+  "type": "object",
+  "required": [
+    "approval_id",
+    "agent_id",
+    "agent_version",
+    "workflow",
+    "lane",
+    "proposed_action",
+    "context",
+    "confidence",
+    "created_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "approval_id": {
+      "type": "string",
+      "description": "Globally unique identifier (UUID v4 recommended).",
+      "pattern": "^[0-9a-fA-F-]{8,}$"
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "Stable agent slug, e.g. 'rfi-triage'.",
+      "enum": [
+        "coordinator",
+        "rfi-triage",
+        "rfi-drafter",
+        "submittal-triage",
+        "submittal-spec-validator",
+        "schedule-reader",
+        "critical-path-watch",
+        "dfr-synthesizer",
+        "safety-aggregator",
+        "progress-capture",
+        "co-estimator",
+        "daily-brief",
+        "ccb-prep",
+        "owner-reporting"
+      ]
+    },
+    "agent_version": {
+      "type": "string",
+      "description": "Semver of the agent prompt that produced this item.",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$"
+    },
+    "workflow": {
+      "type": "string",
+      "description": "High-level workflow this item is part of (e.g. 'rfi.classify', 'submittal.review.first-pass')."
+    },
+    "lane": {
+      "type": "string",
+      "description": "Trust-tier lane from Doc 03. Tier 0 = mandatory review, Tier 1 = spot-check, Tier 2 = auto-execute.",
+      "enum": ["tier-0-mandatory", "tier-1-spotcheck", "tier-2-auto"]
+    },
+    "proposed_action": {
+      "type": "object",
+      "description": "What the agent proposes to do. Free-form by agent type but must be structured.",
+      "required": ["kind", "payload"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "e.g. 'classify_rfi', 'draft_rfi_response', 'review_submittal'."
+        },
+        "payload": {
+          "type": "object",
+          "description": "Agent-specific payload. Should validate against the agent's output schema."
+        },
+        "target_system": {
+          "type": ["string", "null"],
+          "description": "If approved, where this would be written (e.g. 'procore', 'p6', 'acc'). Null means draft-only."
+        }
+      },
+      "additionalProperties": false
+    },
+    "context": {
+      "type": "object",
+      "description": "Source documents and references used to produce the proposal.",
+      "required": ["project_id", "sources"],
+      "properties": {
+        "project_id": { "type": "string" },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["kind", "ref"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rfi",
+                  "submittal",
+                  "spec_section",
+                  "drawing",
+                  "bim_element",
+                  "schedule_activity",
+                  "contract_clause",
+                  "email",
+                  "transmittal",
+                  "field_observation"
+                ]
+              },
+              "ref": { "type": "string", "description": "Stable identifier within the source system." },
+              "excerpt": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Agent self-rated confidence. <0.70 forces tier-0-mandatory."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Short human-readable explanation of why this proposal."
+    },
+    "escalations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Reasons this should be escalated (e.g. 'cost_impact', 'schedule_impact', 'safety')."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    }
+  }
+}

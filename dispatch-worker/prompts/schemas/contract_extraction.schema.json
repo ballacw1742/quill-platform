@@ -1,0 +1,228 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "contract_extraction.schema.json",
+  "title": "ContractExtraction",
+  "description": "Structured fields extracted from a construction contract document by the contract-extractor agent. NOT legal advice.",
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "contract_type",
+    "confidence",
+    "parties",
+    "effective_date",
+    "expiration_date",
+    "total_value_usd",
+    "payment_terms",
+    "payment_schedule",
+    "key_milestones",
+    "obligations",
+    "notable_clauses",
+    "notes",
+    "disclaimer",
+    "citations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "artifact_type": {
+      "type": "string",
+      "const": "contract_extraction",
+      "description": "Always 'contract_extraction'."
+    },
+    "contract_type": {
+      "type": "string",
+      "enum": [
+        "owner_gc",
+        "subcontract",
+        "change_order",
+        "purchase_order",
+        "letter_of_intent",
+        "nda",
+        "msa",
+        "equipment_lease",
+        "insurance_certificate",
+        "lien_waiver",
+        "other",
+        "unknown"
+      ],
+      "description": "Detected contract type."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confidence score for the contract_type classification (0.0–1.0)."
+    },
+    "parties": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "type": "string",
+            "description": "Party role, e.g. 'Owner', 'General Contractor', 'Subcontractor'."
+          },
+          "name": {
+            "type": "string",
+            "description": "Legal entity name."
+          },
+          "address": {
+            "type": ["string", "null"],
+            "description": "Full mailing address if present."
+          },
+          "contact": {
+            "type": ["string", "null"],
+            "description": "Contact name, phone, or email if present."
+          }
+        }
+      },
+      "default": []
+    },
+    "effective_date": {
+      "type": ["string", "null"],
+      "description": "Contract execution or effective date (ISO 8601: YYYY-MM-DD), or null.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$|^$"
+    },
+    "expiration_date": {
+      "type": ["string", "null"],
+      "description": "Contract expiration, termination, or project completion date (ISO 8601), or null.",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$|^$"
+    },
+    "total_value_usd": {
+      "type": ["number", "null"],
+      "description": "Total contract sum in USD, or null if not determinable."
+    },
+    "payment_terms": {
+      "type": ["string", "null"],
+      "description": "Brief description of payment terms, or null."
+    },
+    "payment_schedule": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "due"],
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "amount_usd": {
+            "type": ["number", "null"]
+          },
+          "due": {
+            "type": "string",
+            "description": "ISO date or descriptive trigger (e.g. 'Upon substantial completion')."
+          },
+          "condition": {
+            "type": ["string", "null"],
+            "description": "Condition precedent, if any."
+          }
+        }
+      },
+      "default": []
+    },
+    "key_milestones": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["description", "date"],
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "description": "ISO date (YYYY-MM-DD) or descriptive if no exact date present."
+          }
+        }
+      },
+      "default": []
+    },
+    "obligations": {
+      "type": "object",
+      "description": "Map of party name to list of primary obligation bullet points.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "notable_clauses": {
+      "type": "object",
+      "description": "Notable clauses by topic. Each is either null (not found) or {verbatim, paraphrase}.",
+      "required": [
+        "indemnification",
+        "termination",
+        "dispute_resolution",
+        "insurance_requirements",
+        "limitation_of_liability",
+        "change_orders",
+        "payment_terms"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "indemnification": { "$ref": "#/$defs/clause_entry" },
+        "termination": { "$ref": "#/$defs/clause_entry" },
+        "dispute_resolution": { "$ref": "#/$defs/clause_entry" },
+        "insurance_requirements": { "$ref": "#/$defs/clause_entry" },
+        "limitation_of_liability": { "$ref": "#/$defs/clause_entry" },
+        "change_orders": { "$ref": "#/$defs/clause_entry" },
+        "payment_terms": { "$ref": "#/$defs/clause_entry" }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Free-form notes about extraction uncertainty, partial documents, etc."
+    },
+    "disclaimer": {
+      "type": "string",
+      "const": "AI-generated analysis. This is not legal advice. Review with qualified counsel before relying on it for any binding decision.",
+      "description": "Mandatory AI-output disclaimer. Must equal the canonical text exactly."
+    },
+    "citations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["quote", "location"],
+        "additionalProperties": false,
+        "properties": {
+          "quote": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string",
+            "description": "Section number, article, or page reference."
+          }
+        }
+      },
+      "default": []
+    }
+  },
+  "$defs": {
+    "clause_entry": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": ["verbatim", "paraphrase"],
+          "additionalProperties": false,
+          "properties": {
+            "verbatim": {
+              "type": "string",
+              "description": "Verbatim or near-verbatim clause text (up to 600 chars)."
+            },
+            "paraphrase": {
+              "type": "string",
+              "description": "One plain-English sentence describing what this clause says. No legal opinion."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

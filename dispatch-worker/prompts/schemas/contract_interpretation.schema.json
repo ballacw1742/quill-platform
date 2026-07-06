@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "contract_interpretation.schema.json",
+  "title": "ContractInterpretation",
+  "description": "Output of the contract-interpreter agent. Plain-English answer to a specific question about a contract clause, with supporting citations and confidence.",
+  "type": "object",
+  "required": [
+    "question",
+    "answer",
+    "supporting_clauses",
+    "confidence",
+    "caveats",
+    "disclaimer"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "question": {
+      "type": "string",
+      "description": "Echo of the user's question."
+    },
+    "answer": {
+      "type": "string",
+      "description": "Plain-English answer to the question. Default 100–300 words; may be longer for complex questions."
+    },
+    "supporting_clauses": {
+      "type": "array",
+      "description": "Contract clauses that directly support the answer.",
+      "items": {
+        "type": "object",
+        "required": ["verbatim", "location", "why_relevant"],
+        "additionalProperties": false,
+        "properties": {
+          "verbatim": {
+            "type": "string",
+            "description": "Verbatim text of the supporting clause."
+          },
+          "location": {
+            "type": "string",
+            "description": "Section or page reference."
+          },
+          "why_relevant": {
+            "type": "string",
+            "description": "1-2 sentences explaining why this clause is relevant to the answer."
+          }
+        }
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confidence score 0–1. 1.0 = answer is unambiguous from explicit contract text; 0.0 = highly uncertain (clause absent, ambiguous, or conflicting)."
+    },
+    "caveats": {
+      "type": "array",
+      "description": "Situations where the answer could be wrong or depend on additional context.",
+      "items": {
+        "type": "object",
+        "required": ["caveat"],
+        "additionalProperties": false,
+        "properties": {
+          "caveat": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "disclaimer": {
+      "type": "string",
+      "const": "AI-generated analysis. This is not legal advice. Review with qualified counsel before relying on it for any binding decision.",
+      "description": "Canonical disclaimer — must match exactly."
+    }
+  }
+}

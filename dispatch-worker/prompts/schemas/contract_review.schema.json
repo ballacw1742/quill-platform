@@ -1,0 +1,185 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "contract_review.schema.json",
+  "title": "ContractReview",
+  "description": "Output of the contract-reviewer agent. Risk flags, missing protections, market-terms assessment, plain-English summary, and recommended actions for a construction contract.",
+  "type": "object",
+  "required": [
+    "risk_flags",
+    "missing_protections",
+    "market_terms_assessment",
+    "plain_english_summary",
+    "recommended_actions",
+    "disclaimer",
+    "citations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "risk_flags": {
+      "type": "array",
+      "description": "Identified risks and unfavorable terms in the contract.",
+      "items": {
+        "type": "object",
+        "required": ["severity", "category", "title", "summary", "verbatim", "location", "why_it_matters", "suggested_action"],
+        "additionalProperties": false,
+        "properties": {
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low", "info"],
+            "description": "critical = potential major financial or legal exposure; high = significant risk; medium = moderate concern; low = minor; info = informational only"
+          },
+          "category": {
+            "type": "string",
+            "description": "E.g. indemnification, payment_terms, limitation_of_liability, termination, change_orders, etc."
+          },
+          "title": {
+            "type": "string",
+            "description": "Short title for this risk flag (max 80 chars)."
+          },
+          "summary": {
+            "type": "string",
+            "description": "1-3 sentence plain-English explanation of the risk."
+          },
+          "verbatim": {
+            "type": "string",
+            "description": "Verbatim excerpt from the contract that triggers this flag."
+          },
+          "location": {
+            "type": "string",
+            "description": "Section or page reference (e.g. 'Section 12.3', 'Page 4')."
+          },
+          "why_it_matters": {
+            "type": "string",
+            "description": "Why this risk matters in practical terms for the user."
+          },
+          "suggested_action": {
+            "type": "string",
+            "description": "Recommended next step (e.g. 'Ask for mutual indemnity carve-out before signing')."
+          },
+          "suggested_redline": {
+            "type": "string",
+            "description": "Optional suggested replacement language for this clause."
+          }
+        }
+      }
+    },
+    "missing_protections": {
+      "type": "array",
+      "description": "Common protective provisions that are notably absent from this contract.",
+      "items": {
+        "type": "object",
+        "required": ["category", "title", "why_typical", "suggested_clause"],
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "why_typical": {
+            "type": "string",
+            "description": "Why this protection is standard in Ohio construction contracts."
+          },
+          "suggested_clause": {
+            "type": "string",
+            "description": "Short suggested clause language to include."
+          }
+        }
+      }
+    },
+    "market_terms_assessment": {
+      "type": "object",
+      "description": "Per-category assessment of whether terms are in-market, off-market-favorable, or off-market-unfavorable. Uses Ohio commercial construction context.",
+      "required": [
+        "payment_terms",
+        "retention",
+        "indemnification",
+        "limitation_of_liability",
+        "termination",
+        "change_orders",
+        "dispute_resolution",
+        "insurance"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "payment_terms": {
+          "$ref": "#/definitions/MarketTermsEntry"
+        },
+        "retention": {
+          "$ref": "#/definitions/MarketTermsEntry"
+        },
+        "indemnification": {
+          "$ref": "#/definitions/MarketTermsEntry"
+        },
+        "limitation_of_liability": {
+          "$ref": "#/definitions/MarketTermsEntry"
+        },
+        "termination": {
+          "$ref": "#/definitions/MarketTermsEntry"
+        },
+        "change_orders": {
+          "$ref": "#/definitions/MarketTermsEntry"
+        },
+        "dispute_resolution": {
+          "$ref": "#/definitions/MarketTermsEntry"
+        },
+        "insurance": {
+          "$ref": "#/definitions/MarketTermsEntry"
+        }
+      }
+    },
+    "plain_english_summary": {
+      "type": "string",
+      "description": "200–300 word plain-English summary of the entire agreement, written in chief-of-staff voice. No legalese."
+    },
+    "recommended_actions": {
+      "type": "array",
+      "description": "Ordered list of next steps the user should take before signing or relying on this contract.",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "disclaimer": {
+      "type": "string",
+      "const": "AI-generated analysis. This is not legal advice. Review with qualified counsel before relying on it for any binding decision.",
+      "description": "Canonical disclaimer — must match exactly."
+    },
+    "citations": {
+      "type": "array",
+      "description": "Supporting citations from the contract text.",
+      "items": {
+        "type": "object",
+        "required": ["quote", "location"],
+        "additionalProperties": false,
+        "properties": {
+          "quote": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "MarketTermsEntry": {
+      "type": "object",
+      "required": ["verdict", "notes"],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["in-market", "off-market-favorable", "off-market-unfavorable", "not-present", "unclear"],
+          "description": "in-market = standard/reasonable; off-market-favorable = better than typical for owner; off-market-unfavorable = worse than typical for owner; not-present = clause or provision absent; unclear = insufficient data to assess"
+        },
+        "notes": {
+          "type": "string",
+          "description": "1-3 sentence explanation of the verdict. Acknowledge jurisdiction-specific variation where relevant."
+        }
+      }
+    }
+  }
+}

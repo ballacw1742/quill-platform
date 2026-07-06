@@ -1,0 +1,316 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quill.local/schemas/daily_brief_output.schema.json",
+  "title": "Daily Brief Output",
+  "description": "Structured 11-section morning digest produced by the Daily Brief agent at 7:00 AM ET.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "as_of",
+    "header",
+    "top_of_mind",
+    "approvals_pending",
+    "critical_path",
+    "procurement",
+    "rfis_submittals",
+    "field_yesterday",
+    "hyperscaler",
+    "calendar_today",
+    "quill_health",
+    "recommendations",
+    "confidence"
+  ],
+  "properties": {
+    "as_of": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "header": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["date", "day_of_week", "weather_oneliner", "project_phase"],
+      "properties": {
+        "date": { "type": "string", "format": "date" },
+        "day_of_week": { "type": "string" },
+        "weather_oneliner": { "type": "string", "maxLength": 200 },
+        "project_phase": { "type": "string" },
+        "buildings_active": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "top_of_mind": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["headline", "why_it_matters", "action_required", "linked_artifacts"],
+        "properties": {
+          "headline": { "type": "string", "maxLength": 100 },
+          "why_it_matters": { "type": "string", "maxLength": 250 },
+          "action_required": {
+            "type": "string",
+            "enum": ["decide", "approve", "respond", "acknowledge", "monitor"]
+          },
+          "linked_artifacts": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "deadline": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "approvals_pending": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lane_1_count", "lane_2_count", "lane_3_count", "details"],
+      "properties": {
+        "lane_1_count": { "type": "integer", "minimum": 0 },
+        "lane_2_count": { "type": "integer", "minimum": 0 },
+        "lane_3_count": { "type": "integer", "minimum": 0 },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["approval_id", "lane", "summary", "age_hours"],
+            "properties": {
+              "approval_id": { "type": "string" },
+              "lane": { "type": "integer", "enum": [1, 2, 3] },
+              "summary": { "type": "string", "maxLength": 200 },
+              "age_hours": { "type": "number", "minimum": 0 },
+              "priority_flag": {
+                "type": "string",
+                "enum": ["P1-critical", "P2-high", "P3-normal", "P4-low"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "critical_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["next_7d_activities", "flagged_risks"],
+      "properties": {
+        "next_7d_activities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["wbs_id", "name", "start", "finish"],
+            "properties": {
+              "wbs_id": { "type": "string" },
+              "name": { "type": "string" },
+              "start": { "type": "string", "format": "date" },
+              "finish": { "type": "string", "format": "date" },
+              "responsible": { "type": "string" }
+            }
+          }
+        },
+        "flagged_risks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["risk", "wbs_impacted", "severity"],
+            "properties": {
+              "risk": { "type": "string", "maxLength": 300 },
+              "wbs_impacted": { "type": "array", "items": { "type": "string" } },
+              "severity": {
+                "type": "string",
+                "enum": ["critical", "high", "medium", "low"]
+              },
+              "source_agent": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "procurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alerts_count", "items"],
+      "properties": {
+        "alerts_count": { "type": "integer", "minimum": 0 },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["po_id", "vendor", "equipment_class", "status"],
+            "properties": {
+              "po_id": { "type": "string" },
+              "vendor": { "type": "string" },
+              "equipment_class": { "type": "string" },
+              "status": {
+                "type": "string",
+                "enum": ["on_track", "warning", "alert", "critical", "stale", "delivered"]
+              },
+              "ship_date_delta_days": { "type": "integer" },
+              "note": { "type": "string", "maxLength": 200 }
+            }
+          }
+        }
+      }
+    },
+    "rfis_submittals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rfi_open", "rfi_drafted", "rfi_aged_48h", "submittal_open", "submittal_aged_48h"],
+      "properties": {
+        "rfi_open": { "type": "integer", "minimum": 0 },
+        "rfi_drafted": { "type": "integer", "minimum": 0 },
+        "rfi_aged_48h": { "type": "integer", "minimum": 0 },
+        "submittal_open": { "type": "integer", "minimum": 0 },
+        "submittal_aged_48h": { "type": "integer", "minimum": 0 },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "type", "subject", "age_hours"],
+            "properties": {
+              "id": { "type": "string" },
+              "type": { "type": "string", "enum": ["rfi", "submittal"] },
+              "subject": { "type": "string", "maxLength": 200 },
+              "age_hours": { "type": "number", "minimum": 0 },
+              "priority": {
+                "type": "string",
+                "enum": ["P1-critical", "P2-high", "P3-normal", "P4-low"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "field_yesterday": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manpower_count", "hours_worked"],
+      "properties": {
+        "manpower_count": { "type": "integer", "minimum": 0 },
+        "hours_worked": { "type": "number", "minimum": 0 },
+        "notable_events": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 200 }
+        },
+        "weather_impacts": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 200 }
+        },
+        "near_misses": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "hyperscaler": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inbox_count", "outbox_due_7d"],
+      "properties": {
+        "inbox_count": { "type": "integer", "minimum": 0 },
+        "inbox_classifications": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["filename", "classification"],
+            "properties": {
+              "filename": { "type": "string" },
+              "classification": { "type": "string" },
+              "received_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "outbox_due_7d": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["deliverable_type", "due_date"],
+            "properties": {
+              "deliverable_type": { "type": "string" },
+              "due_date": { "type": "string", "format": "date" },
+              "status": {
+                "type": "string",
+                "enum": ["not_started", "drafting", "ready_for_approval", "approved", "delivered"]
+              }
+            }
+          }
+        },
+        "reconciliation_flags": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "calendar_today": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end", "title", "prep_status"],
+        "properties": {
+          "start": { "type": "string", "format": "date-time" },
+          "end": { "type": "string", "format": "date-time" },
+          "title": { "type": "string", "maxLength": 200 },
+          "attendees": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "prep_status": {
+            "type": "string",
+            "enum": ["briefed", "materials_ready", "needs_prep", "no_prep_needed"]
+          }
+        }
+      }
+    },
+    "quill_health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["queue_depth", "errors_24h", "agents_suspended", "spend_yesterday_usd", "monthly_budget_pct"],
+      "properties": {
+        "queue_depth": { "type": "integer", "minimum": 0 },
+        "errors_24h": { "type": "integer", "minimum": 0 },
+        "agents_suspended": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "spend_yesterday_usd": { "type": "number", "minimum": 0 },
+        "monthly_budget_pct": { "type": "number", "minimum": 0, "maximum": 200 },
+        "audit_chain_status": {
+          "type": "string",
+          "enum": ["ok", "warning", "failed"]
+        }
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["recommendation", "expected_outcome", "confidence"],
+        "properties": {
+          "recommendation": { "type": "string", "maxLength": 200 },
+          "expected_outcome": { "type": "string", "maxLength": 200 },
+          "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+        }
+      }
+    },
+    "prompt_injection_flag": {
+      "type": "boolean"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  }
+}

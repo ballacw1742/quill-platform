@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/knowledge_entry.schema.json",
+  "title": "KnowledgeEntry",
+  "description": "Output of Agent: knowledge-manager. A durable institutional-memory record (decision logged, incident, milestone retrospective, or weekly review takeaway) captured from project events for future PMs to search 6, 12, 18 months from now. Extends pm_artifact_base — same top-level shape, with metadata.* tightened to the knowledge entry index fields. Lane 1 (auto-archive) by default; the runtime forces tier-0 review on confidence < 0.70 or when escalation_reasons names a controversial-decision flag.",
+  "allOf": [
+    { "$ref": "https://agentic-pmo.local/schemas/pm_artifact_base.schema.json" }
+  ],
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "artifact_id",
+    "title",
+    "summary",
+    "body_markdown",
+    "metadata",
+    "citations",
+    "confidence"
+  ],
+  "properties": {
+    "artifact_type": { "const": "knowledge_entry" },
+    "metadata": { "$ref": "#/$defs/knowledge_entry_metadata" }
+  },
+  "$defs": {
+    "knowledge_entry_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trigger",
+        "decision_or_lesson",
+        "context_summary",
+        "applicable_phases",
+        "applicable_disciplines",
+        "search_tags",
+        "related_artifact_ids",
+        "decision_owner",
+        "decision_date"
+      ],
+      "properties": {
+        "trigger": {
+          "type": "string",
+          "enum": [
+            "decision_logged",
+            "incident",
+            "milestone",
+            "weekly_review"
+          ],
+          "description": "Why this knowledge entry exists. 'decision_logged' = a deliberate choice was made and we want to remember it + its rationale. 'incident' = something went wrong (or nearly did) and we want to capture the lesson. 'milestone' = a major event landed (good or bad) and we want the post-event reflection. 'weekly_review' = recurring rollup of what we learned this week."
+        },
+        "decision_or_lesson": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000,
+          "description": "The single durable takeaway, as plain English a future PM could act on without context. For decision_logged: the decision + the reasoning. For incident: the lesson learned. For milestone: the pattern to repeat or avoid. For weekly_review: the summary of the week's most reusable insight."
+        },
+        "context_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000,
+          "description": "One- to two-paragraph summary of the situation that produced the lesson. Names projects, dates, scope. Plain narrative voice. PII is redacted before this field is written."
+        },
+        "applicable_phases": {
+          "type": "array",
+          "description": "Construction phases this entry is relevant to. A future PM searching for 'what did we learn during MEP rough-in' should find this if 'mep_rough_in' is here. Multiple phases allowed when a lesson crosses phase boundaries.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "pre-construction",
+              "foundations",
+              "vertical",
+              "mep_rough_in",
+              "mep_trim",
+              "commissioning",
+              "handover",
+              "post-handover"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true
+        },
+        "applicable_disciplines": {
+          "type": "array",
+          "description": "Disciplines this entry touches (e.g. 'structural', 'electrical', 'mechanical', 'safety', 'procurement', 'controls', 'commissioning', 'civil', 'life_safety', 'controls_integration'). Free-form lowercase tags; the knowledge index treats these as facets.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "search_tags": {
+          "type": "array",
+          "description": "Lowercase, hyphen-separated search tags. The knowledge index uses these for full-text and faceted search. Examples: 'long-lead', 'chiller-substitution', 'lockout-tagout', 'commissioning-stall', 'owner-directive'. Always include enough tags that a future PM searching for 'what did we do about chiller delays' finds this entry.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "minItems": 1,
+          "maxItems": 24,
+          "uniqueItems": true
+        },
+        "related_artifact_ids": {
+          "type": "array",
+          "description": "Artifact IDs (RFIs, submittals, PCOs, prior knowledge entries, status updates, DFRs, etc.) that back the claims in this entry. Every substantive claim in body_markdown must trace to one of these (or to a citation in the top-level citations[] field).",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minItems": 0,
+          "maxItems": 64,
+          "uniqueItems": true
+        },
+        "decision_owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Role of the person who owned the decision or lesson — e.g. 'owner_pm', 'gc_super', 'mep_lead', 'commissioning_agent', 'safety_director'. ALWAYS a role, never a personal name. If only a name is in the input, redact to role + flag pii_redacted in escalation_reasons."
+        },
+        "decision_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Inclusive ISO date (YYYY-MM-DD) the decision was made or the event occurred. Drives chronological ordering in the knowledge index."
+        }
+      }
+    }
+  }
+}

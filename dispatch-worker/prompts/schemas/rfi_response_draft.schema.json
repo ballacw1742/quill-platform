@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/rfi_response_draft.schema.json",
+  "title": "RFIResponseDraft",
+  "description": "Output of Agent 3 (RFI Drafter). A draft response to an RFI, never sent without human approval.",
+  "type": "object",
+  "required": [
+    "rfi_id",
+    "draft_response",
+    "citations",
+    "answers_question_directly",
+    "confidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "rfi_id": { "type": "string" },
+    "draft_response": {
+      "type": "string",
+      "minLength": 30,
+      "description": "Plain-English response. May include numbered sub-answers."
+    },
+    "answers_question_directly": {
+      "type": "boolean",
+      "description": "True if the draft fully answers; false if it requests more info."
+    },
+    "follow_up_questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Required when answers_question_directly is false."
+    },
+    "citations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["spec_section", "drawing", "rfi", "submittal", "bim_element", "contract_clause", "asi", "addendum"] },
+          "ref": { "type": "string" },
+          "quote": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "cost_impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "has_impact": { "type": "boolean" },
+        "estimate_low_usd": { "type": ["number", "null"] },
+        "estimate_high_usd": { "type": ["number", "null"] },
+        "basis": { "type": "string" }
+      }
+    },
+    "schedule_impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "has_impact": { "type": "boolean" },
+        "estimate_days": { "type": ["number", "null"] },
+        "affected_activities": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "requires_change_order": { "type": "boolean" },
+    "requires_design_team_review": { "type": "boolean" },
+    "escalation_reasons": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+  }
+}
