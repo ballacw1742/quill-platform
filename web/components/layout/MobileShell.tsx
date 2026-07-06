@@ -78,6 +78,7 @@ export function TopBar({
   title,
   subtitle,
   hero = false,
+  sticky = true,
   left,
   right,
   className,
@@ -85,6 +86,8 @@ export function TopBar({
   title?: React.ReactNode;
   subtitle?: React.ReactNode;
   hero?: boolean;
+  /** Set false on long scroll pages where a pinned hero would sit over content (iOS large titles scroll away). */
+  sticky?: boolean;
   left?: React.ReactNode;
   right?: React.ReactNode;
   className?: string;
@@ -92,7 +95,8 @@ export function TopBar({
   return (
     <header
       className={cn(
-        "sticky top-0 z-30 pt-safe bg-chrome",
+        sticky ? "sticky top-0 z-30 bg-chrome" : "relative",
+        "pt-safe",
         hero ? "border-0" : "border-b border-separator/40",
         className,
       )}
