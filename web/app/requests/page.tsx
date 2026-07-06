@@ -129,7 +129,7 @@ export default function RequestsPage() {
         {/* Message list */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto py-4 space-y-1 pb-[200px]"
+          className="flex-1 overflow-y-auto py-4 space-y-1 pb-[240px]"
           aria-label="Project requests"
           aria-live="polite"
         >

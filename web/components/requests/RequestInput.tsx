@@ -118,8 +118,8 @@ export function RequestInput({
     <div
       className={cn(
         "fixed left-0 right-0 z-30",
-        "border-t border-separator/40 bg-chrome backdrop-blur-md pb-safe",
-        "bottom-[calc(49px+env(safe-area-inset-bottom,0px))]",
+        "border-t border-separator/40 bg-chrome backdrop-blur-md",
+        "bottom-[calc(env(safe-area-inset-bottom,0px)+72px)]",
       )}
     >
       {/* File chips */}

@@ -214,8 +214,16 @@ const config: Config = {
         ".pl-safe": { paddingLeft: "env(safe-area-inset-left)" },
         ".pr-safe": { paddingRight: "env(safe-area-inset-right)" },
         ".min-h-tab-bar": { minHeight: "calc(49px + env(safe-area-inset-bottom))" },
+        // Legacy tab-bar inset — the tab bar is gone (iOS home-screen model);
+        // pb-tab-bar now reserves space for the floating Home button instead
+        // so any stragglers stay un-overlapped.
         ".pb-tab-bar": {
-          paddingBottom: "calc(49px + env(safe-area-inset-bottom))",
+          paddingBottom: "calc(88px + env(safe-area-inset-bottom))",
+        },
+        // Floating Home button inset: 56px button + 16px bottom margin +
+        // 16px breathing room above it (UI_REDESIGN_BRIEF §4 no-overlap).
+        ".pb-home": {
+          paddingBottom: "calc(88px + env(safe-area-inset-bottom))",
         },
       });
     },

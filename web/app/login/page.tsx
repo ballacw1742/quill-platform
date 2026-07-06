@@ -17,7 +17,7 @@ export default function LoginPage() {
     if (typeof window !== "undefined") {
       setError("");
       const token = window.localStorage.getItem("quill_session_token");
-      if (token) router.replace("/queue");
+      if (token) router.replace("/");
     }
   }, [router]);
 
@@ -45,7 +45,7 @@ export default function LoginPage() {
 
       if (data.access_token) {
         window.localStorage.setItem("quill_session_token", data.access_token);
-        router.replace("/queue");
+        router.replace("/");
       } else {
         throw new Error("No session token in response");
       }

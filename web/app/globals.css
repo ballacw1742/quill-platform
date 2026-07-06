@@ -20,8 +20,8 @@
     --label-secondary: 60 60 67;         /* used with /60 alpha */
     --label-tertiary: 60 60 67;          /* used with /30 alpha */
     --label-quaternary: 60 60 67;        /* used with /18 alpha */
-    --accent: 0 122 255;                 /* iOS systemBlue */
-    --accent-pressed: 0 98 204;          /* #0062CC */
+    --accent: 88 86 214;                 /* Quill Ink indigo — #5856D6 */
+    --accent-pressed: 70 68 192;         /* #4644C0 */
     --success: 52 199 89;                /* systemGreen */
     --warning: 255 149 0;                /* systemOrange */
     --danger: 255 59 48;                 /* systemRed */
@@ -44,8 +44,8 @@
     --label-secondary: 235 235 245;      /* used with /60 alpha */
     --label-tertiary: 235 235 245;       /* /30 */
     --label-quaternary: 235 235 245;     /* /18 */
-    --accent: 10 132 255;                /* iOS dark systemBlue */
-    --accent-pressed: 64 156 255;
+    --accent: 94 92 230;                 /* Quill Ink indigo dark — #5E5CE6 */
+    --accent-pressed: 122 120 250;       /* pressed lightens in dark — #7A78FA */
     --success: 48 209 88;
     --warning: 255 159 10;
     --danger: 255 69 58;
@@ -64,8 +64,8 @@
       --label-secondary: 235 235 245;
       --label-tertiary: 235 235 245;
       --label-quaternary: 235 235 245;
-      --accent: 10 132 255;
-      --accent-pressed: 64 156 255;
+      --accent: 94 92 230;
+      --accent-pressed: 122 120 250;
       --success: 48 209 88;
       --warning: 255 159 10;
       --danger: 255 69 58;
@@ -122,6 +122,33 @@
     background: rgb(var(--bg-translucent) / 0.72);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
     backdrop-filter: saturate(180%) blur(20px);
+  }
+
+  /* ── Liquid Glass material (UI_REDESIGN_BRIEF §2) ──────────────────────
+     Translucent, blurred, layered surface with a hairline border + soft
+     shadow. Adapts to light/dark via the --bg-translucent token. Use
+     .glass for chrome-level surfaces (floating button, headers) and
+     .glass-strong where more opacity is needed for legibility. */
+  .glass {
+    background: rgb(var(--bg-translucent) / 0.6);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    border: 1px solid rgb(var(--separator) / 0.24);
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.12),
+      0 1px 2px rgba(0, 0, 0, 0.08),
+      inset 0 1px 0 rgb(255 255 255 / 0.12);
+  }
+
+  .glass-strong {
+    background: rgb(var(--bg-translucent) / 0.78);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    backdrop-filter: saturate(180%) blur(24px);
+    border: 1px solid rgb(var(--separator) / 0.28);
+    box-shadow:
+      0 12px 32px rgba(0, 0, 0, 0.16),
+      0 1px 2px rgba(0, 0, 0, 0.08),
+      inset 0 1px 0 rgb(255 255 255 / 0.12);
   }
 
   /* Tap highlight removal (iOS Safari shows a grey flash on <a>/<button>). */

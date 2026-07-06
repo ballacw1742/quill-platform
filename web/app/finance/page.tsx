@@ -352,7 +352,7 @@ function NewBudgetLineModal({ onClose }: { onClose: () => void }) {
 function Fab({ onNewInvoice, onNewBudgetLine }: { onNewInvoice: () => void; onNewBudgetLine: () => void }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+64px)] right-4 z-40 flex flex-col items-end gap-2">
+    <div className="fixed bottom-[calc(env(safe-area-inset-bottom)+16px)] right-4 z-40 flex flex-col items-end gap-2">
       {open && (
         <>
           <button

@@ -48,7 +48,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <Toaster
             richColors
             position="bottom-center"
-            offset={84}
+            offset={104}
             closeButton
             toastOptions={{
               classNames: {

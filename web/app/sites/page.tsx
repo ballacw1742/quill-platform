@@ -269,7 +269,7 @@ export default function SitesPage() {
         aria-label="New site"
         onClick={() => router.push("/sites/new")}
         className={cn(
-          "fixed bottom-[calc(env(safe-area-inset-bottom)+72px)] right-4",
+          "fixed bottom-[calc(env(safe-area-inset-bottom)+16px)] right-4",
           "h-14 w-14 rounded-full bg-accent shadow-lg shadow-accent/30",
           "flex items-center justify-center",
           "transition-transform active:scale-95",
