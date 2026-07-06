@@ -11,6 +11,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { TrendingUp, Plus, X, ChevronRight, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import {
@@ -420,7 +421,7 @@ function NewDealModal({
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function PipelinePage() {
+function PipelinePageInner() {
   const router = useRouter();
   const [showNewDeal, setShowNewDeal] = React.useState(false);
 
@@ -516,5 +517,13 @@ export default function PipelinePage() {
         />
       )}
     </MobileShell>
+  );
+}
+
+export default function PipelinePage() {
+  return (
+    <ErrorBoundary moduleName="Pipeline">
+      <PipelinePageInner />
+    </ErrorBoundary>
   );
 }

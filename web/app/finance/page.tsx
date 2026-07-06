@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import {
   useFinanceSummary,
@@ -450,7 +451,7 @@ function InvoiceRow({ invoice }: { invoice: Invoice }) {
 
 type Tab = "overview" | "invoices";
 
-export default function FinancePage() {
+function FinancePageInner() {
   const router = useRouter();
   const [tab, setTab] = React.useState<Tab>("overview");
   const [showNewInvoice, setShowNewInvoice] = React.useState(false);
@@ -737,5 +738,13 @@ export default function FinancePage() {
       {showNewInvoice && <NewInvoiceModal onClose={() => setShowNewInvoice(false)} />}
       {showNewBudgetLine && <NewBudgetLineModal onClose={() => setShowNewBudgetLine(false)} />}
     </MobileShell>
+  );
+}
+
+export default function FinancePage() {
+  return (
+    <ErrorBoundary moduleName="Finance">
+      <FinancePageInner />
+    </ErrorBoundary>
   );
 }

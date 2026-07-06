@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -15,6 +16,7 @@ from app import __version__
 from app.config import get_settings
 from app.db import connect, disconnect
 from app.logging_setup import configure_logging
+from app.rate_limit import register_rate_limiting
 from app import models_dev_chat as _models_dev_chat  # noqa: F401 — registers dev-chat ORM models with Base.metadata
 from app import models_requests as _models_requests  # noqa: F401 — registers project_requests ORM model with Base.metadata
 from app import models_projects as _models_projects  # noqa: F401
@@ -39,6 +41,9 @@ from app.services.sla import run_forever as sla_run_forever
 _settings = get_settings()
 configure_logging(_settings.LOG_LEVEL)
 log = logging.getLogger("quill.main")
+
+# Process start time — powers uptime_seconds in GET /v1/admin/health (Sprint 5.3).
+START_TIME = time.time()
 
 # Initialize Sentry once at module import time. Safe even with no DSN —
 # the wrapper just installs scope tags. We re-call inside lifespan in case
@@ -91,23 +96,55 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Sprint 5.3 — per-route rate limiting (slowapi). Registers app.state.limiter,
+# the 429 handler, and SlowAPIMiddleware. Route-level @limiter.limit(...)
+# decorators live in the individual route modules.
+register_rate_limiting(app)
+
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     rid = request.headers.get("x-request-id") or str(uuid.uuid4())
     request.state.request_id = rid
     sentry_svc.tag_request(rid)
+    started = time.perf_counter()
     try:
         response = await call_next(request)
     except Exception as e:  # noqa: BLE001
+        duration_ms = round((time.perf_counter() - started) * 1000, 1)
         log.exception("unhandled error", extra={"request_id": rid})
+        # Sprint 5.3 — structured access log for the failed request too.
+        log.info(
+            "http_request",
+            extra={
+                "event": "http_request",
+                "method": request.method,
+                "path": request.url.path,
+                "status": 500,
+                "duration_ms": duration_ms,
+                "request_id": rid,
+            },
+        )
         sentry_svc.capture_exception(e, request_id=rid)
         return JSONResponse(
             status_code=500,
             content={"detail": "internal error", "request_id": rid},
             headers={"x-request-id": rid},
         )
+    duration_ms = round((time.perf_counter() - started) * 1000, 1)
     response.headers["x-request-id"] = rid
+    # Sprint 5.3 — structured JSON access log: one parseable line per request.
+    log.info(
+        "http_request",
+        extra={
+            "event": "http_request",
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "duration_ms": duration_ms,
+            "request_id": rid,
+        },
+    )
     return response
 
 

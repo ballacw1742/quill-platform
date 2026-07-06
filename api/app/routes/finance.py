@@ -22,7 +22,8 @@ import logging
 from datetime import UTC, date, datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from app.rate_limit import GET_LIMIT, POST_LIMIT, limiter
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -208,7 +209,9 @@ class ArAgingOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 @router.get("/v1/finance/summary", response_model=FinanceSummaryOut)
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_finance_summary(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> FinanceSummaryOut:
@@ -295,7 +298,9 @@ async def get_finance_summary(
 # ---------------------------------------------------------------------------
 
 @router.get("/v1/finance/arr", response_model=ArrResponse)
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_arr_breakdown(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> ArrResponse:
@@ -329,7 +334,9 @@ async def get_arr_breakdown(
 # ---------------------------------------------------------------------------
 
 @router.get("/v1/finance/capex", response_model=CapexResponse)
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_capex_breakdown(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> CapexResponse:
@@ -370,7 +377,9 @@ async def get_capex_breakdown(
 # ---------------------------------------------------------------------------
 
 @router.post("/v1/finance/budget-lines", response_model=BudgetLineOut, status_code=status.HTTP_201_CREATED)
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def create_budget_line(
+    request: Request,
     body: BudgetLineCreate,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
@@ -407,7 +416,9 @@ async def create_budget_line(
 # ---------------------------------------------------------------------------
 
 @router.get("/v1/finance/budget-lines", response_model=BudgetLineListOut)
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_budget_lines(
+    request: Request,
     project_id: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -474,7 +485,9 @@ async def update_budget_line(
 # ---------------------------------------------------------------------------
 
 @router.post("/v1/finance/invoices", response_model=InvoiceOut, status_code=status.HTTP_201_CREATED)
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def create_invoice(
+    request: Request,
     body: InvoiceCreate,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
@@ -512,7 +525,9 @@ async def create_invoice(
 # ---------------------------------------------------------------------------
 
 @router.get("/v1/finance/invoices/aging", response_model=ArAgingOut)
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_ar_aging(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ) -> ArAgingOut:
@@ -574,7 +589,9 @@ async def get_ar_aging(
 # ---------------------------------------------------------------------------
 
 @router.get("/v1/finance/invoices", response_model=InvoiceListOut)
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_invoices(
+    request: Request,
     account_id: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None, alias="status"),
     limit: int = Query(100, ge=1, le=500),

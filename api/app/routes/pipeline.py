@@ -23,7 +23,8 @@ import logging
 from datetime import UTC, date, datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from app.rate_limit import GET_LIMIT, POST_LIMIT, limiter
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -232,7 +233,9 @@ async def _get_deal_or_404(deal_id: str, db: AsyncSession) -> Deal:
     status_code=status.HTTP_201_CREATED,
     summary="Create account",
 )
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def create_account(
+    request: Request,
     body: AccountCreate,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
@@ -268,7 +271,9 @@ async def create_account(
     response_model=AccountListPage,
     summary="List accounts",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_accounts(
+    request: Request,
     type: Optional[str] = Query(default=None, description="Filter by type: prospect|customer"),
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
@@ -293,7 +298,9 @@ async def list_accounts(
     response_model=AccountOut,
     summary="Get account",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_account(
+    request: Request,
     account_id: str,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
@@ -337,7 +344,9 @@ async def update_account(
     status_code=status.HTTP_201_CREATED,
     summary="Create deal",
 )
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def create_deal(
+    request: Request,
     body: DealCreate,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
@@ -383,7 +392,9 @@ async def create_deal(
     response_model=DealListPage,
     summary="List deals",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_deals(
+    request: Request,
     stage: Optional[str] = Query(default=None),
     account_id: Optional[str] = Query(default=None),
     limit: int = Query(default=100, le=500),
@@ -411,7 +422,9 @@ async def list_deals(
     response_model=DealWithAccountOut,
     summary="Get deal (with account)",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_deal(
+    request: Request,
     deal_id: str,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
@@ -491,7 +504,9 @@ async def update_deal(
     status_code=status.HTTP_201_CREATED,
     summary="Log activity on deal",
 )
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def add_activity(
+    request: Request,
     deal_id: str,
     body: ActivityCreate,
     db: AsyncSession = Depends(get_db),
@@ -523,7 +538,9 @@ async def add_activity(
     response_model=ActivityListPage,
     summary="List activities for deal (newest first)",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_activities(
+    request: Request,
     deal_id: str,
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
@@ -554,7 +571,9 @@ async def list_activities(
     response_model=PipelineSummaryOut,
     summary="Pipeline summary: deals by stage with MW and value",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def pipeline_summary(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):

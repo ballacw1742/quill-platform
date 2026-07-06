@@ -30,7 +30,8 @@ import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from app.rate_limit import GET_LIMIT, POST_LIMIT, limiter
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -329,7 +330,9 @@ class UpcomingDeadlinesOut(BaseModel):
     status_code=status.HTTP_201_CREATED,
     summary="Add a contract obligation",
 )
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def create_obligation(
+    request: Request,
     body: ObligationIn,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),  # noqa: ARG001
@@ -371,7 +374,9 @@ async def create_obligation(
     response_model=ObligationListPage,
     summary="List contract obligations",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_obligations(
+    request: Request,
     status_filter: Optional[str] = Query(default=None, alias="status"),
     contract_id: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -445,7 +450,9 @@ async def update_obligation(
     status_code=status.HTTP_201_CREATED,
     summary="Add a regulatory deadline",
 )
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def create_regulatory_item(
+    request: Request,
     body: RegulatoryItemIn,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),  # noqa: ARG001
@@ -483,7 +490,9 @@ async def create_regulatory_item(
     response_model=RegulatoryListPage,
     summary="List regulatory items",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_regulatory_items(
+    request: Request,
     status_filter: Optional[str] = Query(default=None, alias="status"),
     jurisdiction: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
@@ -557,7 +566,9 @@ async def update_regulatory_item(
     status_code=status.HTTP_201_CREATED,
     summary="Add an insurance policy",
 )
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def create_insurance_policy(
+    request: Request,
     body: InsurancePolicyIn,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),  # noqa: ARG001
@@ -596,7 +607,9 @@ async def create_insurance_policy(
     response_model=InsuranceListPage,
     summary="List insurance policies",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_insurance_policies(
+    request: Request,
     status_filter: Optional[str] = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -667,7 +680,9 @@ async def update_insurance_policy(
     status_code=status.HTTP_201_CREATED,
     summary="Create a compliance checklist",
 )
+@limiter.limit(POST_LIMIT)  # Sprint 5.3 — create/submit: 30/min per IP
 async def create_checklist(
+    request: Request,
     body: ChecklistIn,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),  # noqa: ARG001
@@ -716,7 +731,9 @@ async def create_checklist(
     response_model=ChecklistListPage,
     summary="List compliance checklists",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_checklists(
+    request: Request,
     framework: Optional[str] = Query(default=None),
     status_filter: Optional[str] = Query(default=None, alias="status"),
     limit: int = Query(default=50, ge=1, le=200),
@@ -750,7 +767,9 @@ async def list_checklists(
     response_model=ChecklistWithItemsOut,
     summary="Get checklist with all items",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_checklist(
+    request: Request,
     checklist_id: str,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),  # noqa: ARG001
@@ -840,7 +859,9 @@ async def update_checklist_item(
     response_model=ComplianceSummaryOut,
     summary="Portfolio compliance health summary",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_compliance_summary(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),  # noqa: ARG001
 ) -> ComplianceSummaryOut:
@@ -970,7 +991,9 @@ async def get_compliance_summary(
     response_model=UpcomingDeadlinesOut,
     summary="Deadlines due within the next 30 days (obligations + contracts)",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_upcoming_deadlines(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),  # noqa: ARG001
 ) -> UpcomingDeadlinesOut:

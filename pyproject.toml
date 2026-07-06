@@ -12,6 +12,7 @@ license = { text = "Proprietary" }
 authors = [{ name = "Charles Mitchell" }]
 dependencies = [
     "fastapi>=0.110",
+    "slowapi>=0.1.9",  # Sprint 5.3 — per-route rate limiting
     "uvicorn[standard]>=0.27",
     "sqlalchemy>=2.0",
     "alembic>=1.13",
