@@ -217,6 +217,38 @@ def _agent_headers(config: Config) -> dict[str, str]:
     }
 
 
+async def _fetch_extracted_blob_api(
+    client: httpx.AsyncClient,
+    config: Config,
+    upload_id: str,
+    filename: str,
+) -> dict[str, Any] | None:
+    """Fallback: fetch the extraction artifact over HTTP (Sprint 4).
+
+    Used when the daemon runs on a different host than the API and the
+    blob is not on the local filesystem.
+    """
+    from urllib.parse import quote
+
+    try:
+        resp = await client.get(
+            f"/v1/estimates/{upload_id}/extracted/{quote(filename, safe='')}",
+            headers=_agent_headers(config),
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "estimate.remote_blob_fetch_failed",
+            upload_id=upload_id,
+            filename=filename,
+            err=str(exc),
+        )
+        return None
+
+
 async def _fetch_estimating_estimates(
     client: httpx.AsyncClient, config: Config, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -369,6 +401,12 @@ async def dispatch_one(
             continue
         filename = f.get("filename") or ""
         blob = _load_extracted_blob(upload_id, filename, blob_root)
+        if blob is None:
+            # Sprint 4: daemon may run on a different host than the API —
+            # fall back to fetching the artifact over HTTP.
+            blob = await _fetch_extracted_blob_api(
+                http_client, config, upload_id, filename
+            )
         if blob is None:
             log.warning(
                 "estimate.blob_missing",
