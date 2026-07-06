@@ -37,6 +37,7 @@ export function ModuleTile({
   return (
     <Link
       href={href}
+      data-module-tile
       aria-label={badge ? `${label}, ${badge} pending` : label}
       onPointerDown={() => setPressed(true)}
       onPointerUp={() => setPressed(false)}
