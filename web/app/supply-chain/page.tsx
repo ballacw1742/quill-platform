@@ -784,7 +784,7 @@ export default function SupplyChainPage() {
           type="button"
           onClick={() => setShowAddEquipment(true)}
           className={cn(
-            "fixed bottom-20 right-4 z-30",
+            "fixed bottom-[calc(env(safe-area-inset-bottom)+16px)] right-4 z-30",
             "flex h-14 w-14 items-center justify-center",
             "rounded-full bg-accent shadow-lg shadow-accent/30",
             "active:scale-95 transition-transform",

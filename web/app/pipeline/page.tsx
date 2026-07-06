@@ -497,7 +497,7 @@ function PipelinePageInner() {
         type="button"
         onClick={() => setShowNewDeal(true)}
         className={cn(
-          "fixed bottom-[calc(env(safe-area-inset-bottom)+72px)] right-5 z-40",
+          "fixed bottom-[calc(env(safe-area-inset-bottom)+16px)] right-5 z-40",
           "w-14 h-14 rounded-full bg-accent shadow-lg",
           "flex items-center justify-center",
           "transition-transform active:scale-95",
