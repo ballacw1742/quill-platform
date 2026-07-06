@@ -6,6 +6,7 @@ import {
   chipsForAgent,
   moduleKeyForAgent,
   parseHandledIntents,
+  INTENT_EXECUTORS,
   VALID_API_INTENTS,
   type RegistryAgentLike,
 } from "@/lib/requests/catalog";
@@ -173,6 +174,66 @@ describe("chipsForAgent", () => {
 });
 
 /* ── buildCatalog ──────────────────────────────────────────────────────── */
+
+describe("executor attribution (G8 honesty)", () => {
+  it("every canonical intent has an executor and every executor mapping is a valid intent", () => {
+    for (const intent of VALID_API_INTENTS) {
+      expect(INTENT_EXECUTORS[intent], `intent ${intent} has no executor`).toBeTruthy();
+    }
+    for (const intent of Object.keys(INTENT_EXECUTORS)) {
+      expect(VALID_API_INTENTS.has(intent)).toBe(true);
+    }
+  });
+
+  it("ADK agents whose intents route to themselves are direct (no badge)", () => {
+    const sales = ADK_AGENTS.find((a) => a.agent_id === "quill_sales")!;
+    for (const c of chipsForAgent(sales)) {
+      expect(c.direct).toBe(true);
+      expect(c.executorAgentId).toBe("quill_sales");
+    }
+    const rfi = ADK_AGENTS.find((a) => a.agent_id === "quill_rfi_triage")!;
+    expect(chipsForAgent(rfi)[0].direct).toBe(true);
+  });
+
+  it("fleet-agent chips are marked rerouted with the real executor", () => {
+    const drafter = FLEET_AGENTS.find((a) => a.agent_id === "rfi-drafter")!;
+    const [chip] = chipsForAgent(drafter);
+    expect(chip.direct).toBe(false);
+    expect(chip.executorAgentId).toBe("quill_rfi_triage");
+    expect(chip.executorAgentName.length).toBeGreaterThan(0);
+
+    const brief = FLEET_AGENTS.find((a) => a.agent_id === "daily-brief")!;
+    const [briefChip] = chipsForAgent(brief);
+    expect(briefChip.direct).toBe(false);
+    expect(briefChip.executorAgentId).toBe("quill_intelligence");
+  });
+
+  it("quill_status_report (no dispatchable intent) reroutes to the coordinator", () => {
+    const status = ADK_AGENTS.find((a) => a.agent_id === "quill_status_report")!;
+    const [chip] = chipsForAgent(status);
+    expect(chip.direct).toBe(false);
+    expect(chip.executorAgentId).toBe("quill_coordinator");
+  });
+
+  it("buildCatalog resolves executor names from the live registry", () => {
+    const catalog = buildCatalog(ALL_30);
+    const projects = catalog.find((s) => s.module.key === "projects")!;
+    const drafterChip = projects.agents
+      .find((a) => a.agentId === "rfi-drafter")!
+      .chips[0];
+    // Registry display_name ("RFI Triage Agent") wins over the static fallback.
+    expect(drafterChip.executorAgentName).toBe("RFI Triage Agent");
+  });
+
+  it("every chip in the full catalog routes to a known ADK executor", () => {
+    const executors = new Set(Object.values(INTENT_EXECUTORS));
+    for (const section of buildCatalog(ALL_30)) {
+      for (const c of section.chips) {
+        expect(executors.has(c.executorAgentId), `chip ${c.id}`).toBe(true);
+      }
+    }
+  });
+});
 
 describe("buildCatalog", () => {
   it("returns all 15 module sections in home-grid order", () => {
