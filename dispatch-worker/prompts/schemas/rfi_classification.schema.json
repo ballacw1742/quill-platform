@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/rfi_classification.schema.json",
+  "title": "RFIClassification",
+  "description": "Output of Agent 2 (RFI Triage). Classifies an inbound RFI and proposes routing.",
+  "type": "object",
+  "required": [
+    "rfi_id",
+    "discipline",
+    "category",
+    "priority",
+    "suggested_responder_role",
+    "cost_impact_flag",
+    "schedule_impact_flag",
+    "safety_flag",
+    "summary",
+    "citations",
+    "confidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "rfi_id": { "type": "string" },
+    "discipline": {
+      "type": "string",
+      "enum": [
+        "architectural",
+        "structural",
+        "civil",
+        "mechanical",
+        "electrical",
+        "plumbing",
+        "fire_protection",
+        "low_voltage",
+        "controls_bms",
+        "process_cooling",
+        "site_utilities",
+        "multi_discipline",
+        "unknown"
+      ]
+    },
+    "secondary_disciplines": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Used when discipline = 'multi_discipline'."
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "spec_clarification",
+        "drawing_conflict",
+        "field_condition",
+        "design_change_request",
+        "submittal_question",
+        "constructability",
+        "code_compliance",
+        "scope_clarification",
+        "schedule",
+        "cost",
+        "other"
+      ]
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["P1-critical", "P2-high", "P3-normal", "P4-low"]
+    },
+    "suggested_responder_role": {
+      "type": "string",
+      "description": "Role name, not a person, e.g. 'electrical_engineer_of_record'."
+    },
+    "cost_impact_flag": { "type": "boolean" },
+    "schedule_impact_flag": { "type": "boolean" },
+    "safety_flag": { "type": "boolean" },
+    "summary": {
+      "type": "string",
+      "maxLength": 800,
+      "description": "1-3 sentence neutral summary of what's being asked."
+    },
+    "key_questions": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Atomic sub-questions extracted from the RFI body."
+    },
+    "citations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["spec_section", "drawing", "rfi", "bim_element", "contract_clause"] },
+          "ref": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "duplicate_of": {
+      "type": ["string", "null"],
+      "description": "RFI ID of a likely duplicate, or null."
+    },
+    "escalation_reasons": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+  }
+}

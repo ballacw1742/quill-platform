@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/aace_classification.schema.json",
+  "title": "AACEClassification",
+  "description": "Output of Agent: design-classifier. Reads an uploaded design package (PDF / IFC / DXF extraction summaries + a small set of page renders) and decides which AACE estimate class (per 18R-97 / 56R-08) the design supports — Class 5 / 4 / 3 / 2. Class 1 is never produced by an agent (full bid docs required). Extends pm_artifact_base via allOf so the artifact slots into the same Documents/Approvals plumbing as every other PM artifact.",
+  "allOf": [
+    { "$ref": "https://agentic-pmo.local/schemas/pm_artifact_base.schema.json" }
+  ],
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "artifact_id",
+    "title",
+    "summary",
+    "body_markdown",
+    "metadata",
+    "citations",
+    "confidence"
+  ],
+  "properties": {
+    "artifact_type": { "const": "aace_classification" },
+    "metadata": { "$ref": "#/$defs/aace_metadata" }
+  },
+  "$defs": {
+    "aace_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_label",
+        "class",
+        "design_maturity_estimate_pct",
+        "supporting_evidence",
+        "missing_for_next_class",
+        "uploaded_files"
+      ],
+      "properties": {
+        "project_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Free-text label for this project / upload (e.g. 'QPB1 — DH-2 80% DD'). Provided by the user at upload time and echoed here for downstream routing/display."
+        },
+        "class": {
+          "type": "string",
+          "enum": ["5", "4", "3", "2"],
+          "description": "AACE class the agent recommends. Class 1 and Class 0 are not allowed — full bid docs are required for Class 1, which is out of scope."
+        },
+        "design_maturity_estimate_pct": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 100.0,
+          "description": "Agent's best estimate of design completeness as a percentage. AACE bands: Class 5 = 0-2%, Class 4 = 1-15%, Class 3 = 10-40%, Class 2 = 30-70%."
+        },
+        "accuracy_range": {
+          "type": "object",
+          "description": "AACE-recommended accuracy band for the chosen class. The agent reports it explicitly so reviewers can sanity-check.",
+          "additionalProperties": false,
+          "required": ["low_pct", "high_pct"],
+          "properties": {
+            "low_pct": {
+              "type": "number",
+              "description": "Negative side of the accuracy band as a percentage (e.g. -50 for Class 5)."
+            },
+            "high_pct": {
+              "type": "number",
+              "description": "Positive side of the accuracy band as a percentage (e.g. +100 for Class 5)."
+            }
+          }
+        },
+        "supporting_evidence": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "description": "Why the agent chose this class. Each item names a category (scope completeness, structural detail, MEP detail, civil detail, schedule/duration, etc.), assigns a 0-1 score for that dimension, and cites the drawing evidence.",
+          "items": { "$ref": "#/$defs/evidence_item" }
+        },
+        "missing_for_next_class": {
+          "type": "array",
+          "maxItems": 50,
+          "description": "What design info would be needed to support a higher (more accurate) class. Each item names a deliverable, why it matters, and which class it would unlock.",
+          "items": { "$ref": "#/$defs/missing_item" }
+        },
+        "uploaded_files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "description": "Manifest of the files the user uploaded for classification. Status flags failed/partial extractions so reviewers can decide whether to re-upload.",
+          "items": { "$ref": "#/$defs/uploaded_file" }
+        },
+        "design_disciplines_detected": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 20,
+          "description": "Free-form tags for the disciplines the agent could see in the upload (e.g. architectural, structural, mechanical, electrical, plumbing, civil, fire-protection, security, BIM, controls). Useful downstream for the estimator-scheduler.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        }
+      }
+    },
+    "evidence_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category", "score", "evidence"],
+      "properties": {
+        "category": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Free-form category label set by the agent (e.g., 'scope_completeness', 'design_completeness', 'system_clarity', 'scope_definition', 'mechanical_detail', 'electrical_detail', 'site_civil_detail', 'structural_detail', etc.). Conventional values are documented in the design-classifier prompt for routing consistency, but free-form tags are accepted so schema validation catches real bugs rather than prompt-style nuance.",
+          "examples": [
+            "scope_completeness",
+            "scope_definition",
+            "design_completeness",
+            "system_clarity",
+            "site_civil_detail",
+            "structural_detail",
+            "architectural_detail",
+            "mechanical_detail",
+            "electrical_detail",
+            "plumbing_detail",
+            "fire_protection_detail",
+            "specifications_completeness",
+            "schedule_alignment",
+            "quantity_takeoff_feasibility",
+            "vendor_data_present",
+            "geotechnical_data",
+            "other"
+          ]
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "0 = nothing in the package supports this dimension; 1 = fully detailed."
+        },
+        "evidence": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Plain-English supporting note. Drawing references, sheet numbers, IFC entity counts, etc."
+        }
+      }
+    },
+    "missing_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliverable", "rationale", "would_unlock_class"],
+      "properties": {
+        "deliverable": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "What's missing (e.g. 'Structural framing plans for DH-2', 'Equipment schedule with model numbers')."
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Why it matters for the estimate."
+        },
+        "would_unlock_class": {
+          "type": "string",
+          "enum": ["4", "3", "2"],
+          "description": "Which AACE class would become supportable once this is delivered. Class 1 is excluded."
+        }
+      }
+    },
+    "uploaded_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "kind", "size_bytes", "extraction_status"],
+      "properties": {
+        "filename": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "kind": {
+          "type": "string",
+          "enum": ["pdf", "ifc", "dwg", "dxf", "rvt", "other"]
+        },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "extraction_status": {
+          "type": "string",
+          "enum": ["ok", "partial", "failed"]
+        },
+        "extraction_summary": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "Brief plain-English summary of what was extracted (page counts, entity counts, dominant content)."
+        },
+        "minio_key": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "Storage key for the file in the upload bucket. Optional; not required for the agent's output but useful for the runtime."
+        }
+      }
+    }
+  }
+}

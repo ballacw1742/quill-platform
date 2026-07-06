@@ -1,0 +1,163 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/status_update_draft.schema.json",
+  "title": "StatusUpdateDraft",
+  "description": "Output of Agent: status-update-author. A weekly (or bounded-period) project status update drafted from operational data. Extends pm_artifact_base — same top-level shape, with metadata.* tightened to the status update sections.",
+  "allOf": [
+    { "$ref": "https://agentic-pmo.local/schemas/pm_artifact_base.schema.json" }
+  ],
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "artifact_id",
+    "title",
+    "summary",
+    "body_markdown",
+    "metadata",
+    "citations",
+    "confidence"
+  ],
+  "properties": {
+    "artifact_type": { "const": "status_update" },
+    "metadata": { "$ref": "#/$defs/status_update_metadata" }
+  },
+  "$defs": {
+    "status_update_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "period_start",
+        "period_end",
+        "audience",
+        "sections"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "Project key (e.g. 'DC-OH-08' / 'QPB1'). Drives Drive folder routing and search index partition.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "period_start": {
+          "type": "string",
+          "format": "date",
+          "description": "Inclusive start date (YYYY-MM-DD) of the reporting window."
+        },
+        "period_end": {
+          "type": "string",
+          "format": "date",
+          "description": "Inclusive end date (YYYY-MM-DD) of the reporting window."
+        },
+        "audience": {
+          "type": "string",
+          "enum": ["owner", "partner", "internal"],
+          "description": "Drives tone, depth of cost detail, and Lane: 'owner' forces Lane 3 (Charles approves before send), 'partner' is Lane 2, 'internal' Lane 2 default."
+        },
+        "headline_status": {
+          "type": "string",
+          "enum": ["green", "yellow", "red"],
+          "description": "Overall project health for the period."
+        },
+        "data_freshness": {
+          "type": "object",
+          "description": "Recency timestamps per source. If any are older than the period_end by >48h, the agent should flag 'data_freshness_stale' in escalation_reasons.",
+          "additionalProperties": false,
+          "properties": {
+            "dfr_latest": { "type": ["string", "null"], "format": "date-time" },
+            "schedule_latest": { "type": ["string", "null"], "format": "date-time" },
+            "procurement_latest": { "type": ["string", "null"], "format": "date-time" },
+            "rfis_latest": { "type": ["string", "null"], "format": "date-time" },
+            "submittals_latest": { "type": ["string", "null"], "format": "date-time" }
+          }
+        },
+        "sections": {
+          "type": "object",
+          "description": "Structured section text. body_markdown is the rendered concatenation; these fields keep the parts addressable for downstream re-use (e.g. owner deck slides).",
+          "additionalProperties": false,
+          "required": [
+            "executive_summary",
+            "schedule",
+            "cost",
+            "safety",
+            "rfis_submittals",
+            "procurement",
+            "risks",
+            "look_ahead"
+          ],
+          "properties": {
+            "executive_summary": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000,
+              "description": "3–6 sentence narrative for an owner exec. Plain English, no jargon, no fluff."
+            },
+            "schedule": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "description": "Schedule narrative: critical-path status, milestones hit/missed in period, look-ahead deltas vs baseline."
+            },
+            "cost": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "description": "Cost narrative: committed vs. forecast, change orders in period, contingency drawdown. Numbers must be cited."
+            },
+            "safety": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 3000,
+              "description": "Safety narrative: incidents (or 'no recordables'), TRIR, leading indicators, observations."
+            },
+            "rfis_submittals": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 3000,
+              "description": "RFI/submittal flow: opened, closed, oldest open, anything blocking."
+            },
+            "procurement": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 3000,
+              "description": "Long-lead status, deliveries this period, expediting issues."
+            },
+            "risks": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4000,
+              "description": "Top risks for the period; each risk should appear in body_markdown with owner + mitigation."
+            },
+            "look_ahead": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 3000,
+              "description": "Next 1–2 weeks: milestones, deliveries, decisions needed, asks of the audience."
+            }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Optional structured metrics. Numbers shown in body_markdown SHOULD also appear here so downstream tooling can re-render without re-parsing prose.",
+          "additionalProperties": false,
+          "properties": {
+            "schedule_variance_days": {
+              "type": ["number", "null"],
+              "description": "Negative = behind baseline, positive = ahead."
+            },
+            "cost_variance_pct": {
+              "type": ["number", "null"],
+              "description": "Forecast variance vs. baseline as a percent. Negative = under, positive = over."
+            },
+            "rfis_open_count": { "type": ["integer", "null"], "minimum": 0 },
+            "rfis_opened_in_period": { "type": ["integer", "null"], "minimum": 0 },
+            "rfis_closed_in_period": { "type": ["integer", "null"], "minimum": 0 },
+            "submittals_open_count": { "type": ["integer", "null"], "minimum": 0 },
+            "trir": { "type": ["number", "null"], "minimum": 0 },
+            "recordables_in_period": { "type": ["integer", "null"], "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,384 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/coordinator_artifact.schema.json",
+  "title": "CoordinatorArtifact",
+  "description": "Output of Agent: project-coordinator. One of five PM coordination artifacts: SOP, RACI matrix, meeting agenda, action item list, or process doc. Extends pm_artifact_base — same top-level shape; metadata is a discriminated union keyed by artifact_subtype.",
+  "allOf": [
+    { "$ref": "https://agentic-pmo.local/schemas/pm_artifact_base.schema.json" }
+  ],
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "artifact_id",
+    "title",
+    "summary",
+    "body_markdown",
+    "metadata",
+    "citations",
+    "confidence"
+  ],
+  "properties": {
+    "artifact_type": { "const": "coordinator_artifact" },
+    "metadata": {
+      "oneOf": [
+        { "$ref": "#/$defs/sop_metadata" },
+        { "$ref": "#/$defs/raci_metadata" },
+        { "$ref": "#/$defs/agenda_metadata" },
+        { "$ref": "#/$defs/action_items_metadata" },
+        { "$ref": "#/$defs/process_doc_metadata" }
+      ],
+      "description": "Discriminated union by metadata.kind (sop | raci | agenda | action_items | process_doc). The Documents tab reads metadata.kind to render the subtype-specific badge and table layout."
+    }
+  },
+  "$defs": {
+    "sop_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope", "owner_role", "numbered_steps"],
+      "properties": {
+        "kind": { "const": "sop" },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400,
+          "description": "What this SOP covers and where it applies (project, building, discipline)."
+        },
+        "owner_role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Role accountable for the SOP (e.g. 'Site Superintendent', 'PMO Lead'). Person names are not allowed; use roles."
+        },
+        "review_cadence": {
+          "type": ["string", "null"],
+          "maxLength": 80,
+          "description": "Optional: how often this SOP is reviewed (e.g. 'quarterly', 'after each phase')."
+        },
+        "numbered_steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/sop_step" }
+        }
+      }
+    },
+    "sop_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "title", "owner_role", "description", "criteria"],
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Step number, 1-indexed, monotonically increasing within the SOP."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "description": "Short imperative step title (e.g. 'Inspect formwork before pour')."
+        },
+        "owner_role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Role accountable for executing this step."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500,
+          "description": "What is done, how, and with what tools/forms."
+        },
+        "criteria": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 800,
+          "description": "Acceptance / pass criteria for the step. How do you know it's done correctly?"
+        }
+      }
+    },
+    "raci_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope", "roles", "activities", "assignments"],
+      "properties": {
+        "kind": { "const": "raci" },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "description": "Role names (not person names). Columns of the RACI matrix."
+        },
+        "activities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "description": "Activities or decisions. Rows of the RACI matrix."
+        },
+        "assignments": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3000,
+          "items": { "$ref": "#/$defs/raci_assignment" },
+          "description": "Cell-level assignments. For each (activity, role) pair you can record one or more responsibility codes. At least one R and one A must exist per activity (validator-side check)."
+        }
+      }
+    },
+    "raci_assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["activity", "role", "responsibility"],
+      "properties": {
+        "activity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Must match a string in metadata.activities exactly."
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Must match a string in metadata.roles exactly."
+        },
+        "responsibility": {
+          "type": "string",
+          "enum": ["R", "A", "C", "I"],
+          "description": "R=Responsible, A=Accountable, C=Consulted, I=Informed."
+        }
+      }
+    },
+    "agenda_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "meeting_title",
+        "date",
+        "duration_minutes",
+        "attendees",
+        "items"
+      ],
+      "properties": {
+        "kind": { "const": "agenda" },
+        "meeting_title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Meeting date (YYYY-MM-DD)."
+        },
+        "start_time": {
+          "type": ["string", "null"],
+          "description": "Optional ISO time (HH:MM, 24-hour) the meeting starts.",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "duration_minutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 480
+        },
+        "location": {
+          "type": ["string", "null"],
+          "maxLength": 200
+        },
+        "attendees": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/attendee" }
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/agenda_item" }
+        }
+      }
+    },
+    "attendee": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "role"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name. Use 'TBD' if unknown rather than inventing a name."
+        },
+        "role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "required": { "type": "boolean", "default": true },
+        "organization": {
+          "type": ["string", "null"],
+          "maxLength": 120
+        }
+      }
+    },
+    "agenda_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["time", "topic", "owner"],
+      "properties": {
+        "time": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Slot label (e.g. '0:00–0:15' or 'HH:MM').",
+          "pattern": "^[0-9:–\\- ]{1,60}$"
+        },
+        "duration_minutes": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 480
+        },
+        "topic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 240
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Role or attendee name leading the topic."
+        },
+        "prep": {
+          "type": ["string", "null"],
+          "maxLength": 1000,
+          "description": "Pre-read or prep work expected from attendees."
+        },
+        "outcome": {
+          "type": ["string", "null"],
+          "maxLength": 600,
+          "description": "Intended outcome (decision, info-share, status, action items)."
+        }
+      }
+    },
+    "action_items_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope", "items"],
+      "properties": {
+        "kind": { "const": "action_items" },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400,
+          "description": "Where these action items came from (e.g. 'CCB 2026-05-04 — design freeze packet')."
+        },
+        "source_meeting": {
+          "type": ["string", "null"],
+          "maxLength": 200,
+          "description": "If captured from a meeting, the meeting title or minutes ref."
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/action_item" }
+        }
+      }
+    },
+    "action_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "owner", "due_date", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Stable kebab/letter-number ID like 'AI-001'."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "owner": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Role accountable. Person names allowed only when explicitly provided in input; otherwise use a role."
+        },
+        "due_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["open", "in_progress", "done", "blocked"]
+        },
+        "blocker": {
+          "type": ["string", "null"],
+          "maxLength": 600,
+          "description": "If status='blocked', the blocking reason (required when blocked, validator-side)."
+        }
+      }
+    },
+    "process_doc_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "scope", "owner_role", "sections"],
+      "properties": {
+        "kind": { "const": "process_doc" },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
+        },
+        "owner_role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "audience": {
+          "type": "string",
+          "enum": ["internal", "partner", "owner"],
+          "default": "internal"
+        },
+        "sections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 30,
+          "items": { "$ref": "#/$defs/process_doc_section" }
+        }
+      }
+    },
+    "process_doc_section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heading", "body_markdown"],
+      "properties": {
+        "heading": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "body_markdown": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        }
+      }
+    }
+  }
+}

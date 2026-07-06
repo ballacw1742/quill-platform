@@ -1,0 +1,369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/cost_schedule_package.schema.json",
+  "title": "CostSchedulePackage",
+  "description": "Output of Agent: estimator-scheduler. Given an approved AACEClassification + a cost library + project context, the agent produces a single artifact containing: (a) cost-code estimate rows, (b) a schedule whose level matches the AACE class, (c) a basis-of-estimate narrative, (d) a basis-of-schedule narrative, (e) a sized risk register, (f) contingency, (g) an explicit list of design info that would unlock the next class. Extends pm_artifact_base.",
+  "allOf": [
+    { "$ref": "https://agentic-pmo.local/schemas/pm_artifact_base.schema.json" }
+  ],
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "artifact_id",
+    "title",
+    "summary",
+    "body_markdown",
+    "metadata",
+    "citations",
+    "confidence"
+  ],
+  "properties": {
+    "artifact_type": { "const": "cost_schedule_package" },
+    "metadata": { "$ref": "#/$defs/package_metadata" }
+  },
+  "$defs": {
+    "package_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_label",
+        "aace_class",
+        "schedule_level",
+        "currency",
+        "base_year",
+        "estimate",
+        "schedule",
+        "basis_of_estimate",
+        "basis_of_schedule",
+        "risk_register",
+        "missing_info_to_next_class",
+        "uploaded_files",
+        "library_version"
+      ],
+      "properties": {
+        "project_label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Echoed from the AACEClassification input."
+        },
+        "aace_class": {
+          "type": "string",
+          "enum": ["5", "4", "3", "2"],
+          "description": "AACE class — INPUT, not the agent's choice. Comes from the approved AACEClassification artifact."
+        },
+        "schedule_level": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Schedule level: 1 = exec summary, 5 = detailed CPM. Per AACE convention: Class 5 -> Level 1, Class 4 -> Level 2, Class 3 -> Level 3, Class 2 -> Level 4-5."
+        },
+        "currency": {
+          "type": "string",
+          "enum": ["USD"]
+        },
+        "base_year": {
+          "type": "string",
+          "pattern": "^[0-9]{4}$"
+        },
+        "estimate": { "$ref": "#/$defs/estimate" },
+        "schedule": { "$ref": "#/$defs/schedule" },
+        "basis_of_estimate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000,
+          "description": "Plain-English basis-of-estimate narrative: scope assumptions, exclusions, source rates, quantity-takeoff method, escalation logic, contingency rationale."
+        },
+        "basis_of_schedule": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16000,
+          "description": "Plain-English basis-of-schedule narrative: WBS approach, calendars, productivity assumptions, weather allowances, long-lead drivers, critical-path explanation."
+        },
+        "risk_register": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/risk_item" }
+        },
+        "missing_info_to_next_class": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/missing_item" }
+        },
+        "uploaded_files": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/uploaded_file" }
+        },
+        "library_version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "Cost library version consulted for rates."
+        },
+        "headline_metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Convenience top-line numbers, duplicated from estimate.* for fast list-view rendering.",
+          "properties": {
+            "total_usd": { "type": ["number", "null"], "minimum": 0 },
+            "total_per_sf_usd": { "type": ["number", "null"], "minimum": 0 },
+            "total_per_mw_usd": { "type": ["number", "null"], "minimum": 0 },
+            "total_duration_days": { "type": ["integer", "null"], "minimum": 0 },
+            "critical_path_count": { "type": ["integer", "null"], "minimum": 0 }
+          }
+        }
+      }
+    },
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rows",
+        "subtotal_direct_usd",
+        "indirects",
+        "contingency",
+        "total_usd"
+      ],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2000,
+          "items": { "$ref": "#/$defs/estimate_row" }
+        },
+        "subtotal_direct_usd": { "type": "number", "minimum": 0 },
+        "indirects": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/indirect_item" }
+        },
+        "contingency": { "$ref": "#/$defs/contingency" },
+        "escalation": { "$ref": "#/$defs/escalation" },
+        "total_usd": { "type": "number", "minimum": 0 },
+        "total_per_sf_usd": { "type": ["number", "null"], "minimum": 0 },
+        "total_per_mw_usd": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "estimate_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "csi_section",
+        "description",
+        "quantity",
+        "unit",
+        "unit_rate_usd",
+        "extended_usd",
+        "rate_source",
+        "confidence"
+      ],
+      "properties": {
+        "csi_section": {
+          "type": "string",
+          "pattern": "^[0-9]{2} [0-9]{2} [0-9]{2}(\\.[0-9]+)?$"
+        },
+        "description": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "quantity": { "type": "number", "minimum": 0 },
+        "unit": {
+          "type": "string",
+          "enum": ["EA", "SF", "CY", "LB", "LF", "LS", "HR", "CF", "TON", "MWHr", "MW", "GAL", "KIP"]
+        },
+        "unit_rate_usd": { "type": "number", "minimum": 0 },
+        "extended_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "quantity * unit_rate_usd; the agent must compute and emit it."
+        },
+        "rate_source": {
+          "type": "string",
+          "description": "Free-form rate-source label set by the agent. Conventional values are listed in the estimator-scheduler prompt for routing consistency, but free-form values are accepted so schema validation catches real bugs (e.g., missing source) rather than prompt-style nuance. Per the agent prompt's Hard Rules, llm_estimate-class rows must still have confidence < 0.5.",
+          "minLength": 1,
+          "maxLength": 64,
+          "examples": [
+            "library_v0_1",
+            "rsmeans",
+            "enr",
+            "client_history",
+            "vendor_quote",
+            "public_benchmark",
+            "llm_estimate"
+          ]
+        },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "source_citation": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Drawing reference, IFC entity ID, DXF layer, or library row that supports the quantity. Per Hard Rule #2 every quantity row must cite a source; rows backed only by llm_estimate must have confidence < 0.5."
+        }
+      }
+    },
+    "indirect_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "amount_usd"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "pct_of_direct": { "type": ["number", "null"], "minimum": 0 },
+        "amount_usd": { "type": "number", "minimum": 0 },
+        "notes": { "type": "string", "maxLength": 1000 }
+      }
+    },
+    "contingency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pct_of_direct_plus_indirect", "amount_usd", "rationale"],
+      "properties": {
+        "pct_of_direct_plus_indirect": { "type": "number", "minimum": 0, "maximum": 100 },
+        "amount_usd": { "type": "number", "minimum": 0 },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 4000 }
+      }
+    },
+    "escalation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["annual_pct", "midpoint_year", "amount_usd"],
+      "properties": {
+        "annual_pct": { "type": "number" },
+        "midpoint_year": { "type": "string", "pattern": "^[0-9]{4}$" },
+        "amount_usd": { "type": "number" }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "activities", "total_duration_days"],
+      "properties": {
+        "level": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "activities": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5000,
+          "items": { "$ref": "#/$defs/activity" }
+        },
+        "milestones": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/milestone" }
+        },
+        "total_duration_days": { "type": "integer", "minimum": 0 },
+        "critical_path_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 500,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+        },
+        "calendar_assumptions": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "Working calendar, weather days, holidays, shift patterns."
+        }
+      }
+    },
+    "activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "duration_days"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "wbs": { "type": "string", "maxLength": 64 },
+        "duration_days": { "type": "integer", "minimum": 0 },
+        "predecessors": {
+          "type": "array",
+          "maxItems": 50,
+          "items": { "$ref": "#/$defs/predecessor" }
+        },
+        "resources": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "$ref": "#/$defs/resource" }
+        },
+        "milestone": { "type": "boolean" },
+        "critical_path": { "type": "boolean" },
+        "notes": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "predecessor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "type": { "type": "string", "enum": ["FS", "SS", "FF", "SF"] },
+        "lag_days": { "type": "integer" }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "quantity"],
+      "properties": {
+        "type": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "quantity": { "type": "number", "minimum": 0 },
+        "unit": { "type": "string", "maxLength": 32 }
+      }
+    },
+    "milestone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "target_date": { "type": ["string", "null"], "format": "date" },
+        "achieved_at": { "type": ["string", "null"], "format": "date" },
+        "notes": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "risk_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "description", "category", "likelihood"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "description": { "type": "string", "minLength": 1, "maxLength": 2000 },
+        "category": {
+          "type": "string",
+          "description": "Free-form risk category label. Conventional values are documented in the estimator-scheduler prompt; free-form labels are accepted to match natural agent output.",
+          "minLength": 1,
+          "maxLength": 64,
+          "examples": ["scope", "schedule", "cost", "technical", "owner", "external", "regulatory", "supply_chain"]
+        },
+        "likelihood": { "type": "string", "enum": ["low", "medium", "high"] },
+        "impact_usd_low": { "type": ["number", "null"], "minimum": 0 },
+        "impact_usd_high": { "type": ["number", "null"], "minimum": 0 },
+        "schedule_impact_days_low": { "type": ["integer", "null"], "minimum": 0 },
+        "schedule_impact_days_high": { "type": ["integer", "null"], "minimum": 0 },
+        "mitigation": { "type": "string", "maxLength": 2000 },
+        "owner_role": { "type": "string", "maxLength": 100 }
+      }
+    },
+    "missing_item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deliverable", "rationale", "would_unlock_class"],
+      "properties": {
+        "deliverable": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "rationale": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "would_unlock_class": { "type": "string", "enum": ["4", "3", "2"] },
+        "estimated_cost_to_complete_usd": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "uploaded_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["filename", "kind", "size_bytes", "extraction_status"],
+      "properties": {
+        "filename": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "kind": { "type": "string", "enum": ["pdf", "ifc", "dwg", "dxf", "rvt", "other"] },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "extraction_status": { "type": "string", "enum": ["ok", "partial", "failed"] },
+        "extraction_summary": { "type": "string", "maxLength": 4000 },
+        "minio_key": { "type": "string", "maxLength": 512 }
+      }
+    }
+  }
+}

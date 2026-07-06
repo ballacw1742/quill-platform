@@ -1,0 +1,278 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/pm_analysis.schema.json",
+  "title": "PMAnalysis",
+  "description": "Output of Agent: project-manager. An on-demand analytical artifact (NOT a periodic status report — that is status-update-author). Synthesizes scope/cost/schedule/risk into an exec-ready piece (situation, analysis, options, recommendation, risks, next_steps) with per-claim citations and explicit confidence/escalation flags. Extends pm_artifact_base.",
+  "allOf": [
+    { "$ref": "https://agentic-pmo.local/schemas/pm_artifact_base.schema.json" }
+  ],
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "artifact_id",
+    "title",
+    "summary",
+    "body_markdown",
+    "metadata",
+    "citations",
+    "confidence"
+  ],
+  "properties": {
+    "artifact_type": { "const": "pm_analysis" },
+    "metadata": { "$ref": "#/$defs/pm_analysis_metadata" }
+  },
+  "$defs": {
+    "pm_analysis_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "project_id",
+        "question",
+        "depth",
+        "situation",
+        "analysis",
+        "options",
+        "recommendation",
+        "risks",
+        "next_steps"
+      ],
+      "properties": {
+        "project_id": {
+          "type": "string",
+          "description": "Project key (e.g. 'QPB1'). Drives Drive folder routing and search index partition.",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "question": {
+          "type": "string",
+          "description": "Verbatim copy of the question / ask the analysis answers. Mirrors the input so downstream consumers can route on it.",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "depth": {
+          "type": "string",
+          "enum": ["quick", "detailed", "formal_memo"],
+          "description": "Analytical depth: quick = 1–2 page bullet brief; detailed = full analysis with options & next steps; formal_memo = exec-ready memo with executive-summary tone."
+        },
+        "audience": {
+          "type": "string",
+          "enum": ["internal", "partner", "owner"],
+          "description": "Tone & lane. 'owner' forces tier-3 review (Charles approves before any owner-facing copy moves)."
+        },
+        "constraints": {
+          "type": ["string", "null"],
+          "description": "Optional verbatim copy of any constraints from the input (timebox, budget, page limit, regulatory).",
+          "maxLength": 2000
+        },
+        "data_window": {
+          "type": ["object", "null"],
+          "description": "Inclusive ISO-date window the analysis pulled data over.",
+          "additionalProperties": false,
+          "properties": {
+            "start": { "type": ["string", "null"], "format": "date" },
+            "end": { "type": ["string", "null"], "format": "date" }
+          }
+        },
+        "situation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000,
+          "description": "Plain statement of the current situation the analysis starts from. Facts only, with citations. No opinions, no recommendations."
+        },
+        "analysis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000,
+          "description": "Reasoning showing how the situation was decomposed: drivers, constraints, dependencies, tradeoffs, calculations. Reasoning is shown, not summarized away."
+        },
+        "options": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "description": "Decision options considered. At least one option is required even when the recommendation is to do nothing (label that option 'No action'). Options are ranked; rank 1 is the recommended option.",
+          "items": { "$ref": "#/$defs/option" }
+        },
+        "recommendation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000,
+          "description": "The recommended option and the reasoning, in plain English. References the option label from options[] explicitly. Avoids hedging fluff. If recommendation cannot be made (insufficient data, conflicting constraints), state that and add 'low_confidence' or 'missing_data' to escalation_reasons."
+        },
+        "risks": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "description": "Risks introduced by, or surfaced during, the analysis. Each entry has severity, likelihood, mitigation, and an owner role.",
+          "items": { "$ref": "#/$defs/risk" }
+        },
+        "next_steps": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 32,
+          "description": "Concrete actions to advance the recommendation. Each entry has an action, owner role, due date, and dependencies.",
+          "items": { "$ref": "#/$defs/next_step" }
+        },
+        "claim_confidence": {
+          "type": "array",
+          "description": "Per-claim confidence overrides. Use when individual sections (e.g. Cost) are materially less confident than the artifact-level confidence. Each entry tags the section and a 0.0-1.0 score.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["section", "confidence"],
+            "properties": {
+              "section": {
+                "type": "string",
+                "enum": [
+                  "situation",
+                  "analysis",
+                  "options",
+                  "recommendation",
+                  "risks",
+                  "next_steps"
+                ]
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500
+              }
+            }
+          },
+          "maxItems": 12
+        }
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "label",
+        "pros",
+        "cons",
+        "impact_summary",
+        "recommendation_rank"
+      ],
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "Short label for the option (e.g. 'Accept the slip', 'Crash the schedule with a second crew', 'No action').",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "pros": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "cons": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+        },
+        "impact_summary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500,
+          "description": "Plain-English summary of the impact (cost, schedule, risk, scope) of taking this option."
+        },
+        "estimated_cost_impact": {
+          "type": ["object", "null"],
+          "description": "Optional structured cost impact. If unknown, use null and explain in impact_summary; do not fabricate dollar figures.",
+          "additionalProperties": false,
+          "properties": {
+            "amount_usd": {
+              "type": ["number", "null"],
+              "description": "Signed USD impact. Negative = savings vs baseline; positive = additional cost."
+            },
+            "is_estimate": {
+              "type": "boolean",
+              "description": "True when the figure is a rough order of magnitude rather than a tied-back number."
+            },
+            "confidence": {
+              "type": ["number", "null"],
+              "minimum": 0.0,
+              "maximum": 1.0
+            }
+          }
+        },
+        "estimated_schedule_impact_days": {
+          "type": ["integer", "null"],
+          "description": "Signed days of schedule impact. Negative = ahead of baseline / pulls in; positive = pushes out. Null when the option has no schedule impact or it cannot be honestly estimated."
+        },
+        "recommendation_rank": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "description": "1 = recommended option. 2..N = alternatives in order of preference. Ties are not allowed; if two options are genuinely equivalent, surface that under 'recommendation' and pick a rank."
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "severity", "likelihood", "mitigation", "owner_role"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 800
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"]
+        },
+        "likelihood": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "mitigation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500,
+          "description": "Concrete mitigation plan; must be actionable, not aspirational ('monitor closely' alone is not a mitigation)."
+        },
+        "owner_role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Role label (not a person's name unless the input explicitly named them) responsible for the mitigation."
+        }
+      }
+    },
+    "next_step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "owner_role"],
+      "properties": {
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 800,
+          "description": "Imperative-mood action ('Issue PCO for chiller substitution to owner', 'Lock 2-week mobilization buffer in DH-2 sequence B')."
+        },
+        "owner_role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "due_date": {
+          "type": ["string", "null"],
+          "format": "date",
+          "description": "Inclusive ISO date when the action is due. Null when the action is gated on another step."
+        },
+        "dependencies": {
+          "type": "array",
+          "description": "Other actions or artifact IDs this action depends on. Plain-English labels are fine.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 240 },
+          "maxItems": 12
+        }
+      }
+    }
+  }
+}

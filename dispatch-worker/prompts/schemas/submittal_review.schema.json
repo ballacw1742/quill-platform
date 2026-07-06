@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/submittal_review.schema.json",
+  "title": "SubmittalReview",
+  "description": "Output of Agent 4 (Submittal Triage). First-pass disposition of a submittal package.",
+  "type": "object",
+  "required": [
+    "submittal_id",
+    "spec_section",
+    "discipline",
+    "completeness",
+    "proposed_disposition",
+    "findings",
+    "citations",
+    "confidence"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "submittal_id": { "type": "string" },
+    "spec_section": {
+      "type": "string",
+      "description": "CSI MasterFormat section, e.g. '26 05 19'."
+    },
+    "discipline": {
+      "type": "string",
+      "enum": [
+        "architectural",
+        "structural",
+        "civil",
+        "mechanical",
+        "electrical",
+        "plumbing",
+        "fire_protection",
+        "low_voltage",
+        "controls_bms",
+        "process_cooling",
+        "site_utilities",
+        "multi_discipline",
+        "unknown"
+      ]
+    },
+    "completeness": {
+      "type": "object",
+      "required": ["is_complete", "missing_items"],
+      "additionalProperties": false,
+      "properties": {
+        "is_complete": { "type": "boolean" },
+        "missing_items": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "proposed_disposition": {
+      "type": "string",
+      "enum": [
+        "no_exceptions_taken",
+        "make_corrections_noted",
+        "revise_and_resubmit",
+        "rejected",
+        "for_record_only"
+      ]
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["severity", "description"],
+        "additionalProperties": false,
+        "properties": {
+          "severity": { "type": "string", "enum": ["critical", "major", "minor", "informational"] },
+          "description": { "type": "string" },
+          "spec_paragraph": { "type": ["string", "null"] },
+          "page_or_sheet_ref": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "deviations_from_spec": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["spec_requirement", "submitted_value"],
+        "additionalProperties": false,
+        "properties": {
+          "spec_requirement": { "type": "string" },
+          "submitted_value": { "type": "string" },
+          "is_substitution_request": { "type": "boolean" }
+        }
+      }
+    },
+    "long_lead_flag": {
+      "type": "boolean",
+      "description": "True if this is on the long-lead equipment list (transformers, switchgear, gensets, chillers, etc.)."
+    },
+    "schedule_impact_flag": { "type": "boolean" },
+    "citations": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "ref"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["spec_section", "drawing", "submittal_page", "addendum", "rfi"] },
+          "ref": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "escalation_reasons": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+  }
+}

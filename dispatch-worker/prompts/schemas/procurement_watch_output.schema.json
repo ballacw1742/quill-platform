@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quill.local/schemas/procurement_watch_output.schema.json",
+  "title": "Procurement Watch Output",
+  "description": "Structured watchlist from the Procurement Watch agent for long-lead equipment monitoring.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "as_of",
+    "summary_metrics",
+    "watch_items",
+    "escalations_top_3",
+    "trend_observations",
+    "confidence"
+  ],
+  "properties": {
+    "as_of": { "type": "string", "format": "date-time" },
+    "summary_metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total_pos_tracked",
+        "pos_on_track",
+        "pos_with_warning",
+        "pos_with_alert",
+        "pos_critical"
+      ],
+      "properties": {
+        "total_pos_tracked": { "type": "integer", "minimum": 0 },
+        "pos_on_track": { "type": "integer", "minimum": 0 },
+        "pos_with_warning": { "type": "integer", "minimum": 0 },
+        "pos_with_alert": { "type": "integer", "minimum": 0 },
+        "pos_critical": { "type": "integer", "minimum": 0 },
+        "pos_stale": { "type": "integer", "minimum": 0 },
+        "pos_delivered_24h": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "watch_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "po_id",
+          "vendor",
+          "equipment_class",
+          "agreed_ship_date",
+          "current_claimed_ship_date",
+          "delta_days",
+          "status",
+          "last_confirmation",
+          "critical_path_impact",
+          "recommended_action",
+          "escalation_reasons",
+          "confidence"
+        ],
+        "properties": {
+          "po_id": { "type": "string" },
+          "vendor": { "type": "string" },
+          "equipment_class": {
+            "type": "string",
+            "enum": [
+              "medium_voltage_switchgear",
+              "high_voltage_switchgear",
+              "transformers",
+              "ups",
+              "gensets",
+              "chillers",
+              "cooling_towers",
+              "ats",
+              "paralleling_switchgear",
+              "busway",
+              "containment",
+              "cdus_liquid_cooling",
+              "cabinets_racks",
+              "pumps",
+              "electrical_distribution",
+              "structural_steel",
+              "concrete_precast",
+              "fire_suppression",
+              "controls_bms",
+              "other"
+            ]
+          },
+          "building_assignment": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "agreed_ship_date": { "type": "string", "format": "date" },
+          "current_claimed_ship_date": { "type": ["string", "null"], "format": "date" },
+          "delta_days": { "type": "integer" },
+          "status": {
+            "type": "string",
+            "enum": [
+              "on_track",
+              "warning",
+              "alert",
+              "critical",
+              "stale",
+              "delivered"
+            ]
+          },
+          "last_confirmation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "timestamp"],
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": ["email", "portal", "phone_log", "in_person", "none"]
+              },
+              "timestamp": { "type": "string", "format": "date-time" },
+              "confidence_signal": {
+                "type": "string",
+                "enum": [
+                  "portal_confirmed",
+                  "vendor_acknowledgment_letter",
+                  "salesperson_email",
+                  "voicemail_or_phone_note",
+                  "third_party_observation",
+                  "no_signal"
+                ]
+              }
+            }
+          },
+          "manufacturing_milestone_status": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "most_recent": {
+                "type": "string",
+                "enum": [
+                  "not_started",
+                  "raw_materials_received",
+                  "production_started",
+                  "factory_test_scheduled",
+                  "factory_test_passed",
+                  "factory_test_failed",
+                  "crating",
+                  "released_to_carrier",
+                  "in_transit",
+                  "delivered",
+                  "unknown"
+                ]
+              },
+              "as_of": { "type": "string", "format": "date" }
+            }
+          },
+          "critical_path_impact": { "type": "string", "maxLength": 250 },
+          "recommended_action": {
+            "type": "string",
+            "enum": [
+              "monitor",
+              "request_status_update",
+              "escalate_to_vendor_account_manager",
+              "consider_alternate",
+              "notify_charles_immediately",
+              "release_to_field",
+              "none"
+            ]
+          },
+          "escalation_reasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "critical_path_at_risk",
+                "vendor_pressure_tactic",
+                "stale_status",
+                "cost_change_proposed",
+                "scope_change_proposed",
+                "force_majeure_claimed",
+                "quality_concern",
+                "prompt_injection_detected",
+                "multi_po_pattern",
+                "prior_rfi_dependency",
+                "lead_time_anomaly"
+              ]
+            }
+          },
+          "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+          "notes": { "type": "string", "maxLength": 500 }
+        }
+      }
+    },
+    "escalations_top_3": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["po_id", "summary", "recommended_action"],
+        "properties": {
+          "po_id": { "type": "string" },
+          "summary": { "type": "string", "maxLength": 250 },
+          "recommended_action": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "trend_observations": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "maxLength": 300 }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  }
+}

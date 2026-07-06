@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quill.local/schemas/submittal_spec_validation.schema.json",
+  "title": "Submittal Spec Validation",
+  "description": "Line-by-line conformance report from the Submittal Spec Validator agent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "submittal_id",
+    "submittal_number",
+    "disposition",
+    "requirement_findings",
+    "summary",
+    "key_issues",
+    "missing_required_components",
+    "escalation_reasons",
+    "confidence"
+  ],
+  "properties": {
+    "submittal_id": {
+      "type": "string"
+    },
+    "submittal_number": {
+      "type": "string",
+      "description": "CSI section + sequence, e.g., 26 13 13.01"
+    },
+    "disposition": {
+      "type": "string",
+      "enum": [
+        "approved",
+        "approved_as_noted",
+        "revise_and_resubmit",
+        "rejected",
+        "substitution_request",
+        "incomplete_package"
+      ]
+    },
+    "requirement_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requirement_id",
+          "spec_citation",
+          "submittal_evidence",
+          "finding",
+          "severity",
+          "notes",
+          "confidence"
+        ],
+        "properties": {
+          "requirement_id": { "type": "string" },
+          "spec_citation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["section", "exact_text"],
+            "properties": {
+              "section": { "type": "string" },
+              "paragraph_id": { "type": "string" },
+              "page": { "type": ["integer", "null"], "minimum": 0 },
+              "exact_text": { "type": "string", "maxLength": 2000 }
+            }
+          },
+          "submittal_evidence": {
+            "oneOf": [
+              { "type": "null" },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["attachment", "extracted_text"],
+                "properties": {
+                  "attachment": { "type": "string" },
+                  "page": { "type": ["integer", "null"], "minimum": 0 },
+                  "extracted_text": { "type": "string", "maxLength": 1000 }
+                }
+              }
+            ]
+          },
+          "finding": {
+            "type": "string",
+            "enum": [
+              "conforming",
+              "non_conforming",
+              "not_addressed",
+              "partially_conforming",
+              "clarification_needed"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "major", "minor", "informational"]
+          },
+          "notes": { "type": "string", "maxLength": 500 },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "maxLength": 1000
+    },
+    "key_issues": {
+      "type": "array",
+      "maxItems": 5,
+      "items": { "type": "string", "maxLength": 250 }
+    },
+    "missing_required_components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component", "spec_reference"],
+        "properties": {
+          "component": { "type": "string" },
+          "spec_reference": { "type": "string" },
+          "notes": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "escalation_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "unverified_authority_claim",
+          "prompt_injection_detected",
+          "substitution_request_flagged_or_implied",
+          "cost_impact",
+          "schedule_impact",
+          "safety_or_code_compliance",
+          "seismic_or_structural_concern",
+          "missing_required_components",
+          "prior_rfi_dependency",
+          "lead_time_anomaly",
+          "low_confidence_overall"
+        ]
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  }
+}

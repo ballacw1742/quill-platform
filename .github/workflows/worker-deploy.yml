@@ -1,0 +1,47 @@
+name: Deploy Quill Worker to Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'runtime/**'
+      - 'dispatch-worker/**'
+      - '.github/workflows/worker-deploy.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -f dispatch-worker/Dockerfile \
+            -t gcr.io/totemic-formula-467102-s9/quill-worker:${{ github.sha }} .
+          docker push gcr.io/totemic-formula-467102-s9/quill-worker:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy quill-worker \
+            --image gcr.io/totemic-formula-467102-s9/quill-worker:${{ github.sha }} \
+            --platform managed \
+            --region us-central1 \
+            --no-allow-unauthenticated \
+            --min-instances 1 \
+            --max-instances 1 \
+            --no-cpu-throttling \
+            --memory 1Gi \
+            --add-cloudsql-instances totemic-formula-467102-s9:us-central1:quill-datasite-db \
+            --update-env-vars QUEUE_API_URL=https://quill-agents-894031978246.us-central1.run.app \
+            --update-secrets AGENT_SHARED_SECRET=QUILL_AGENT_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,RUNTIME_STATE_DATABASE_URL=QUILL_DATABASE_URL:latest \
+            --project totemic-formula-467102-s9

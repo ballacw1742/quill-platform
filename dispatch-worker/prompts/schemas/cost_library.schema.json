@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/cost_library.schema.json",
+  "title": "CostLibrary",
+  "description": "A versioned cost library that the estimator-scheduler agent consults for unit rates. v0.1 ships ~150-200 hyperscale-DC rows seeded by an LLM (rate_source='llm_estimate', confidence 0.4-0.7). Charles can extend / override later via CSV upload. The library is NOT a PM artifact — it has its own top-level shape (no allOf base ref) so it can be loaded by the runtime as a flat data file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "currency", "base_year", "rows"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of the library (e.g. 'v0.1.0'). Bumped when rates change materially."
+    },
+    "currency": {
+      "type": "string",
+      "enum": ["USD"],
+      "description": "v0 is USD-only. Multi-currency comes later."
+    },
+    "base_year": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$",
+      "description": "Reference year for the unit rates. Estimator escalates from here."
+    },
+    "geographic_basis": {
+      "type": "string",
+      "maxLength": 200,
+      "description": "Default geography assumed (e.g. 'Central Ohio, USA'). Per-row overrides exist via geographic_multiplier_for."
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 4000,
+      "description": "Free-form notes on scope, sources, methodology."
+    },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5000,
+      "items": { "$ref": "#/$defs/library_row" }
+    }
+  },
+  "$defs": {
+    "library_row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "csi_section",
+        "description",
+        "unit",
+        "unit_rate_usd",
+        "rate_source",
+        "rate_year",
+        "confidence"
+      ],
+      "properties": {
+        "csi_section": {
+          "type": "string",
+          "pattern": "^[0-9]{2} [0-9]{2} [0-9]{2}(\\.[0-9]+)?$",
+          "description": "MasterFormat 2020 section in the form 'NN NN NN' (e.g. '26 13 13'). Use the most specific section that fits."
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "unit": {
+          "type": "string",
+          "enum": ["EA", "SF", "CY", "LB", "LF", "LS", "HR", "CF", "TON", "MWHr", "MW", "GAL", "KIP"],
+          "description": "Unit of measure. Estimator uses these verbatim in the estimate rows."
+        },
+        "unit_rate_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Cost per unit in USD at base_year."
+        },
+        "rate_source": {
+          "type": "string",
+          "enum": [
+            "rsmeans",
+            "enr",
+            "client_history",
+            "vendor_quote",
+            "public_benchmark",
+            "llm_estimate"
+          ],
+          "description": "Provenance of the rate. The estimator must propagate this into estimate rows so reviewers can see what's a hard quote vs. an LLM-generated benchmark."
+        },
+        "rate_year": {
+          "type": "integer",
+          "minimum": 2000,
+          "maximum": 2100,
+          "description": "Year the rate is dollar-denominated in. Estimator escalates to the project midpoint."
+        },
+        "geographic_multiplier_for": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Geography the rate is anchored to. Estimator may need to apply a city cost index multiplier for projects elsewhere."
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Estimator's confidence in the rate. LLM-generated benchmarks should sit in 0.4-0.7."
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1500,
+          "description": "Inclusions / exclusions, vendor caveats, quantity-bracket assumptions."
+        },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 32,
+          "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "description": "Free-form tags for filtering (e.g. 'hyperscale-dc', 'mechanical', 'long-lead', 'mv-distribution')."
+        }
+      }
+    }
+  }
+}

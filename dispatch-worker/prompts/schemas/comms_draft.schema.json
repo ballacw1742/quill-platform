@@ -1,0 +1,138 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-pmo.local/schemas/comms_draft.schema.json",
+  "title": "CommsDraft",
+  "description": "Output of Agent: comms-drafter. A drafted communication (email, Procore message, formal letter, internal note) for human review and human send. Extends pm_artifact_base. The agent NEVER sends; it only drafts. The runtime queues the draft for tier-2 (or tier-3 for owner-facing) approval; sending is an explicit human action downstream.",
+  "allOf": [
+    { "$ref": "https://agentic-pmo.local/schemas/pm_artifact_base.schema.json" }
+  ],
+  "type": "object",
+  "required": [
+    "artifact_type",
+    "artifact_id",
+    "title",
+    "summary",
+    "body_markdown",
+    "metadata",
+    "citations",
+    "confidence"
+  ],
+  "properties": {
+    "artifact_type": { "const": "comms_draft" },
+    "metadata": { "$ref": "#/$defs/comms_draft_metadata" }
+  },
+  "$defs": {
+    "comms_draft_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "body_markdown",
+        "recipient_class",
+        "tone",
+        "recommended_channel",
+        "recommended_sender_role",
+        "tone_notes",
+        "contains_commitment"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string",
+          "description": "Subject line (or formal-letter 're:') for the draft. ≤140 chars to keep inbox previews intact.",
+          "minLength": 1,
+          "maxLength": 140
+        },
+        "body_markdown": {
+          "type": "string",
+          "description": "Body of the draft as GitHub-flavored Markdown. Mirrors the artifact's top-level body_markdown so the Documents tab can render it as the message preview without re-parsing.",
+          "minLength": 1,
+          "maxLength": 16000
+        },
+        "recipient_class": {
+          "type": "string",
+          "enum": ["owner", "partner", "subcontractor", "vendor", "internal"],
+          "description": "Recipient class. 'owner' forces tier-3 (Charles approves before any owner-facing copy moves). 'partner' is tier-2 with external-distribution flag. The runtime reads this for routing."
+        },
+        "tone": {
+          "type": "string",
+          "enum": ["formal", "direct", "friendly"],
+          "description": "Tone of the draft. 'formal' = letter voice, third-person where appropriate. 'direct' = plain English, no fluff. 'friendly' = warm but still professional. Threatening / hostile tones are not permitted; the agent refuses such requests."
+        },
+        "recommended_channel": {
+          "type": "string",
+          "enum": ["email", "procore", "sms", "phone", "in_person"],
+          "description": "Recommended channel for the human to use when sending. The agent drafts the message; channel is a recommendation, not a delivery action."
+        },
+        "recommended_sender_role": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Role label of the recommended sender (e.g. 'Project Director', 'Procurement Lead', 'GC Superintendent'). Use a person's name only when the input explicitly named them."
+        },
+        "tone_notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1500,
+          "description": "Short note for the reviewer on tone choices: why this register, why this length, any phrases the reviewer should consider editing for context the draft cannot infer."
+        },
+        "contains_commitment": {
+          "type": "boolean",
+          "description": "True when the draft contains language that could reasonably be read as a commitment (delivery date, cost cap, scope guarantee, warranty extension). When true, the runtime automatically attaches a 'legal_review_required' flag and the draft cannot move past tier-2 without explicit human authorization."
+        },
+        "recipient_name": {
+          "type": ["string", "null"],
+          "description": "Optional recipient name; null if the input gave only a role.",
+          "maxLength": 200
+        },
+        "recipient_role": {
+          "type": ["string", "null"],
+          "description": "Optional recipient role label (e.g. 'Owner Construction Lead'). Null if the input did not provide one.",
+          "maxLength": 120
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "Verbatim copy of the purpose from the input. Lets reviewers quickly see what the draft is meant to accomplish."
+        },
+        "key_facts_used": {
+          "type": "array",
+          "description": "Subset of input key_facts the draft relies on. The reviewer can confirm at a glance that the draft is grounded in what the team provided and didn't invent material.",
+          "items": { "type": "string", "minLength": 1, "maxLength": 800 },
+          "maxItems": 32
+        },
+        "redactions": {
+          "type": "array",
+          "description": "Items the agent redacted or omitted from the draft (PII, safety-sensitive content, attorney-client material). The runtime adds 'pii_redacted' or 'safety' to escalation_reasons as appropriate.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["category", "note"],
+            "properties": {
+              "category": {
+                "type": "string",
+                "enum": [
+                  "pii",
+                  "safety_sensitive",
+                  "legal_privileged",
+                  "financial_confidential",
+                  "other"
+                ]
+              },
+              "note": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            }
+          },
+          "maxItems": 16
+        },
+        "channel_hint_honored": {
+          "type": ["boolean", "null"],
+          "description": "True when the input provided a channel_hint and the agent honored it; false when the agent chose a different channel (and explained why in tone_notes); null when no hint was provided."
+        }
+      }
+    }
+  }
+}

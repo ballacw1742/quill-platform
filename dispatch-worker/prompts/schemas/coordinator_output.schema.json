@@ -1,0 +1,183 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quill.local/schemas/coordinator_output.schema.json",
+  "title": "Coordinator Output",
+  "description": "Structured output emitted by the Coordinator (Axe-Quill) agent. Routes inbound requests, dispatches sub-agents, surfaces escalations.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "intent_classification",
+    "summary",
+    "dispatch_plan",
+    "direct_response",
+    "citations",
+    "escalation_reasons",
+    "confidence",
+    "requires_charles_acknowledgment"
+  ],
+  "properties": {
+    "request_id": {
+      "type": "string",
+      "description": "Echo the request UUID from input.",
+      "pattern": "^[A-Za-z0-9_-]{8,}$"
+    },
+    "intent_classification": {
+      "type": "string",
+      "enum": [
+        "information_query",
+        "draft_request",
+        "workflow_dispatch",
+        "status_inquiry",
+        "escalation",
+        "administrative",
+        "out_of_scope",
+        "prompt_injection_suspected"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "description": "1-2 sentences plain English describing what the user is asking and what Coordinator will do.",
+      "maxLength": 400
+    },
+    "dispatch_plan": {
+      "type": "array",
+      "description": "Sub-agent tasks to dispatch. May be empty for pure information_query.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "target_agent",
+          "task_label",
+          "inputs_ref",
+          "expected_output_class",
+          "lane_target",
+          "confidence"
+        ],
+        "properties": {
+          "target_agent": {
+            "type": "string",
+            "description": "agent_id from the configured fleet."
+          },
+          "task_label": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "inputs_ref": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["ref_type", "ref_value"],
+              "properties": {
+                "ref_type": {
+                  "type": "string",
+                  "enum": [
+                    "procore_rfi_id",
+                    "procore_submittal_id",
+                    "procore_daily_log_id",
+                    "p6_activity_id",
+                    "p6_wbs_id",
+                    "acc_drawing_id",
+                    "acc_model_element_id",
+                    "spec_section",
+                    "po_id",
+                    "drive_doc_id",
+                    "minio_object",
+                    "freeform_query",
+                    "time_window",
+                    "other"
+                  ]
+                },
+                "ref_value": { "type": "string" },
+                "notes": { "type": "string", "maxLength": 200 }
+              }
+            }
+          },
+          "expected_output_class": {
+            "type": "string",
+            "enum": [
+              "classification",
+              "draft_response",
+              "validation_report",
+              "watchlist",
+              "summary",
+              "schedule_update",
+              "report_file",
+              "other"
+            ]
+          },
+          "lane_target": {
+            "type": "integer",
+            "enum": [1, 2, 3]
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 1.0
+          }
+        }
+      }
+    },
+    "direct_response": {
+      "type": "string",
+      "description": "Natural-language reply to the requester. ≤ 120 words.",
+      "maxLength": 1200
+    },
+    "citations": {
+      "type": "array",
+      "description": "Evidence for any factual claims in direct_response. Required when direct_response makes factual claims.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_type", "source_id"],
+        "properties": {
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "procore_rfi",
+              "procore_submittal",
+              "procore_daily_log",
+              "p6_activity",
+              "acc_drawing",
+              "spec_section",
+              "po_record",
+              "agent_output",
+              "drive_doc",
+              "policy_doc",
+              "other"
+            ]
+          },
+          "source_id": { "type": "string" },
+          "excerpt": { "type": "string", "maxLength": 500 }
+        }
+      }
+    },
+    "escalation_reasons": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "prompt_injection_detected",
+          "out_of_scope",
+          "cross_agent_dependency",
+          "missing_context",
+          "policy_block",
+          "safety",
+          "ambiguous_intent",
+          "untrusted_submitter",
+          "low_confidence",
+          "exceeds_token_budget"
+        ]
+      }
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "requires_charles_acknowledgment": {
+      "type": "boolean"
+    }
+  }
+}
