@@ -51,8 +51,10 @@ export function DocumentRow({
   const agent =
     (doc.agent_display_name && doc.agent_display_name.trim()) || doc.agent_id;
 
+  // No `truncate` here: ListRow's subtitle slot already line-clamps to two
+  // lines, so "agent · 2 months ago" wraps instead of clipping mid-word at 375px.
   const subtitle = (
-    <span className="truncate">
+    <span>
       {agent}
       {ago && (
         <>

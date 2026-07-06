@@ -32,3 +32,13 @@ def test_adk_seed_agents_have_metadata():
     for data in SEED_AGENTS:
         assert data.get("display_name"), f"{data['agent_id']}: empty display_name"
         assert data.get("description"), f"{data['agent_id']}: empty description"
+
+
+def test_no_duplicate_display_names_across_seed_and_fleet():
+    """ADK seed agents and fleet agents must not collide on display_name
+    (e.g. the 'RFI Triage' duplicate fixed 2026-07-06)."""
+    names = [d["display_name"] for d in SEED_AGENTS] + [
+        m["display_name"] for m in FLEET_METADATA.values()
+    ]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    assert not dupes, f"Duplicate agent display_names: {dupes}"

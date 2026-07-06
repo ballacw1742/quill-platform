@@ -174,8 +174,8 @@ export default function ProfilePage() {
             icon={<SettingsIcon className="h-4 w-4" />}
             iconTone="neutral"
             title="Settings"
-            subtitle="Theme, notifications"
-            onClick={() => toast.message("Settings: coming soon")}
+            subtitle="Account, appearance, app info"
+            href="/settings"
           />
           <ListRow
             icon={<Info className="h-4 w-4" />}

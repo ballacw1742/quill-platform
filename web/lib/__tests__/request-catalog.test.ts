@@ -17,7 +17,7 @@ const j = (arr: string[]) => JSON.stringify(arr);
 
 const ADK_AGENTS: RegistryAgentLike[] = [
   { agent_id: "quill_coordinator", display_name: "Quill Coordinator", role_summary: "Orchestrator", description: "Routes inbound PMO requests to the right specialist agent.", handled_intents: j(["general", "estimate"]), enabled: true },
-  { agent_id: "quill_rfi_triage", display_name: "RFI Triage", role_summary: "RFI Management", description: "Processes Requests for Information.", handled_intents: j(["rfi"]), enabled: true },
+  { agent_id: "quill_rfi_triage", display_name: "RFI Triage Agent", role_summary: "RFI Management", description: "Processes Requests for Information.", handled_intents: j(["rfi"]), enabled: true },
   { agent_id: "quill_change_order", display_name: "Change Order Agent", role_summary: "Change Order Processing", description: "Analyzes change orders for cost and schedule impact.", handled_intents: j(["contract"]), enabled: true },
   { agent_id: "quill_schedule_monitor", display_name: "Schedule Monitor", role_summary: "Schedule Analysis", description: "Analyzes project schedules.", handled_intents: j(["schedule"]), enabled: true },
   { agent_id: "quill_status_report", display_name: "Status Report Agent", role_summary: "Reporting", description: "Generates owner-facing project status reports.", handled_intents: j([]), enabled: true },
