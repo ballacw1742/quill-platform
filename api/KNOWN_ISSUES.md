@@ -110,6 +110,15 @@ has a **user-visible severity** tag (per CONTRIBUTING_AGENTS.md \u00a76):
    pipeline all worked. Tracked for the next agent-prompt revision in
    `agentic-pmo-prompts/`.
 
+   **Resolved (Sprint 4, 2026-07-06):** two-sided fix. (a) The prompts
+   repo's schemas now accept free-form evidence categories and treat
+   citation `purpose` as an alias of `kind` (anyOf). (b) The runtime
+   gained `runtime/output_normalizer.py`, applied in `Agent.run()` before
+   validation: clamps `summary` to the 280-char base-schema cap, backfills
+   citation `kind` from `purpose` (or defaults to `other` when only `ref`
+   is present), and snake-cases/clamps evidence categories. Covered by
+   `runtime/tests/test_output_normalizer.py`.
+
 6. **`(invisible)` Smoke test bypasses the API + Approval Queue layer.**
    For cost/control reasons the smoke runs the runtime `Agent.run()`
    in-process and writes nothing to the queue. End-to-end including
@@ -125,3 +134,53 @@ has a **user-visible severity** tag (per CONTRIBUTING_AGENTS.md \u00a76):
    - `validator.py` builds a `referencing.Registry` from the prompts
      repo's `schemas/` dir on first use so `https://agentic-pmo.local/...`
      `$ref`s resolve locally.
+
+## Sprint 4 — Remote daemons + live gates (Jul 6 2026)
+
+Found while running the Sprint 4 live gates (full daemon → queue → approve →
+execute loop against a locally booted API with real Anthropic calls):
+
+1. **Fixed. Extraction approval never stamped `extracted_fields`.**
+   `on_extraction_approved`'s docstring always promised denormalized
+   stamping, but no code path anywhere wrote `Contract.extracted_fields` —
+   which permanently blocked the contract-review daemon (it skips contracts
+   with `extracted_fields=None`). The hook now stamps `extracted_fields`
+   plus denormalized `contract_type` / `parties` / dates / `total_value_usd`
+   from the approved artifact.
+
+2. **Fixed. Contract reviews were never published as Documents.**
+   `GET /v1/contracts/{id}/reviews` and `contracts.list_reviews` are
+   documented as reading "published Document artifacts", but
+   `_is_publish_artifact` never included `contract_review.publish`, so the
+   reviews list stayed permanently empty. Now included; the published
+   Document stores `meta={"artifact": ..., "contract_upload_id": ...}` to
+   match the shape `list_reviews` filters on. Note: `contract_review`
+   artifacts carry no `title`/`body_markdown`, so the Document body is
+   empty and the title falls back to the workflow name `(visible-tolerable)`
+   — UI reads the structured `meta.artifact`.
+
+3. **Fixed. XER/package export 404'd for daemon-produced packages.**
+   `approvals.execute` stamps `Estimate.package_artifact_id` with the
+   Document *row id* when the artifact has no `id` key (pm_artifact_base
+   uses `artifact_id`), while the export route looked up
+   `Document.artifact_id` only. Export now accepts either identity.
+
+4. **`(invisible)` `agents/contract-extractor/system.md` was missing** in
+   `agentic-pmo-prompts` (only `agent.md` existed); the runtime loader
+   reads `system.md`, so the contract dispatcher could never load its
+   prompt. Added (committed in the prompts repo working branch).
+
+5. **`(visible-tolerable)` contract-extractor emits malformed JSON ~50%.**
+   Two of four live runs failed `json_extraction` ("Expecting ',' delimiter")
+   and succeeded on the dispatcher's automatic retry. Costs one extra LLM
+   call and ~90s latency per failure. Candidate prompt fix in
+   `agentic-pmo-prompts` (tracked with #5 of Phase G.4 above); also
+   `contract-reviewer` emits `suggested_redline: null` which the schema
+   rejects (submitted as validation_warn, non-blocking).
+
+6. **`(invisible)` `pypdf` / `python-docx` are imported by
+   `services/contracts.py` but absent from `pyproject.toml`.** Fresh
+   installs silently fail contract PDF text extraction ("all files failed
+   text extraction"). Installed manually in dev; add to deps in the next
+   housekeeping commit (prod image evidently has them via other channels —
+   verify during the post-merge prod gate).

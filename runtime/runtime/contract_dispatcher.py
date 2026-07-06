@@ -212,6 +212,38 @@ def _agent_headers(config: Config) -> dict[str, str]:
     }
 
 
+async def _fetch_extracted_text_api(
+    client: httpx.AsyncClient,
+    config: Config,
+    upload_id: str,
+    filename: str,
+) -> str | None:
+    """Fallback: fetch the full extracted text over HTTP (Sprint 4).
+
+    Used when the daemon runs on a different host than the API and the
+    text blob is not on the local filesystem.
+    """
+    from urllib.parse import quote
+
+    try:
+        resp = await client.get(
+            f"/v1/contracts/{upload_id}/extracted/{quote(filename, safe='')}",
+            headers=_agent_headers(config),
+        )
+        if resp.status_code == 404:
+            return None
+        resp.raise_for_status()
+        return resp.text
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "contract.remote_text_fetch_failed",
+            upload_id=upload_id,
+            filename=filename,
+            err=str(exc),
+        )
+        return None
+
+
 async def _fetch_extracted_contracts(
     client: httpx.AsyncClient, config: Config, limit: int = 50
 ) -> list[dict[str, Any]]:
@@ -278,8 +310,13 @@ def _build_agent_input(
     upload_id: str,
     contract_data: dict[str, Any],
     blob_root: Path,
+    remote_texts: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    """Build the agent input from the contract record and extracted text blobs."""
+    """Build the agent input from the contract record and extracted text blobs.
+
+    ``remote_texts`` maps filename → text fetched over HTTP for files whose
+    blobs are not on the local filesystem (Sprint 4 remote-daemon support).
+    """
     uploaded_files: list[dict[str, Any]] = contract_data.get("uploaded_files") or []
     project_label: str = contract_data.get("project_label") or ""
     notes: str = contract_data.get("notes") or ""
@@ -298,6 +335,8 @@ def _build_agent_input(
             )
             continue
         text = _load_extracted_text(upload_id, fname, blob_root)
+        if text is None and remote_texts:
+            text = remote_texts.get(fname)
         if text is None:
             log.warning(
                 "contract.text_blob_missing",
@@ -335,12 +374,29 @@ async def dispatch_one(
     config: Config,
     queue_client: QueueClient,
     blob_root: Path,
+    http_client: httpx.AsyncClient | None = None,
 ) -> str | None:
     """Run the contract-extractor for one upload and submit to the approval queue.
 
     Returns the approval_item_id on success, None on failure.
     """
-    agent_input = _build_agent_input(upload_id, contract_data, blob_root)
+    remote_texts: dict[str, str] = {}
+    if http_client is not None:
+        for f in contract_data.get("uploaded_files") or []:
+            fname = f.get("filename") or ""
+            if (f.get("extraction_status") or "") not in ("ok", "partial"):
+                continue
+            if _load_extracted_text(upload_id, fname, blob_root) is not None:
+                continue
+            text = await _fetch_extracted_text_api(
+                http_client, config, upload_id, fname
+            )
+            if text:
+                remote_texts[fname] = text
+
+    agent_input = _build_agent_input(
+        upload_id, contract_data, blob_root, remote_texts=remote_texts
+    )
 
     log.info(
         "contract.running_agent",
@@ -548,6 +604,7 @@ class ContractDispatcher:
                     config=self.config,
                     queue_client=queue_client,
                     blob_root=self._blob_root,
+                    http_client=http_client,
                 )
                 self._record_success(upload_id, approval_item_id)
                 _cleanup_priority_marker(self.dispatch_requests_dir, upload_id)

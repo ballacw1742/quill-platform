@@ -327,6 +327,40 @@ async def get_contract_status_route(
 
 
 # ---------------------------------------------------------------------------
+# GET /{upload_id}/extracted/{filename} — Sprint 4 (remote daemons)
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{upload_id}/extracted/{filename}",
+    summary="Fetch the full extracted text for one uploaded file (daemon/agent use)",
+)
+async def get_extracted_text_route(
+    upload_id: str,
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+    user: Any = Depends(get_current_user_or_agent),  # noqa: ARG001
+):
+    """Serve the extracted plain text written during background extraction.
+
+    Sprint 4: the contract dispatcher daemons can run on a different host
+    than the API; the manifest's ``extraction_summary`` caps at 4000 chars,
+    so full-fidelity extraction needs this HTTP path. Auth: any authenticated
+    user or the agent service account (X-Agent-Secret).
+    """
+    from fastapi.responses import PlainTextResponse
+
+    contract = await contracts_service.get_status(db, upload_id)
+    if contract is None:
+        raise HTTPException(http_status.HTTP_404_NOT_FOUND, "contract not found")
+    text = contracts_service.read_extracted_text(upload_id, filename)
+    if text is None:
+        raise HTTPException(
+            http_status.HTTP_404_NOT_FOUND,
+            f"extracted text not found for {filename!r}",
+        )
+    return PlainTextResponse(text)
+
+
+# ---------------------------------------------------------------------------
 # POST /{upload_id}/dispatch_extraction
 # ---------------------------------------------------------------------------
 class DispatchExtractionOut:
