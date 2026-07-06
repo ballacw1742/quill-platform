@@ -1,0 +1,72 @@
+name: Deploy Quill Agent Orchestrator to Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'agent-cloud/**'
+      - '.github/workflows/agentcloud-deploy.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: pip install -r agent-cloud/requirements-dev.txt
+
+      - name: Run pytest
+        working-directory: agent-cloud
+        run: python -m pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Build and push image
+        run: |
+          docker build -t gcr.io/totemic-formula-467102-s9/quill-agent-orchestrator:${{ github.sha }} agent-cloud/
+          docker push gcr.io/totemic-formula-467102-s9/quill-agent-orchestrator:${{ github.sha }}
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy quill-agent-orchestrator \
+            --image gcr.io/totemic-formula-467102-s9/quill-agent-orchestrator:${{ github.sha }} \
+            --platform managed \
+            --region us-central1 \
+            --no-allow-unauthenticated \
+            --min-instances 1 \
+            --max-instances 3 \
+            --memory 512Mi \
+            --service-account openclaw-adk@totemic-formula-467102-s9.iam.gserviceaccount.com \
+            --add-cloudsql-instances totemic-formula-467102-s9:us-central1:quill-datasite-db \
+            --update-env-vars QUILL_API_URL=https://quill-agents-894031978246.us-central1.run.app,MODEL_PROVIDER=anthropic,MODEL_DEFAULT=claude-fable-5,MODEL_CHEAP=claude-haiku-4-5 \
+            --update-secrets DATABASE_URL=QUILL_DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,QUILL_AGENT_SECRET=QUILL_AGENT_SECRET:latest \
+            --project totemic-formula-467102-s9
+
+      - name: Update admin job image (agentcloud-admin)
+        run: |
+          # Maintenance CLI (rls-probe / set-agent / cleanup-smoke) runs as a
+          # Cloud Run job with the same image + secrets. Keep it on the
+          # freshly deployed image; create it manually once (see agent-cloud/README.md).
+          gcloud run jobs update agentcloud-admin \
+            --image gcr.io/totemic-formula-467102-s9/quill-agent-orchestrator:${{ github.sha }} \
+            --region us-central1 \
+            --project totemic-formula-467102-s9 || echo "agentcloud-admin job not created yet — skipping"
