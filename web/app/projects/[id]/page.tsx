@@ -51,8 +51,16 @@ import {
   useListEstimates,
   useCampusesByProject,
   useCreateCampus,
+  useDeployTemplateCatalog,
+  useDeployCampusFromTemplate,
 } from "@/lib/api";
-import type { QuillProject, ProjectMilestone, ProjectLogEntry, ProjectDocumentLink } from "@/lib/schemas";
+import type {
+  QuillProject,
+  ProjectMilestone,
+  ProjectLogEntry,
+  ProjectDocumentLink,
+  DeploymentReport,
+} from "@/lib/schemas";
 
 // ── Tab types ─────────────────────────────────────────────────────────────────
 
@@ -343,60 +351,300 @@ function NotesSection({ project }: { project: QuillProject }) {
 
 // ── Overview Tab ──────────────────────────────────────────────────────────────
 
-// ── Go-Live (Project → Campus graduation, Sprint 5.1) ──────────────────────────
+// ── Campus Template Deploy (Sprint 5.4) ────────────────────────────────────────
+
+const DEPLOY_STEP_LABELS: Record<string, string> = {
+  campus: "Campus Record",
+  monitoring_agents: "Monitoring Agents",
+  equipment: "Equipment",
+  compliance_checklist: "Compliance Checklist",
+  vendors: "Vendors",
+  dashboard_seed: "Dashboard Seed",
+};
+
+function deployStepLabel(step: string): string {
+  return DEPLOY_STEP_LABELS[step] ?? step;
+}
+
+/** FastAPI errors arrive as `{ "detail": "..." }` — show `detail` to the user. */
+function errorDetail(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  try {
+    const parsed = JSON.parse(msg) as { detail?: unknown };
+    if (parsed && typeof parsed.detail === "string") return parsed.detail;
+  } catch {
+    /* not JSON — fall through */
+  }
+  return msg;
+}
+
+function DeploymentReportView({ report, onDismiss }: { report: DeploymentReport; onDismiss: () => void }) {
+  const router = useRouter();
+  return (
+    <>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-callout font-semibold text-label-primary">Deployment Report</p>
+        <button type="button" onClick={onDismiss} className="text-label-quaternary">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <p className="text-caption-1 text-label-secondary mb-3">
+        Campus “{report.campus.name}” deployed from the {report.template.campus_type} template
+        {" "}({report.template.jurisdiction_used} · {report.template.region_used}).
+      </p>
+      <div className="space-y-2 mb-4">
+        {report.steps.map((s) => (
+          <div key={s.step} className="flex items-center justify-between gap-3 rounded-xl bg-bg-elevated px-4 py-2.5">
+            <div className="min-w-0">
+              <p className="text-callout font-semibold text-label-primary">{deployStepLabel(s.step)}</p>
+              {s.detail && <p className="text-caption-1 text-label-tertiary">{s.detail}</p>}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-caption-1 font-semibold text-label-secondary tabular-nums">{s.count}</span>
+              <span
+                className={cn(
+                  "text-caption-1 font-semibold rounded-full px-2 py-0.5",
+                  s.status === "created"
+                    ? "text-green-400 bg-green-400/10"
+                    : "text-label-secondary bg-chrome border border-separator/40",
+                )}
+              >
+                {s.status === "created" ? "Created" : "Skipped"}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => router.push(`/operations/${report.campus.id}`)}
+        className="w-full py-3 rounded-xl bg-accent text-white font-semibold text-callout flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+      >
+        View Campus <ExternalLink className="h-4 w-4" />
+      </button>
+    </>
+  );
+}
+
+function DeployCampusModal({
+  project,
+  onClose,
+  onDeployed,
+}: {
+  project: QuillProject;
+  onClose: () => void;
+  onDeployed: (report: DeploymentReport) => void;
+}) {
+  const { data: catalog, isLoading: catalogLoading, error: catalogError } = useDeployTemplateCatalog();
+  const deploy = useDeployCampusFromTemplate();
+  const [name, setName] = React.useState(project.name);
+  const [campusType, setCampusType] = React.useState("");
+  const [jurisdiction, setJurisdiction] = React.useState("");
+  const [region, setRegion] = React.useState("");
+
+  // Default each select to the first catalog option once the catalog loads.
+  React.useEffect(() => {
+    if (!catalog) return;
+    setCampusType((v) => v || (catalog.campus_types[0]?.key ?? ""));
+    setJurisdiction((v) => v || (catalog.jurisdictions[0]?.key ?? ""));
+    setRegion((v) => v || (catalog.regions[0]?.key ?? ""));
+  }, [catalog]);
+
+  const canSubmit = Boolean(name.trim() && campusType && jurisdiction && region) && !deploy.isPending;
+
+  function handleDeploy() {
+    if (!canSubmit) return;
+    deploy.mutate(
+      {
+        project_id: project.id,
+        name: name.trim(),
+        campus_type: campusType,
+        jurisdiction,
+        region,
+      },
+      { onSuccess: (report) => onDeployed(report) },
+    );
+  }
+
+  const selects = [
+    { label: "Campus Type", value: campusType, set: setCampusType, options: catalog?.campus_types ?? [] },
+    { label: "Jurisdiction", value: jurisdiction, set: setJurisdiction, options: catalog?.jurisdictions ?? [] },
+    { label: "Region", value: region, set: setRegion, options: catalog?.regions ?? [] },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50" onClick={onClose}>
+      <div
+        className="w-full max-w-lg bg-chrome rounded-t-3xl p-6 pb-[calc(env(safe-area-inset-bottom)+24px)] max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-10 h-1 bg-separator/60 rounded-full mx-auto mb-4" />
+        <p className="text-headline font-semibold text-label-primary mb-1">Deploy New Campus</p>
+        <p className="text-caption-1 text-label-secondary mb-4">
+          One-shot deployment from a standard template: campus, monitoring agents, equipment,
+          compliance checklist, vendors, and dashboard seed.
+        </p>
+
+        {catalogLoading && (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 text-label-quaternary animate-spin" />
+          </div>
+        )}
+        {catalogError != null && (
+          <p className="text-callout text-red-400 text-center py-6">Failed to load template catalog.</p>
+        )}
+
+        {catalog && (
+          <>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-footnote font-semibold text-label-secondary uppercase tracking-wide mb-1">
+                  Campus Name
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Columbus Campus 1"
+                  className="w-full rounded-xl px-4 py-2.5 text-body text-label-primary bg-bg-elevated border border-separator/60 placeholder:text-label-quaternary focus:outline-none focus:border-accent"
+                />
+              </div>
+              {selects.map(({ label, value, set, options }) => (
+                <div key={label}>
+                  <label className="block text-footnote font-semibold text-label-secondary uppercase tracking-wide mb-1">
+                    {label}
+                  </label>
+                  <select
+                    value={value}
+                    onChange={(e) => set(e.target.value)}
+                    className="w-full rounded-xl px-4 py-2.5 text-body text-label-primary bg-bg-elevated border border-separator/60 focus:outline-none focus:border-accent appearance-none"
+                  >
+                    {options.map((o) => (
+                      <option key={o.key} value={o.key}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            {deploy.isError && (
+              <p className="text-caption-1 text-red-400 mt-3">{errorDetail(deploy.error)}</p>
+            )}
+
+            <div className="flex gap-3 mt-5">
+              <button
+                type="button"
+                disabled={!canSubmit}
+                onClick={handleDeploy}
+                className="flex-1 py-3 rounded-xl bg-accent text-white font-semibold text-callout flex items-center justify-center gap-2 transition-all active:scale-[0.98] disabled:opacity-60"
+              >
+                {deploy.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Deploying…</>
+                ) : (
+                  <><Zap className="h-4 w-4" /> Deploy Campus</>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 py-3 rounded-xl border border-separator/60 text-label-primary font-semibold text-callout"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Go-Live (Project → Campus graduation, Sprint 5.1 + 5.4 template deploy) ────
 function GoLiveSection({ project }: { project: QuillProject }) {
   const router = useRouter();
   const { data: campusList } = useCampusesByProject(project.id);
   const createCampus = useCreateCampus();
   const linkedCampus = campusList?.items?.[0];
+  const [showDeployModal, setShowDeployModal] = React.useState(false);
+  const [report, setReport] = React.useState<DeploymentReport | null>(null);
 
   // Only relevant once the project is commissioning, or after a campus exists.
-  if (!linkedCampus && project.phase !== "commissioning") return null;
+  if (!linkedCampus && project.phase !== "commissioning" && !report) return null;
 
   return (
     <Card>
-      <p className="text-callout font-semibold text-label-primary mb-2">Go Live</p>
-      {linkedCampus ? (
-        <button
-          type="button"
-          onClick={() => router.push(`/operations/${linkedCampus.id}`)}
-          className="w-full flex items-center justify-between rounded-xl bg-accent/10 border border-accent/20 px-4 py-3"
-        >
-          <span className="text-callout font-semibold text-accent">
-            Linked Campus: {linkedCampus.name}
-          </span>
-          <ExternalLink className="h-4 w-4 text-accent shrink-0" />
-        </button>
+      {report ? (
+        <DeploymentReportView report={report} onDismiss={() => setReport(null)} />
       ) : (
         <>
-          <p className="text-caption-1 text-label-secondary mb-3">
-            This project is commissioning. Graduate it to a live campus in Operations.
-          </p>
-          <button
-            type="button"
-            disabled={createCampus.isPending}
-            onClick={() =>
-              createCampus.mutate({
-                name: project.name,
-                project_id: project.id,
-                mw_capacity: 0,
-                status: "commissioning",
-              })
-            }
-            className={cn(
-              "w-full py-3 rounded-xl font-semibold text-callout",
-              "bg-accent text-white flex items-center justify-center gap-2",
-              "transition-all active:scale-[0.98]",
-              createCampus.isPending && "opacity-60 cursor-not-allowed",
-            )}
-          >
-            {createCampus.isPending ? (
-              <><Loader2 className="h-4 w-4 animate-spin" /> Creating campus…</>
-            ) : (
-              <><Zap className="h-4 w-4" /> Go Live</>
-            )}
-          </button>
+          <p className="text-callout font-semibold text-label-primary mb-2">Go Live</p>
+          {linkedCampus ? (
+            <button
+              type="button"
+              onClick={() => router.push(`/operations/${linkedCampus.id}`)}
+              className="w-full flex items-center justify-between rounded-xl bg-accent/10 border border-accent/20 px-4 py-3"
+            >
+              <span className="text-callout font-semibold text-accent">
+                Linked Campus: {linkedCampus.name}
+              </span>
+              <ExternalLink className="h-4 w-4 text-accent shrink-0" />
+            </button>
+          ) : (
+            <>
+              <p className="text-caption-1 text-label-secondary mb-3">
+                This project is commissioning. Deploy a full campus from a standard template,
+                or graduate it to a bare campus in Operations.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowDeployModal(true)}
+                className={cn(
+                  "w-full py-3 rounded-xl font-semibold text-callout mb-3",
+                  "bg-accent text-white flex items-center justify-center gap-2",
+                  "transition-all active:scale-[0.98]",
+                )}
+              >
+                <Zap className="h-4 w-4" /> Deploy New Campus
+              </button>
+              <button
+                type="button"
+                disabled={createCampus.isPending}
+                onClick={() =>
+                  createCampus.mutate({
+                    name: project.name,
+                    project_id: project.id,
+                    mw_capacity: 0,
+                    status: "commissioning",
+                  })
+                }
+                className={cn(
+                  "w-full py-3 rounded-xl font-semibold text-callout",
+                  "border border-separator/60 text-label-primary flex items-center justify-center gap-2",
+                  "transition-all active:scale-[0.98]",
+                  createCampus.isPending && "opacity-60 cursor-not-allowed",
+                )}
+              >
+                {createCampus.isPending ? (
+                  <><Loader2 className="h-4 w-4 animate-spin" /> Creating campus…</>
+                ) : (
+                  <>Go Live (bare campus)</>
+                )}
+              </button>
+            </>
+          )}
         </>
+      )}
+      {showDeployModal && (
+        <DeployCampusModal
+          project={project}
+          onClose={() => setShowDeployModal(false)}
+          onDeployed={(r) => {
+            setReport(r);
+            setShowDeployModal(false);
+          }}
+        />
       )}
     </Card>
   );

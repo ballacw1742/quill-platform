@@ -125,3 +125,40 @@ class CampusMetric(Base):
     recorded_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False, index=True
     )
+
+
+# ---------------------------------------------------------------------------
+# CampusMonitoringAgent — monitoring agents registered for a campus (Sprint 5.4)
+# ---------------------------------------------------------------------------
+
+VALID_MONITORING_AGENT_STATUSES = ("registered", "active", "disabled")
+
+
+class CampusMonitoringAgent(Base):
+    """A monitoring agent deployed/registered for a campus.
+
+    Created by the Sprint 5.4 campus template deployment workflow. Soft record
+    of what monitoring coverage a campus has (power, cooling, security, ...).
+    """
+
+    __tablename__ = "campus_monitoring_agents"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    campus_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("campuses.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    agent_key: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    agent_type: Mapped[str] = mapped_column(String(50), nullable=False)  # power | cooling | security | network | environment
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="registered", index=True
+    )  # registered | active | disabled
+    endpoint_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False, index=True
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )

@@ -1689,6 +1689,44 @@ export const CampusMetricListResponseSchema = z.object({
 });
 export type CampusMetricListResponse = z.infer<typeof CampusMetricListResponseSchema>;
 
+// ─── Sprint 5.4 — Campus Template Automation ─────────────────────────────────
+// Maps to GET /v1/campuses/deploy-templates and POST /v1/campuses/deploy-from-template
+
+export const TemplateOptionSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+});
+export type TemplateOption = z.infer<typeof TemplateOptionSchema>;
+
+export const DeployTemplateCatalogSchema = z.object({
+  campus_types: z.array(TemplateOptionSchema),
+  jurisdictions: z.array(TemplateOptionSchema),
+  regions: z.array(TemplateOptionSchema),
+});
+export type DeployTemplateCatalog = z.infer<typeof DeployTemplateCatalogSchema>;
+
+export const DeploymentStepSchema = z.object({
+  step: z.string(),      // campus | monitoring_agents | equipment | compliance_checklist | vendors | dashboard_seed
+  status: z.string(),    // created | skipped
+  count: z.number().int(),
+  ids: z.array(z.string()),
+  detail: z.string().nullable().optional(),
+});
+export type DeploymentStep = z.infer<typeof DeploymentStepSchema>;
+
+export const DeploymentReportSchema = z.object({
+  campus: CampusSchema,
+  template: z.object({
+    campus_type: z.string(),
+    jurisdiction_requested: z.string(),
+    jurisdiction_used: z.string(),
+    region_requested: z.string(),
+    region_used: z.string(),
+  }),
+  steps: z.array(DeploymentStepSchema),
+});
+export type DeploymentReport = z.infer<typeof DeploymentReportSchema>;
+
 // ─── Sprint 1B — Sales & Pipeline ────────────────────────────────────────────
 
 export const ACCOUNT_TYPES = ["prospect", "customer"] as const;

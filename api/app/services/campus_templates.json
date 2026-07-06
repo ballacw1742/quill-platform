@@ -1,0 +1,175 @@
+{
+  "campus_types": {
+    "hyperscale": {
+      "label": "Hyperscale",
+      "default_mw_capacity": 500,
+      "pue_target": 1.2,
+      "equipment": [
+        {"name": "Diesel Generator 3MW", "category": "generator", "quantity": 24, "unit_cost_usd": 1250000, "lead_time_weeks": 52},
+        {"name": "UPS Module 1.5MW", "category": "ups", "quantity": 32, "unit_cost_usd": 450000, "lead_time_weeks": 36},
+        {"name": "Medium-Voltage Switchgear Lineup", "category": "switchgear", "quantity": 12, "unit_cost_usd": 800000, "lead_time_weeks": 60},
+        {"name": "Chiller Plant 2000-ton", "category": "cooling", "quantity": 8, "unit_cost_usd": 950000, "lead_time_weeks": 40},
+        {"name": "Rack PDU (busway tap)", "category": "pdu", "quantity": 400, "unit_cost_usd": 2500, "lead_time_weeks": 12},
+        {"name": "Perimeter Security System", "category": "security", "quantity": 1, "unit_cost_usd": 1200000, "lead_time_weeks": 20},
+        {"name": "Dark Fiber Entrance (diverse paths)", "category": "fiber", "quantity": 4, "unit_cost_usd": 350000, "lead_time_weeks": 26}
+      ],
+      "monitoring_agents": [
+        {"agent_key": "monitor_power", "name": "Power Monitoring Agent", "agent_type": "power"},
+        {"agent_key": "monitor_cooling", "name": "Cooling & PUE Monitoring Agent", "agent_type": "cooling"},
+        {"agent_key": "monitor_security", "name": "Physical Security Monitoring Agent", "agent_type": "security"},
+        {"agent_key": "monitor_network", "name": "Network Uptime Monitoring Agent", "agent_type": "network"},
+        {"agent_key": "monitor_environment", "name": "Environmental Sensors Agent", "agent_type": "environment"}
+      ],
+      "dashboard_seed": {
+        "metrics": [
+          {"metric_type": "pue", "value": 1.2, "unit": null},
+          {"metric_type": "uptime_pct", "value": 100.0, "unit": "%"},
+          {"metric_type": "power_mw", "value": 0.0, "unit": "MW"}
+        ]
+      }
+    },
+    "enterprise": {
+      "label": "Enterprise",
+      "default_mw_capacity": 60,
+      "pue_target": 1.35,
+      "equipment": [
+        {"name": "Diesel Generator 2MW", "category": "generator", "quantity": 6, "unit_cost_usd": 900000, "lead_time_weeks": 44},
+        {"name": "UPS Module 750kW", "category": "ups", "quantity": 10, "unit_cost_usd": 280000, "lead_time_weeks": 30},
+        {"name": "Switchgear Lineup", "category": "switchgear", "quantity": 4, "unit_cost_usd": 550000, "lead_time_weeks": 48},
+        {"name": "CRAH Units", "category": "cooling", "quantity": 24, "unit_cost_usd": 85000, "lead_time_weeks": 24},
+        {"name": "Rack PDU", "category": "pdu", "quantity": 120, "unit_cost_usd": 2200, "lead_time_weeks": 10},
+        {"name": "Access Control & CCTV", "category": "security", "quantity": 1, "unit_cost_usd": 400000, "lead_time_weeks": 16},
+        {"name": "Fiber Entrance (dual path)", "category": "fiber", "quantity": 2, "unit_cost_usd": 250000, "lead_time_weeks": 22}
+      ],
+      "monitoring_agents": [
+        {"agent_key": "monitor_power", "name": "Power Monitoring Agent", "agent_type": "power"},
+        {"agent_key": "monitor_cooling", "name": "Cooling & PUE Monitoring Agent", "agent_type": "cooling"},
+        {"agent_key": "monitor_security", "name": "Physical Security Monitoring Agent", "agent_type": "security"},
+        {"agent_key": "monitor_network", "name": "Network Uptime Monitoring Agent", "agent_type": "network"}
+      ],
+      "dashboard_seed": {
+        "metrics": [
+          {"metric_type": "pue", "value": 1.35, "unit": null},
+          {"metric_type": "uptime_pct", "value": 100.0, "unit": "%"},
+          {"metric_type": "power_mw", "value": 0.0, "unit": "MW"}
+        ]
+      }
+    },
+    "edge": {
+      "label": "Edge",
+      "default_mw_capacity": 5,
+      "pue_target": 1.45,
+      "equipment": [
+        {"name": "Diesel Generator 500kW", "category": "generator", "quantity": 2, "unit_cost_usd": 320000, "lead_time_weeks": 30},
+        {"name": "UPS Module 250kW", "category": "ups", "quantity": 4, "unit_cost_usd": 120000, "lead_time_weeks": 20},
+        {"name": "Compact Switchgear", "category": "switchgear", "quantity": 2, "unit_cost_usd": 180000, "lead_time_weeks": 32},
+        {"name": "In-Row Cooling Units", "category": "cooling", "quantity": 8, "unit_cost_usd": 45000, "lead_time_weeks": 16},
+        {"name": "Rack PDU", "category": "pdu", "quantity": 24, "unit_cost_usd": 2000, "lead_time_weeks": 8},
+        {"name": "Access Control & CCTV (compact)", "category": "security", "quantity": 1, "unit_cost_usd": 90000, "lead_time_weeks": 12},
+        {"name": "Fiber Entrance", "category": "fiber", "quantity": 2, "unit_cost_usd": 110000, "lead_time_weeks": 18}
+      ],
+      "monitoring_agents": [
+        {"agent_key": "monitor_power", "name": "Power Monitoring Agent", "agent_type": "power"},
+        {"agent_key": "monitor_network", "name": "Network Uptime Monitoring Agent", "agent_type": "network"},
+        {"agent_key": "monitor_environment", "name": "Environmental Sensors Agent", "agent_type": "environment"}
+      ],
+      "dashboard_seed": {
+        "metrics": [
+          {"metric_type": "pue", "value": 1.45, "unit": null},
+          {"metric_type": "uptime_pct", "value": 100.0, "unit": "%"},
+          {"metric_type": "power_mw", "value": 0.0, "unit": "MW"}
+        ]
+      }
+    }
+  },
+  "jurisdictions": {
+    "us-oh": {
+      "label": "Ohio, USA",
+      "framework": "soc2",
+      "checklist_name": "Ohio Campus Compliance \u2014 SOC 2 + State/Local",
+      "items": [
+        {"control_id": "OH-EPA-1", "title": "Ohio EPA air permit for backup generators", "description": "Permit-to-install and operate for diesel gensets (OAC 3745-31)."},
+        {"control_id": "OH-BLD-1", "title": "Certificate of occupancy \u2014 local building department", "description": "Final CO issued after commissioning inspections."},
+        {"control_id": "OH-FIRE-1", "title": "Fire suppression acceptance test", "description": "Clean agent / pre-action systems accepted by local fire marshal."},
+        {"control_id": "CC6.1", "title": "SOC 2 \u2014 Logical and physical access controls", "description": "Badge access, visitor logs, CCTV retention."},
+        {"control_id": "CC7.2", "title": "SOC 2 \u2014 Incident detection and monitoring", "description": "24/7 monitoring agents wired to incident workflow."},
+        {"control_id": "A1.2", "title": "SOC 2 \u2014 Environmental protections and redundancy", "description": "N+1 power/cooling verified, generator runtime tested."}
+      ]
+    },
+    "us-va": {
+      "label": "Virginia, USA",
+      "framework": "fisma",
+      "checklist_name": "Virginia Campus Compliance \u2014 FISMA + State/Local",
+      "items": [
+        {"control_id": "VA-DEQ-1", "title": "Virginia DEQ air permit for backup generators", "description": "9VAC5-80 permit for emergency generators."},
+        {"control_id": "VA-BLD-1", "title": "Certificate of occupancy \u2014 county building office", "description": "Final CO after commissioning inspections."},
+        {"control_id": "AC-2", "title": "NIST 800-53 \u2014 Account management", "description": "Managed accounts for facility and tenant systems."},
+        {"control_id": "PE-3", "title": "NIST 800-53 \u2014 Physical access control", "description": "Mantrap, badge, and biometric controls at all entrances."},
+        {"control_id": "PE-11", "title": "NIST 800-53 \u2014 Emergency power", "description": "UPS + generator coverage validated for critical loads."},
+        {"control_id": "IR-4", "title": "NIST 800-53 \u2014 Incident handling", "description": "Incident response runbook linked to campus incident log."}
+      ]
+    },
+    "us-tx": {
+      "label": "Texas, USA",
+      "framework": "iso27001",
+      "checklist_name": "Texas Campus Compliance \u2014 ISO 27001 + State/Local",
+      "items": [
+        {"control_id": "TX-TCEQ-1", "title": "TCEQ air permit for backup generators", "description": "Permit by rule or NSR permit for diesel gensets."},
+        {"control_id": "TX-ERCOT-1", "title": "ERCOT interconnection & load registration", "description": "Large load interconnection study and registration complete."},
+        {"control_id": "A.7.1", "title": "ISO 27001 \u2014 Physical security perimeters", "description": "Fencing, gates, and monitored perimeter zones."},
+        {"control_id": "A.7.4", "title": "ISO 27001 \u2014 Physical security monitoring", "description": "CCTV + intrusion detection with retention policy."},
+        {"control_id": "A.8.6", "title": "ISO 27001 \u2014 Capacity management", "description": "Power/cooling capacity tracked against demand."}
+      ]
+    },
+    "default": {
+      "label": "Default (US)",
+      "framework": "soc2",
+      "checklist_name": "Standard Campus Compliance \u2014 SOC 2",
+      "items": [
+        {"control_id": "GEN-1", "title": "Local air/environmental permits for generators", "description": "Confirm state environmental agency permit for gensets."},
+        {"control_id": "GEN-2", "title": "Certificate of occupancy", "description": "Final CO from local building authority."},
+        {"control_id": "CC6.1", "title": "SOC 2 \u2014 Logical and physical access controls", "description": "Badge access, visitor logs, CCTV retention."},
+        {"control_id": "CC7.2", "title": "SOC 2 \u2014 Incident detection and monitoring", "description": "24/7 monitoring agents wired to incident workflow."},
+        {"control_id": "A1.2", "title": "SOC 2 \u2014 Environmental protections and redundancy", "description": "N+1 power/cooling verified."}
+      ]
+    }
+  },
+  "regions": {
+    "midwest": {
+      "label": "Midwest US",
+      "vendors": [
+        {"name": "Caterpillar Power Systems \u2014 Ohio CAT", "category": "generator", "contact_name": "Regional DC Sales", "contact_email": "datacenter@ohiocat.com", "contact_phone": "614-555-0134"},
+        {"name": "Vertiv \u2014 Columbus", "category": "ups", "contact_name": "Enterprise Accounts", "contact_email": "dc-sales@vertiv.com", "contact_phone": "614-555-0188"},
+        {"name": "Johnson Controls \u2014 Great Lakes", "category": "cooling", "contact_name": "Critical Facilities Team", "contact_email": "criticalfacilities@jci.com", "contact_phone": "312-555-0170"},
+        {"name": "Turner Construction \u2014 Midwest DC Group", "category": "construction", "contact_name": "Mission Critical PM", "contact_email": "missioncritical@tcco.com", "contact_phone": "312-555-0142"}
+      ]
+    },
+    "east": {
+      "label": "East US",
+      "vendors": [
+        {"name": "Cummins Power \u2014 Mid-Atlantic", "category": "generator", "contact_name": "Data Center Segment", "contact_email": "dc-midatlantic@cummins.com", "contact_phone": "703-555-0161"},
+        {"name": "Schneider Electric \u2014 Ashburn", "category": "switchgear", "contact_name": "Critical Power Team", "contact_email": "ashburn-cp@se.com", "contact_phone": "703-555-0129"},
+        {"name": "Carrier \u2014 Commercial East", "category": "cooling", "contact_name": "DC Cooling Sales", "contact_email": "dccooling-east@carrier.com", "contact_phone": "804-555-0117"},
+        {"name": "HITT Contracting \u2014 Data Centers", "category": "construction", "contact_name": "Preconstruction", "contact_email": "datacenters@hitt.com", "contact_phone": "703-555-0195"}
+      ]
+    },
+    "south": {
+      "label": "South US",
+      "vendors": [
+        {"name": "Generac Industrial \u2014 Texas", "category": "generator", "contact_name": "Industrial Sales TX", "contact_email": "industrial-tx@generac.com", "contact_phone": "512-555-0150"},
+        {"name": "Eaton \u2014 Houston Critical Power", "category": "switchgear", "contact_name": "Critical Power Team", "contact_email": "houston-cp@eaton.com", "contact_phone": "713-555-0126"},
+        {"name": "Trane \u2014 South Central", "category": "cooling", "contact_name": "Applied Systems", "contact_email": "southcentral-dc@trane.com", "contact_phone": "214-555-0173"},
+        {"name": "DPR Construction \u2014 Austin", "category": "construction", "contact_name": "Advanced Tech Group", "contact_email": "atg-austin@dpr.com", "contact_phone": "512-555-0139"}
+      ]
+    },
+    "default": {
+      "label": "National",
+      "vendors": [
+        {"name": "Caterpillar Power Systems \u2014 National", "category": "generator", "contact_name": "National Accounts", "contact_email": "dc-national@cat.com", "contact_phone": "800-555-0101"},
+        {"name": "Vertiv \u2014 National Accounts", "category": "ups", "contact_name": "Enterprise Accounts", "contact_email": "national@vertiv.com", "contact_phone": "800-555-0102"},
+        {"name": "Schneider Electric \u2014 National", "category": "switchgear", "contact_name": "Critical Power", "contact_email": "national-cp@se.com", "contact_phone": "800-555-0103"},
+        {"name": "Turner Construction \u2014 Mission Critical", "category": "construction", "contact_name": "Mission Critical Group", "contact_email": "missioncritical@tcco.com", "contact_phone": "800-555-0104"}
+      ]
+    }
+  }
+}
