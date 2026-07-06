@@ -274,8 +274,6 @@ async def test_dispatch_one_happy_path(tmp_path: Path) -> None:
     contract_data["uploaded_files"][0]["filename"] = "subcontract_pdf"
 
     # Build mock AgentRun result
-    from unittest.mock import MagicMock
-
     mock_run = MagicMock()
     mock_run.output = replay_output
     mock_run.error = None
