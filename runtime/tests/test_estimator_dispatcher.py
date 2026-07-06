@@ -25,29 +25,26 @@ _RUNTIME_DIR = Path(__file__).resolve().parents[1]
 if str(_RUNTIME_DIR) not in sys.path:
     sys.path.insert(0, str(_RUNTIME_DIR))
 
-# Stub heavy deps that aren't available in unit-test context.
-_STUB_MODULES = [
-    "anthropic",
-    "structlog",
-    "httpx",
-]
-for _mod in _STUB_MODULES:
-    if _mod not in sys.modules:
-        import types
-
-        sys.modules[_mod] = types.ModuleType(_mod)
-
-# structlog needs get_logger
+# Stub heavy deps ONLY when they aren't installed in the test env.
+# (Sprint 5.5 fix: unconditionally replacing sys.modules["httpx"] poisoned
+# every test module imported after this one — test_queue_client's
+# httpx.MockTransport went missing in full-suite runs.)
+import importlib.util  # noqa: E402
 import types as _types  # noqa: E402
 
-_sl = _types.ModuleType("structlog")
-_sl.get_logger = lambda *a, **kw: MagicMock()  # type: ignore[attr-defined]
-sys.modules["structlog"] = _sl
 
-# httpx stub
-_hx = _types.ModuleType("httpx")
-_hx.AsyncClient = MagicMock  # type: ignore[attr-defined]
-sys.modules["httpx"] = _hx
+def _stub_if_missing(name: str, **attrs: Any) -> None:
+    if name in sys.modules or importlib.util.find_spec(name) is not None:
+        return
+    mod = _types.ModuleType(name)
+    for k, v in attrs.items():
+        setattr(mod, k, v)
+    sys.modules[name] = mod
+
+
+_stub_if_missing("anthropic")
+_stub_if_missing("structlog", get_logger=lambda *a, **kw: MagicMock())
+_stub_if_missing("httpx", AsyncClient=MagicMock)
 
 
 # ---------------------------------------------------------------------------

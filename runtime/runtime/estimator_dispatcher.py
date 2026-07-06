@@ -56,6 +56,7 @@ import structlog
 from runtime.agent import Agent, AgentRun
 from runtime.config import Config, get_config
 from runtime.queue_client import QueueClient
+from runtime.state_store import DispatchStateStore, store_from_env
 
 log = structlog.get_logger(__name__)
 
@@ -534,6 +535,7 @@ class EstimatorDispatcher:
         state_file: Path | None = None,
         poll_interval_s: float | None = None,
         dispatch_requests_dir: Path | None = None,
+        state_store: DispatchStateStore | None = None,
     ) -> None:
         self.config = config or get_config()
         self.state_file = state_file or _DEFAULT_STATE_FILE_PATH
@@ -546,9 +548,55 @@ class EstimatorDispatcher:
         self._stop_event = asyncio.Event()
         self._state = _load_state(self.state_file)
         self._blob_root = _blob_root(self.config)
+        # Sprint 5.5 — optional shared state store (Postgres in the Cloud Run
+        # worker). When None, the legacy JSON state file is used unchanged.
+        self._store = state_store if state_store is not None else store_from_env(
+            "estimator"
+        )
 
     def stop(self) -> None:
         self._stop_event.set()
+
+    # ------------------------------------------------------------------
+    # State-store seam (Sprint 5.5) — see contract_dispatcher for details.
+    # ------------------------------------------------------------------
+    async def _claim(self, upload_id: str) -> bool:
+        if self._store is not None:
+            return await self._store.try_claim(upload_id)
+        if self._is_dispatched(upload_id):
+            return False
+        err_entry = self._get_error_entry(upload_id)
+        if err_entry and not _is_retryable(err_entry):
+            log.debug(
+                "estimate.backoff",
+                upload_id=upload_id,
+                retry_after=err_entry.retry_after,
+            )
+            return False
+        return True
+
+    async def _is_done(self, upload_id: str) -> bool:
+        if self._store is not None:
+            return await self._store.is_done(upload_id)
+        return self._is_dispatched(upload_id)
+
+    async def _unclaim(self, upload_id: str) -> None:
+        if self._store is not None:
+            await self._store.release_claim(upload_id)
+
+    async def _mark_success(
+        self, upload_id: str, approval_item_id: str | None
+    ) -> None:
+        if self._store is not None:
+            await self._store.record_success(upload_id, approval_item_id)
+        else:
+            self._record_success(upload_id, approval_item_id)
+
+    async def _mark_error(self, upload_id: str, error: str) -> None:
+        if self._store is not None:
+            await self._store.record_error(upload_id, error)
+        else:
+            self._record_error(upload_id, error)
 
     def _is_dispatched(self, upload_id: str) -> bool:
         return upload_id in self._state.dispatched
@@ -614,25 +662,17 @@ class EstimatorDispatcher:
                 upload_ids.append(uid)
 
         for upload_id in upload_ids:
-            # Skip already dispatched.
-            if self._is_dispatched(upload_id):
-                _cleanup_priority_marker(self.dispatch_requests_dir, upload_id)
-                continue
-
-            # Check retry back-off for errored uploads.
-            err_entry = self._get_error_entry(upload_id)
-            if err_entry and not _is_retryable(err_entry):
-                log.debug(
-                    "estimate.backoff",
-                    upload_id=upload_id,
-                    retry_after=err_entry.retry_after,
-                )
+            # Atomic claim (Postgres) or legacy dispatched/backoff check (file).
+            if not await self._claim(upload_id):
+                if await self._is_done(upload_id):
+                    _cleanup_priority_marker(self.dispatch_requests_dir, upload_id)
                 continue
 
             # Fetch full status (need uploaded_files manifest +
             # classification_artifact_id).
             status = await _fetch_estimate_status(http_client, self.config, upload_id)
             if status is None:
+                await self._unclaim(upload_id)
                 continue
 
             # Guard: skip if already has a package (race condition / restart).
@@ -642,7 +682,7 @@ class EstimatorDispatcher:
                     upload_id=upload_id,
                 )
                 # Treat as dispatched to avoid retrying.
-                self._record_success(upload_id, approval_item_id=None)
+                await self._mark_success(upload_id, approval_item_id=None)
                 _cleanup_priority_marker(self.dispatch_requests_dir, upload_id)
                 continue
 
@@ -653,6 +693,7 @@ class EstimatorDispatcher:
                     upload_id=upload_id,
                     status=status.get("status"),
                 )
+                await self._unclaim(upload_id)
                 continue
 
             # Guard: must have a classification to work from.
@@ -661,6 +702,7 @@ class EstimatorDispatcher:
                     "estimate.missing_classification",
                     upload_id=upload_id,
                 )
+                await self._unclaim(upload_id)
                 continue
 
             # Dispatch!
@@ -673,7 +715,7 @@ class EstimatorDispatcher:
                     blob_root=self._blob_root,
                     http_client=http_client,
                 )
-                self._record_success(upload_id, approval_item_id)
+                await self._mark_success(upload_id, approval_item_id)
                 _cleanup_priority_marker(self.dispatch_requests_dir, upload_id)
             except Exception as exc:  # noqa: BLE001
                 log.error(
@@ -681,7 +723,7 @@ class EstimatorDispatcher:
                     upload_id=upload_id,
                     err=str(exc),
                 )
-                self._record_error(upload_id, str(exc))
+                await self._mark_error(upload_id, str(exc))
 
     async def start(self) -> None:
         """Main loop. Runs until ``stop()`` is called or SIGTERM/SIGINT."""
@@ -689,8 +731,11 @@ class EstimatorDispatcher:
             "estimate.dispatcher.start",
             poll_interval_s=self.poll_interval_s,
             state_file=str(self.state_file),
+            state_backend="postgres" if self._store is not None else "file",
             api_url=self.config.queue_api_url,
         )
+        if self._store is not None:
+            await self._store.setup()
         async with httpx.AsyncClient(
             base_url=self.config.queue_api_url,
             timeout=self.config.request_timeout_s,
@@ -716,6 +761,8 @@ class EstimatorDispatcher:
 
     def get_status_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable status summary for ``estimate status``."""
+        if self._store is not None:
+            return asyncio.run(self._store.status_summary())
         self._state = _load_state(self.state_file)  # re-read fresh
         dispatched_list = sorted(
             self._state.dispatched.values(),
