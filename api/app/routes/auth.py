@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,7 +46,13 @@ from app.schemas import (
     TokenOut,
     UserOut,
 )
-from app.security import get_current_user, hash_password, issue_token, verify_password
+from app.security import (
+    decode_token,
+    get_current_user,
+    hash_password,
+    issue_token,
+    verify_password,
+)
 from app.services.security import (
     challenge_store,
     generate_authentication_options,
@@ -78,6 +84,30 @@ def _require_dev_fallback() -> None:
         )
 
 
+async def _optional_bearer_user(
+    authorization: str | None, db: AsyncSession
+) -> User | None:
+    """Resolve the caller from an optional ``Authorization: Bearer`` header.
+
+    Returns None when no header is present. A header that IS present but
+    invalid/expired raises 401 (never silently downgrade a bad token to
+    "anonymous").
+    """
+    if not authorization:
+        return None
+    parts = authorization.split()
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "malformed authorization header")
+    payload = decode_token(parts[1])
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "malformed token")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user not found")
+    return user
+
+
 @router.post(
     "/register",
     response_model=TokenOut,
@@ -85,15 +115,42 @@ def _require_dev_fallback() -> None:
     summary="(dev fallback) Register a user with email + password.",
 )
 @limiter.limit(AUTH_LIMIT)  # Sprint 5.3 — auth: 10/min per IP (brute-force guard)
-async def register(request: Request, body: RegisterRequest, db: AsyncSession = Depends(get_db)) -> TokenOut:
+async def register(
+    request: Request,
+    body: RegisterRequest,
+    authorization: str | None = Header(default=None),
+    db: AsyncSession = Depends(get_db),
+) -> TokenOut:
     _require_dev_fallback()
+
+    # Sprint 5.5 (G13 / KNOWN_ISSUES #9) — gate self-registration.
+    # Default (ALLOW_SELF_REGISTER=false): only an authenticated owner may
+    # provision new accounts (invite pattern). When explicitly enabled for
+    # local dev/demo seeding, anonymous callers may register but are always
+    # clamped to the observer role — privileged roles require an owner inviter.
+    inviter = await _optional_bearer_user(authorization, db)
+    inviter_is_owner = inviter is not None and inviter.role == UserRole.OWNER.value
+    if not _settings.ALLOW_SELF_REGISTER and not inviter_is_owner:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "self-registration is disabled — ask an owner to create your account",
+        )
+
+    requested_role = body.role.value if hasattr(body.role, "value") else str(body.role)
+    if not inviter_is_owner and requested_role in (
+        UserRole.OWNER.value,
+        UserRole.PARTNER.value,
+        UserRole.AGENT.value,
+    ):
+        requested_role = UserRole.OBSERVER.value
+
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalars().first():
         raise HTTPException(status.HTTP_409_CONFLICT, "email already registered")
     user = User(
         email=body.email,
         display_name=body.display_name,
-        role=body.role.value if hasattr(body.role, "value") else str(body.role),
+        role=requested_role,
         password_hash=hash_password(body.password),
     )
     db.add(user)
