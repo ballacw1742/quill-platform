@@ -16,6 +16,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
 import {
   Bot,
   Brain,
@@ -41,28 +42,39 @@ import {
 } from "lucide-react";
 import { MobileShell } from "@/components/layout/MobileShell";
 import { ModuleTile } from "@/components/home/ModuleTile";
+import { MODULE_ROSTER } from "@/lib/modules";
 import { useApprovals, useLogout, useProjectRequests, useSession } from "@/lib/api";
 import type { Session } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
-/* ── Module roster — exactly 15 tiles, order locked (brief §3) ─────────── */
-const MODULES = [
-  { href: "/requests", label: "Requests", icon: MessageSquare, gradient: "from-indigo-400 to-indigo-600" },
-  { href: "/queue", label: "Approvals", icon: Inbox, gradient: "from-red-400 to-rose-600", badge: "approvals" as const },
-  { href: "/projects", label: "Projects", icon: FolderKanban, gradient: "from-sky-400 to-blue-600" },
-  { href: "/sites", label: "Sites", icon: MapPin, gradient: "from-emerald-400 to-green-600" },
-  { href: "/contracts", label: "Contracts", icon: ClipboardList, gradient: "from-amber-400 to-orange-600" },
-  { href: "/estimates", label: "Estimates", icon: Calculator, gradient: "from-teal-400 to-cyan-600" },
-  { href: "/documents", label: "Documents", icon: FileText, gradient: "from-slate-400 to-slate-600" },
-  { href: "/operations", label: "Operations", icon: Factory, gradient: "from-orange-400 to-red-500" },
-  { href: "/pipeline", label: "Sales", icon: TrendingUp, gradient: "from-fuchsia-400 to-purple-600" },
-  { href: "/customers", label: "Customers", icon: Users, gradient: "from-pink-400 to-rose-500" },
-  { href: "/supply-chain", label: "Supply Chain", icon: Package, gradient: "from-lime-500 to-emerald-600" },
-  { href: "/finance", label: "Finance", icon: DollarSign, gradient: "from-green-500 to-emerald-700" },
-  { href: "/compliance", label: "Compliance", icon: Shield, gradient: "from-blue-500 to-indigo-700" },
-  { href: "/intelligence", label: "Intelligence", icon: Brain, gradient: "from-violet-400 to-purple-700" },
-  { href: "/agents", label: "Agents", icon: Bot, gradient: "from-cyan-500 to-sky-700" },
-];
+/* ── Module roster — exactly 15 tiles, order locked (brief §3) ───────────
+   Names/order/gradients live in lib/modules.ts (shared with the Requests
+   action catalog). Icons + badge wiring stay local to the home grid. */
+const MODULE_ICONS: Record<string, LucideIcon> = {
+  requests: MessageSquare,
+  approvals: Inbox,
+  projects: FolderKanban,
+  sites: MapPin,
+  contracts: ClipboardList,
+  estimates: Calculator,
+  documents: FileText,
+  operations: Factory,
+  sales: TrendingUp,
+  customers: Users,
+  "supply-chain": Package,
+  finance: DollarSign,
+  compliance: Shield,
+  intelligence: Brain,
+  agents: Bot,
+};
+
+const MODULES = MODULE_ROSTER.map((m) => ({
+  href: m.href,
+  label: m.label,
+  gradient: m.gradient,
+  icon: MODULE_ICONS[m.key] ?? Bot,
+  badge: m.key === "approvals" ? ("approvals" as const) : undefined,
+}));
 
 function greetingFor(hour: number): string {
   if (hour < 12) return "Good morning";
