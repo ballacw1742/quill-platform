@@ -610,7 +610,12 @@ async def google_login(
     user = result.scalar_one_or_none()
 
     if not user:
-        assigned_role = UserRole.partner if email in PARTNER_EMAILS else UserRole.observer
+        # Sprint 5.5 fix: UserRole has no lowercase `partner`/`observer` attrs —
+        # this raised AttributeError (HTTP 500) on every brand-new Google
+        # sign-in. Existing users were unaffected (this branch never ran).
+        assigned_role = (
+            UserRole.PARTNER.value if email in PARTNER_EMAILS else UserRole.OBSERVER.value
+        )
         user = User(
             id=str(_uuid.uuid4()),
             email=email,
