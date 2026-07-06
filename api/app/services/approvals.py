@@ -274,6 +274,11 @@ _CONTRACT_DRAFT_WORKFLOWS: frozenset[str] = frozenset({
     "contract_draft.publish",
 })
 
+# Sprint 2 (pipeline seams): site → project advance workflow.
+# Execute-on-approve: the Project row is only created when a human approves.
+SITE_ADVANCE_WORKFLOW = "site_advance.create_project"
+_SITE_ADVANCE_WORKFLOWS: frozenset[str] = frozenset({SITE_ADVANCE_WORKFLOW})
+
 
 def _is_publish_artifact(item: ApprovalItem) -> bool:
     """True if this approval should produce a Document on execute.
@@ -382,6 +387,63 @@ async def execute_approval(
         if (is_contract_extraction or is_contract_review or is_contract_draft)
         else None
     )
+
+    # ---- Sprint 2: site → project advance path ----
+    project_id: str | None = None
+    if item.workflow in _SITE_ADVANCE_WORKFLOWS:
+        from sqlalchemy import select as _select
+
+        from app.models_projects import Project
+
+        payload = item.payload or {}
+        proj_fields = payload.get("project") or {}
+        adv_site_id = proj_fields.get("site_id") or payload.get("site_id")
+        try:
+            existing_proj = None
+            if adv_site_id:
+                res = await session.execute(
+                    _select(Project).where(Project.site_id == str(adv_site_id))
+                )
+                existing_proj = res.scalars().first()
+            if existing_proj is not None:
+                # Idempotent: a project for this site already exists.
+                project_id = existing_proj.id
+            else:
+                if not proj_fields.get("name"):
+                    raise ValueError("site_advance payload missing project.name")
+                proj = Project(
+                    user_id=str(payload.get("requested_by") or actor),
+                    name=str(proj_fields["name"])[:255],
+                    address=proj_fields.get("address"),
+                    site_id=str(adv_site_id) if adv_site_id else None,
+                    site_score=proj_fields.get("site_score"),
+                    site_verdict=proj_fields.get("site_verdict"),
+                    workload_type=proj_fields.get("workload_type"),
+                    phase=proj_fields.get("phase") or "site_control",
+                    status=proj_fields.get("status") or "active",
+                    notes=proj_fields.get("notes"),
+                )
+                session.add(proj)
+                await session.flush()
+                project_id = proj.id
+        except Exception as exc:  # noqa: BLE001
+            item.status = ApprovalStatus.EXECUTION_FAILED.value
+            item.executed_at = _utcnow()
+            item.execution_result = ExecutionResult.FAILED.value
+            entry = await audit_svc.record_event_with_mirror(
+                session,
+                event_type="approval.execution_failed",
+                actor=actor,
+                approval_item_id=item.id,
+                payload={"error": str(exc), "workflow": item.workflow},
+            )
+            item.prev_audit_hash = item.audit_hash
+            item.audit_hash = entry.hash
+            await session.commit()
+            await broadcaster.publish(
+                {"type": "approval.execution_failed", "id": item.id, "status": item.status}
+            )
+            raise
 
     if _is_publish_artifact(item):
         from app.services.documents import service as docs_service
@@ -512,6 +574,9 @@ async def execute_approval(
     if document_id is not None:
         item.execution_result = ExecutionResult.SUCCESS.value
         item.external_ref = f"document:{document_id}"
+    elif project_id is not None:
+        item.execution_result = ExecutionResult.SUCCESS.value
+        item.external_ref = f"project:{project_id}"
     else:
         # Non-publish workflows still flow through the Sprint 1 stub.
         item.execution_result = ExecutionResult.DRY_RUN.value
@@ -524,6 +589,9 @@ async def execute_approval(
     }
     if document_id is not None:
         audit_payload["document_id"] = document_id
+    if project_id is not None:
+        audit_payload["project_id"] = project_id
+        audit_payload["site_id"] = (item.payload or {}).get("site_id")
 
     entry = await audit_svc.record_event(
         session,

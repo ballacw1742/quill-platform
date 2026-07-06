@@ -26,6 +26,7 @@ from app import models_operations as _models_operations  # noqa: F401 — regist
 from app import models_supply_chain as _models_supply_chain  # noqa: F401 — registers supply chain ORM models with Base.metadata
 from app import models_finance as _models_finance  # noqa: F401 — registers finance ORM models with Base.metadata
 from app import models_compliance as _models_compliance  # noqa: F401 — registers compliance ORM models with Base.metadata
+from app import models_sites as _models_sites  # noqa: F401 — registers site drive intake ORM models with Base.metadata
 from app.routes import admin, approvals, audit, auth, contracts, dev_chat, documents, estimates, realtime, requests as requests_routes, sites as sites_routes, projects as projects_routes
 from app.routes import pipeline as pipeline_routes, operations as operations_routes
 from app.routes import customers as customers_routes

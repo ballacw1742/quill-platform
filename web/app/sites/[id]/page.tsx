@@ -12,18 +12,29 @@
 import * as React from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowLeft,
   Building2,
+  CheckCircle2,
   ChevronRight,
+  Clock,
   FileText,
   FolderKanban,
   Loader2,
   Play,
+  XCircle,
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
-import { useSite, useRunSiteEvaluation, useCreateProject } from "@/lib/api";
+import {
+  useSite,
+  useRunSiteEvaluation,
+  useAdvanceSite,
+  useSiteAdvanceStatus,
+  useSiteDriveIntake,
+  type DriveIntakeDocument,
+} from "@/lib/api";
 import type { Site } from "@/lib/schemas";
 
 // ── Scoring criteria config ───────────────────────────────────────────────────
@@ -160,11 +171,9 @@ export default function SiteDetailPage() {
   const runEvaluation = useRunSiteEvaluation({
     onSuccess: () => {},
   });
-  const createProject = useCreateProject({
-    onSuccess: (project) => {
-      router.push(`/projects/${project.id}`);
-    },
-  });
+  const { data: advanceStatus } = useSiteAdvanceStatus(siteId);
+  const { data: driveIntake } = useSiteDriveIntake(siteId);
+  const advanceSite = useAdvanceSite();
 
   if (isLoading) {
     return (
@@ -210,20 +219,7 @@ export default function SiteDetailPage() {
   const canRun = site.status === "intake";
   const address = siteAddress(site);
   const docs = site.documents ?? [];
-
-  function handleAdvanceToProject() {
-    const name = `${address} — ${workloadLabel(site.target_workload ?? null)}`;
-    createProject.mutate({
-      name,
-      address,
-      site_id: site.site_id,
-      site_score: totalScore ?? undefined,
-      site_verdict: verdict ?? undefined,
-      workload_type: site.target_workload ?? undefined,
-      phase: "site_control",
-      status: "active",
-    });
-  }
+  const advState = advanceStatus?.status ?? "none";
 
   return (
     <MobileShell>
@@ -336,6 +332,49 @@ export default function SiteDetailPage() {
         {/* Scorecard */}
         <Scorecard site={site} />
 
+        {/* Drive intake status — honest per-document results */}
+        {driveIntake && driveIntake.status !== "none" && (
+          <Card>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-callout font-semibold text-label-primary">Drive Intake</p>
+              <span
+                className={cn(
+                  "text-caption-1 font-semibold rounded-full px-2 py-0.5",
+                  driveIntake.status === "completed" && "text-green-400 bg-green-400/10",
+                  driveIntake.status === "completed_with_errors" && "text-yellow-400 bg-yellow-400/10",
+                  driveIntake.status === "failed" && "text-red-400 bg-red-400/10",
+                )}
+              >
+                {driveIntake.status === "completed" && "Completed"}
+                {driveIntake.status === "completed_with_errors" && "Partial"}
+                {driveIntake.status === "failed" && "Failed"}
+              </span>
+            </div>
+            {driveIntake.error && (
+              <p className="text-caption-1 text-red-400 mb-2">{driveIntake.error}</p>
+            )}
+            {driveIntake.documents.length === 0 && driveIntake.status === "failed" && (
+              <p className="text-caption-1 text-label-tertiary">
+                No documents were imported from the Drive folder.
+              </p>
+            )}
+            <div className="space-y-2">
+              {driveIntake.documents.map((d: DriveIntakeDocument, i: number) => (
+                <div key={d.file_id ?? i} className="flex items-start gap-3 p-3 rounded-xl bg-bg-elevated">
+                  <IntakeStatusIcon status={d.status} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-callout text-label-primary truncate">{d.filename}</p>
+                    {d.detail && (
+                      <p className="text-caption-1 text-label-tertiary">{d.detail}</p>
+                    )}
+                  </div>
+                  <span className="text-caption-1 text-label-tertiary shrink-0 capitalize">{d.status}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
         {/* Documents */}
         {docs.length > 0 && (
           <Card>
@@ -382,30 +421,79 @@ export default function SiteDetailPage() {
             </button>
           )}
 
-          {canAdvance && (
+          {/* Advance flow — Lane-2 gated: request → pending approval → advanced */}
+          {advState === "advanced" && advanceStatus?.project_id ? (
             <button
               type="button"
-              disabled={createProject.isPending}
-              onClick={handleAdvanceToProject}
+              onClick={() => router.push(`/projects/${advanceStatus.project_id}`)}
+              className={cn(
+                "w-full py-3.5 rounded-2xl font-semibold text-body",
+                "bg-green-500/15 text-green-400 border border-green-500/30",
+                "flex items-center justify-center gap-2",
+                "transition-all active:scale-[0.98]",
+              )}
+            >
+              <CheckCircle2 className="h-4 w-4" /> Advanced — View Project
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ) : advState === "pending_approval" ? (
+            <button
+              type="button"
+              onClick={() => router.push("/queue")}
+              className={cn(
+                "w-full py-3.5 rounded-2xl font-semibold text-body",
+                "bg-yellow-500/10 text-yellow-400 border border-yellow-500/30",
+                "flex items-center justify-center gap-2",
+                "transition-all active:scale-[0.98]",
+              )}
+            >
+              <Clock className="h-4 w-4" /> Advance Pending Approval
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          ) : canAdvance ? (
+            <button
+              type="button"
+              disabled={advanceSite.isPending}
+              onClick={() => advanceSite.mutate(siteId)}
               className={cn(
                 "w-full py-3.5 rounded-2xl font-semibold text-body",
                 "bg-accent text-white",
                 "flex items-center justify-center gap-2",
                 "transition-all active:scale-[0.98]",
-                createProject.isPending && "opacity-60 cursor-not-allowed",
+                advanceSite.isPending && "opacity-60 cursor-not-allowed",
               )}
             >
-              {createProject.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Creating Project…</>
+              {advanceSite.isPending ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Requesting Approval…</>
               ) : (
                 <><FolderKanban className="h-4 w-4" /> Advance to Project</>
               )}
             </button>
+          ) : null}
+          {advanceSite.isError && (
+            <p className="text-caption-1 text-red-400 text-center">
+              {advanceSite.error?.message ?? "Advance request failed."}
+            </p>
           )}
         </div>
       </div>
     </MobileShell>
   );
+}
+
+function IntakeStatusIcon({ status }: { status: DriveIntakeDocument["status"] }) {
+  switch (status) {
+    case "indexed":
+      return <CheckCircle2 className="h-4 w-4 text-green-400 shrink-0 mt-0.5" />;
+    case "uploaded":
+      return <Clock className="h-4 w-4 text-blue-400 shrink-0 mt-0.5" />;
+    case "skipped":
+      return <AlertTriangle className="h-4 w-4 text-yellow-400 shrink-0 mt-0.5" />;
+    case "failed":
+      return <XCircle className="h-4 w-4 text-red-400 shrink-0 mt-0.5" />;
+    default:
+      return <FileText className="h-4 w-4 text-label-tertiary shrink-0 mt-0.5" />;
+  }
 }
 
 function workloadLabel(wt: string | null | undefined): string {
