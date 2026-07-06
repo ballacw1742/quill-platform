@@ -14,6 +14,7 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.enums import AGENT_FLEET, Lane, TrustTier
 from app.models import AgentRegistration
 
 log = logging.getLogger("quill.agents")
@@ -165,12 +166,27 @@ SEED_AGENTS: list[dict] = [
 ]
 
 
+# Trust tier / lane defaults for the workflow fleet (AGENT_FLEET slugs).
+# Anything not listed defaults to (TIER_0, SINGLE). Insert-only — admin
+# changes to these fields are never overwritten by the startup seed.
+FLEET_CONFIG: dict[str, tuple[TrustTier, Lane]] = {
+    "coordinator": (TrustTier.TIER_2, Lane.AUTO),
+    "rfi-triage": (TrustTier.TIER_1, Lane.SINGLE),
+    "rfi-drafter": (TrustTier.TIER_0, Lane.SINGLE),
+    "submittal-triage": (TrustTier.TIER_1, Lane.SINGLE),
+    "submittal-spec-validator": (TrustTier.TIER_0, Lane.SINGLE),
+    "daily-brief": (TrustTier.TIER_2, Lane.AUTO),
+    "procurement-watch": (TrustTier.TIER_1, Lane.SINGLE),
+}
+
+
 async def seed_agents(session: AsyncSession) -> None:
-    """Upsert the seed agents into agent_registrations.
+    """Seed the agent registry: ADK agents (upsert) + workflow fleet (insert-only).
 
     Called from main.py lifespan. Safe to call multiple times (idempotent).
-    Only sets display/registry fields — does not overwrite trust_tier,
-    default_lane, or monthly_token_budget set by admins.
+    For ADK agents, only display/registry fields are updated — trust_tier,
+    default_lane, and monthly_token_budget set by admins are never touched.
+    Workflow-fleet agents are inserted if missing and never modified after.
     """
     for data in SEED_AGENTS:
         agent = await session.get(AgentRegistration, data["agent_id"])
@@ -189,5 +205,26 @@ async def seed_agents(session: AsyncSession) -> None:
         agent.framework = data["framework"]
         agent.endpoint_url = data["endpoint_url"]
 
+    # Workflow fleet — register any missing slugs (parity with all envs).
+    for slug in AGENT_FLEET:
+        existing = await session.get(AgentRegistration, slug)
+        if existing is not None:
+            continue
+        tier, default_lane = FLEET_CONFIG.get(slug, (TrustTier.TIER_0, Lane.SINGLE))
+        session.add(
+            AgentRegistration(
+                agent_id=slug,
+                version="0.1.0",
+                trust_tier=tier.value,
+                default_lane=default_lane.value,
+                monthly_token_budget=1_000_000,
+                enabled=True,
+            )
+        )
+
     await session.commit()
-    log.info("agents.seed completed (%d agents)", len(SEED_AGENTS))
+    log.info(
+        "agents.seed completed (%d adk + %d fleet agents)",
+        len(SEED_AGENTS),
+        len(AGENT_FLEET),
+    )

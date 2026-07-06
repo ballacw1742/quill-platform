@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from app import db as db_module
 from app.enums import AGENT_FLEET, Lane, Priority, TargetSystem, TrustTier, UserRole
 from app.models import AgentRegistration, ApprovalItem, User
+from app.routes.agents import FLEET_CONFIG
 from app.security import hash_password
 from app.services.approvals import compute_sla_due, required_approvers_for_lane
 from app.services.audit import record_event
@@ -16,15 +17,7 @@ from sqlalchemy import select
 CHARLES_EMAIL = "charles@quill.local"
 CHARLES_PASSWORD = "quill-dev-password"  # dev only
 
-FLEET_CONFIG = {
-    "coordinator": (TrustTier.TIER_2, Lane.AUTO),
-    "rfi-triage": (TrustTier.TIER_1, Lane.SINGLE),
-    "rfi-drafter": (TrustTier.TIER_0, Lane.SINGLE),
-    "submittal-triage": (TrustTier.TIER_1, Lane.SINGLE),
-    "submittal-spec-validator": (TrustTier.TIER_0, Lane.SINGLE),
-    "daily-brief": (TrustTier.TIER_2, Lane.AUTO),
-    "procurement-watch": (TrustTier.TIER_1, Lane.SINGLE),
-}
+# FLEET_CONFIG now lives in app.routes.agents (single source of truth).
 
 SAMPLE_APPROVALS = [
     {
