@@ -37,7 +37,7 @@ from app.models_supply_chain import (
     VALID_EQUIPMENT_STATUSES,
     VALID_VENDOR_CATEGORIES,
 )
-from app.security import get_current_user
+from app.security import get_current_user, get_current_user_or_agent
 
 log = logging.getLogger("quill.supply_chain")
 
@@ -305,7 +305,7 @@ async def list_equipment(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> EquipmentListResponse:
     q = select(Equipment)
     if project_id:
@@ -342,7 +342,7 @@ async def list_equipment(
 async def get_equipment(
     equipment_id: str,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> EquipmentOut:
     eq = await db.get(Equipment, equipment_id)
     if eq is None:
@@ -436,7 +436,7 @@ async def list_vendors(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> VendorListResponse:
     q = select(Vendor)
     if category:
@@ -465,7 +465,7 @@ async def list_vendors(
 async def get_vendor(
     vendor_id: str,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> VendorOut:
     v = await db.get(Vendor, vendor_id)
     if v is None:
@@ -516,7 +516,7 @@ async def update_vendor(
 )
 async def supply_chain_summary(
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> SupplyChainSummary:
     # Equipment counts + value
     equip_rows = (await db.execute(select(Equipment))).scalars().all()
@@ -554,7 +554,7 @@ async def supply_chain_summary(
 )
 async def at_risk_equipment(
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> EquipmentListResponse:
     """Return all equipment where delivery risk threatens schedule.
 

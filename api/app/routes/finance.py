@@ -33,7 +33,7 @@ from app.models_finance import BudgetLine, Invoice, VALID_BUDGET_CATEGORIES, VAL
 from app.models_pipeline import Account, Deal
 from app.models_projects import Project
 from app.models_supply_chain import Equipment
-from app.security import get_current_user
+from app.security import get_current_user, get_current_user_or_agent
 
 log = logging.getLogger("quill.finance")
 
@@ -213,7 +213,7 @@ class ArAgingOut(BaseModel):
 async def get_finance_summary(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> FinanceSummaryOut:
     """Portfolio financial summary: ARR, pipeline, capex, project budgets, AR."""
     today = _today()
@@ -302,7 +302,7 @@ async def get_finance_summary(
 async def get_arr_breakdown(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> ArrResponse:
     """ARR breakdown: all Won deals with account name, MW, and value."""
     result = await db.execute(
@@ -338,7 +338,7 @@ async def get_arr_breakdown(
 async def get_capex_breakdown(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> CapexResponse:
     """CapEx breakdown: all projects with budget vs forecast and equipment totals."""
     # Fetch all projects
@@ -423,7 +423,7 @@ async def list_budget_lines(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> BudgetLineListOut:
     """List budget lines, optionally filtered by project_id."""
     q = select(BudgetLine)
@@ -529,7 +529,7 @@ async def create_invoice(
 async def get_ar_aging(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> ArAgingOut:
     """AR aging summary: invoice counts and amounts by overdue bucket."""
     today = _today()
@@ -597,7 +597,7 @@ async def list_invoices(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> InvoiceListOut:
     """List invoices, optionally filtered by account_id and/or status."""
     q = select(Invoice)

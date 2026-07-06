@@ -30,7 +30,7 @@ from app.models_customers import SupportTicket
 from app.models_supply_chain import Equipment
 from app.models_requests import RequestRecord
 from app.routes.supply_chain import _is_at_risk
-from app.security import get_current_user
+from app.security import get_current_user, get_current_user_or_agent
 
 log = logging.getLogger("quill.intelligence")
 
@@ -136,7 +136,7 @@ def _fmt_mw(v: float) -> str:
 @router.get("/kpis", response_model=KpiSnapshot, summary="Company-wide KPI snapshot")
 async def get_kpis(
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> KpiSnapshot:
     """Compute company-wide KPIs from existing tables. No new models."""
 
@@ -262,7 +262,7 @@ async def get_kpis(
 @router.get("/exceptions", response_model=ExceptionList, summary="Cross-module exception feed")
 async def get_exceptions(
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> ExceptionList:
     """Return all cross-module exceptions requiring attention."""
     now = _utcnow()
@@ -419,7 +419,7 @@ async def get_exceptions(
 @router.get("/brief", response_model=MorningBrief, summary="Structured morning brief")
 async def get_brief(
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> MorningBrief:
     """Generate a structured morning brief from live data."""
     now = _utcnow()
@@ -604,7 +604,7 @@ async def get_brief(
 @router.get("/activity", response_model=AgentActivityList, summary="Recent agent activity (last 24h)")
 async def get_activity(
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ) -> AgentActivityList:
     """Return recent agent request activity from the last 24 hours."""
     since = _utcnow() - timedelta(hours=24)
