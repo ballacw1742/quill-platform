@@ -579,7 +579,7 @@ async def bootstrap_owner(
 
     # Check no owner exists
     result = await db.execute(select(User).where(User.role == UserRole.OWNER.value))
-    existing_owner = result.scalar_one_or_none()
+    existing_owner = result.scalars().first()
     if existing_owner:
         raise HTTPException(403, "An owner already exists")
 
