@@ -35,7 +35,7 @@ from app.models_customers import (
     VALID_TICKET_STATUSES,
 )
 from app.models_pipeline import Account, Deal
-from app.security import get_current_user
+from app.security import get_current_user, get_current_user_or_agent
 
 log = logging.getLogger("quill.customers")
 
@@ -259,7 +259,7 @@ async def _require_customer(account_id: str, db: AsyncSession) -> Account:
 @router.get("/v1/customers/summary", response_model=CustomerSummaryOut)
 async def customer_summary(
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     """Portfolio customer summary: total customers, open tickets, avg health, at-risk count."""
     # Total customers
@@ -308,7 +308,7 @@ async def list_customers(
     offset: int = Query(0, ge=0),
     campus_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     """List all customer accounts (type=customer only).
 
@@ -358,7 +358,7 @@ async def list_customers(
 async def get_customer(
     account_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     """Customer detail with health metrics."""
     acct = await _require_customer(account_id, db)
@@ -461,7 +461,7 @@ async def list_tickets(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     """List tickets for a customer account, optionally filtered by status."""
     await _require_customer(account_id, db)
@@ -569,7 +569,7 @@ async def list_notes(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     """List notes for a customer account (newest first)."""
     await _require_customer(account_id, db)
@@ -597,7 +597,7 @@ async def list_notes(
 async def customer_health(
     account_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     """Health score + breakdown for a customer account."""
     await _require_customer(account_id, db)

@@ -43,7 +43,7 @@ from app.models_operations import (
 from app.models_projects import Project
 from app.models_supply_chain import Equipment, Vendor
 from app.rate_limit import GET_LIMIT, POST_LIMIT, limiter
-from app.security import get_current_user
+from app.security import get_current_user, get_current_user_or_agent
 from app.services.campus_template_engine import (
     TemplateResolutionError,
     catalog_summary,
@@ -274,7 +274,7 @@ async def list_campuses(
     status_filter: Optional[str] = None,
     project_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> CampusListResponse:
     base_where = []
     if status_filter:
@@ -367,7 +367,7 @@ class DeploymentReport(BaseModel):
 @limiter.limit(GET_LIMIT)
 async def list_deploy_templates(
     request: Request,
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> dict:
     return catalog_summary()
 
@@ -619,7 +619,7 @@ async def deploy_campus_from_template(
 async def list_monitoring_agents(
     campus_id: str,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> MonitoringAgentListResponse:
     await _get_campus(campus_id, db)
     result = await db.execute(
@@ -646,7 +646,7 @@ async def list_monitoring_agents(
 async def get_campus(
     campus_id: str,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> CampusOut:
     campus = await _get_campus(campus_id, db)
     out = CampusOut.model_validate(campus)
@@ -800,7 +800,7 @@ async def list_incidents(
     campus_id: str,
     status_filter: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> CampusIncidentListResponse:
     await _get_campus(campus_id, db)
 
@@ -948,7 +948,7 @@ async def list_metrics(
     metric_type: Optional[str] = None,
     limit: int = 200,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
+    user=Depends(get_current_user_or_agent),
 ) -> CampusMetricListResponse:
     await _get_campus(campus_id, db)
 

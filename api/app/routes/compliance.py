@@ -54,7 +54,7 @@ from app.models_compliance import (
     InsurancePolicy,
     RegulatoryItem,
 )
-from app.security import get_current_user
+from app.security import get_current_user, get_current_user_or_agent
 
 log = logging.getLogger("quill.compliance")
 
@@ -382,7 +382,7 @@ async def list_obligations(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),  # noqa: ARG001
+    user=Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> ObligationListPage:
     q = select(ContractObligation)
     if status_filter:
@@ -498,7 +498,7 @@ async def list_regulatory_items(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),  # noqa: ARG001
+    user=Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> RegulatoryListPage:
     q = select(RegulatoryItem)
     if status_filter:
@@ -614,7 +614,7 @@ async def list_insurance_policies(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),  # noqa: ARG001
+    user=Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> InsuranceListPage:
     q = select(InsurancePolicy)
     if status_filter:
@@ -739,7 +739,7 @@ async def list_checklists(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),  # noqa: ARG001
+    user=Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> ChecklistListPage:
     q = select(ComplianceChecklist)
     if framework:
@@ -772,7 +772,7 @@ async def get_checklist(
     request: Request,
     checklist_id: str,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),  # noqa: ARG001
+    user=Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> ChecklistWithItemsOut:
     checklist = await db.get(ComplianceChecklist, checklist_id)
     if checklist is None:
@@ -863,7 +863,7 @@ async def update_checklist_item(
 async def get_compliance_summary(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),  # noqa: ARG001
+    user=Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> ComplianceSummaryOut:
     today = _today()
     expiry_threshold = today + timedelta(days=30)
@@ -995,7 +995,7 @@ async def get_compliance_summary(
 async def get_upcoming_deadlines(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),  # noqa: ARG001
+    user=Depends(get_current_user_or_agent),  # noqa: ARG001
 ) -> UpcomingDeadlinesOut:
     """Aggregate compliance deadlines falling within the next 30 days.
 

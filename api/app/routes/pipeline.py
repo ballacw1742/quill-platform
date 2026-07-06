@@ -39,7 +39,7 @@ from app.models_pipeline import (
     VALID_DEAL_STAGES,
     VALID_WORKLOAD_TYPES,
 )
-from app.security import get_current_user
+from app.security import get_current_user, get_current_user_or_agent
 
 log = logging.getLogger("quill.pipeline")
 
@@ -278,7 +278,7 @@ async def list_accounts(
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     q = select(Account)
     if type is not None:
@@ -303,7 +303,7 @@ async def get_account(
     request: Request,
     account_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     return await _get_account_or_404(account_id, db)
 
@@ -400,7 +400,7 @@ async def list_deals(
     limit: int = Query(default=100, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     q = select(Deal)
     if stage is not None:
@@ -427,7 +427,7 @@ async def get_deal(
     request: Request,
     deal_id: str,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     deal = await _get_deal_or_404(deal_id, db)
     account = await _get_account_or_404(deal.account_id, db)
@@ -545,7 +545,7 @@ async def list_activities(
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     await _get_deal_or_404(deal_id, db)
     q = (
@@ -575,7 +575,7 @@ async def list_activities(
 async def pipeline_summary(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
+    _user=Depends(get_current_user_or_agent),
 ):
     # Per-stage aggregation
     stage_agg = await db.execute(
