@@ -41,6 +41,7 @@ jobs:
             --max-instances 1 \
             --no-cpu-throttling \
             --memory 1Gi \
+            --service-account openclaw-adk@totemic-formula-467102-s9.iam.gserviceaccount.com \
             --add-cloudsql-instances totemic-formula-467102-s9:us-central1:quill-datasite-db \
             --update-env-vars QUEUE_API_URL=https://quill-agents-894031978246.us-central1.run.app \
             --update-secrets AGENT_SHARED_SECRET=QUILL_AGENT_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,RUNTIME_STATE_DATABASE_URL=QUILL_DATABASE_URL:latest \
