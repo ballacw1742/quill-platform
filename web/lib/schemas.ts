@@ -1717,6 +1717,7 @@ export const AccountSchema = z.object({
   primary_contact_email: z.string().nullable().optional(),
   primary_contact_phone: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  campus_id: z.string().nullable().optional(),  // Sprint 5.1 — Campus ↔ Customer link
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -1862,6 +1863,7 @@ export const CustomerDetailSchema = z.object({
   primary_contact_email: z.string().nullable().optional(),
   primary_contact_phone: z.string().nullable().optional(),
   notes: z.string().nullable().optional(),
+  campus_id: z.string().nullable().optional(),  // Sprint 5.1 — Campus ↔ Customer link
   created_at: z.string(),
   updated_at: z.string(),
   health: CustomerHealthSchema.nullable().optional(),
@@ -2000,6 +2002,7 @@ export const FinanceSummarySchema = z.object({
   total_arr_usd: z.number(),
   total_pipeline_value_usd: z.number(),
   total_capex_committed_usd: z.number(),
+  capex_equipment_usd: z.number(),
   total_project_budget_usd: z.number(),
   total_project_forecast_usd: z.number(),
   budget_variance_usd: z.number(),
@@ -2355,3 +2358,19 @@ export const ComplianceSummarySchema = z.object({
   upcoming_deadlines: z.array(UpcomingDeadlineSchema),
 });
 export type ComplianceSummary = z.infer<typeof ComplianceSummarySchema>;
+
+// Sprint 5.1 — GET /v1/compliance/upcoming (obligations + contract expirations, 30d)
+export const UpcomingDeadlineItemSchema = z.object({
+  source: z.string(),  // "checklist" | "contract"
+  id: z.string(),
+  title: z.string(),
+  due_date: z.string().nullable().optional(),
+  status: z.string(),
+});
+export type UpcomingDeadlineItem = z.infer<typeof UpcomingDeadlineItemSchema>;
+
+export const UpcomingDeadlinesResponseSchema = z.object({
+  items: z.array(UpcomingDeadlineItemSchema),
+  total: z.number().int(),
+});
+export type UpcomingDeadlinesResponse = z.infer<typeof UpcomingDeadlinesResponseSchema>;

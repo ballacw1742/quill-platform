@@ -36,6 +36,7 @@ import {
   useUpdateIncident,
   useCampusMetrics,
   useRecordMetric,
+  useCustomersByCampus,
 } from "@/lib/api";
 import type { Campus, CampusIncident, CampusMetric } from "@/lib/schemas";
 import { INCIDENT_SEVERITIES, INCIDENT_STATUSES, METRIC_TYPES } from "@/lib/schemas";
@@ -629,6 +630,8 @@ function RecordMetricModal({ campusId, onClose }: { campusId: string; onClose: (
 
 function DetailsTab({ campus }: { campus: Campus }) {
   const updateCampus = useUpdateCampus(campus.id);
+  const { data: servingCustomers } = useCustomersByCampus(campus.id);
+  const servingCustomer = servingCustomers?.items?.[0];
   const [name, setName] = React.useState(campus.name);
   const [address, setAddress] = React.useState(campus.address ?? "");
   const [mwCapacity, setMwCapacity] = React.useState(String(campus.mw_capacity ?? ""));
@@ -791,6 +794,14 @@ function DetailsTab({ campus }: { campus: Campus }) {
         <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-4 py-3">
           <p className="text-caption-1 text-label-secondary">Linked Project</p>
           <p className="text-body font-mono text-label-primary mt-0.5">{campus.project_id}</p>
+        </div>
+      )}
+
+      {/* Serving Customer — Campus ↔ Customer link (Sprint 5.1) */}
+      {servingCustomer && (
+        <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-4 py-3">
+          <p className="text-caption-1 text-label-secondary">Serving Customer</p>
+          <p className="text-body font-semibold text-label-primary mt-0.5">{servingCustomer.name}</p>
         </div>
       )}
     </form>

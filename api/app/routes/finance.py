@@ -57,6 +57,7 @@ class FinanceSummaryOut(BaseModel):
     total_arr_usd: float
     total_pipeline_value_usd: float
     total_capex_committed_usd: float
+    capex_equipment_usd: float
     total_project_budget_usd: float
     total_project_forecast_usd: float
     budget_variance_usd: float
@@ -236,6 +237,17 @@ async def get_finance_summary(
     )
     total_capex = float(capex_result.scalar_one())
 
+    # Sprint 5.1 — Equipment capex from supply chain: sum(unit_cost_usd * quantity)
+    # for equipment that has actually been ordered (status != not_ordered).
+    # Defaults to 0.0 when there is no supply chain data.
+    capex_equipment_result = await db.execute(
+        select(func.coalesce(func.sum(Equipment.unit_cost_usd * Equipment.quantity), 0.0)).where(
+            Equipment.unit_cost_usd.isnot(None),
+            Equipment.status != "not_ordered",
+        )
+    )
+    capex_equipment = float(capex_equipment_result.scalar_one())
+
     # Project budgets and forecasts
     budget_result = await db.execute(
         select(
@@ -269,6 +281,7 @@ async def get_finance_summary(
         total_arr_usd=total_arr,
         total_pipeline_value_usd=total_pipeline,
         total_capex_committed_usd=total_capex,
+        capex_equipment_usd=capex_equipment,
         total_project_budget_usd=total_project_budget,
         total_project_forecast_usd=total_project_forecast,
         budget_variance_usd=budget_variance,

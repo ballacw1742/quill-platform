@@ -36,6 +36,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.models import Contract
 from app.models_compliance import (
     VALID_CHECKLIST_FRAMEWORKS,
     VALID_CHECKLIST_STATUSES,
@@ -302,6 +303,19 @@ class ComplianceSummaryOut(BaseModel):
     open_regulatory_items: int
     checklists_complete_pct: float
     upcoming_deadlines: List[UpcomingDeadline]
+
+
+class UpcomingDeadlineItem(BaseModel):
+    source: str  # "checklist" | "contract"
+    id: str
+    title: str
+    due_date: Optional[date]
+    status: str
+
+
+class UpcomingDeadlinesOut(BaseModel):
+    items: List[UpcomingDeadlineItem]
+    total: int
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -944,3 +958,79 @@ async def get_compliance_summary(
         checklists_complete_pct=checklists_complete_pct,
         upcoming_deadlines=upcoming_deadlines,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Upcoming deadlines (Sprint 5.1 — Contract obligations → Compliance deadlines)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get(
+    "/upcoming",
+    response_model=UpcomingDeadlinesOut,
+    summary="Deadlines due within the next 30 days (obligations + contracts)",
+)
+async def get_upcoming_deadlines(
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),  # noqa: ARG001
+) -> UpcomingDeadlinesOut:
+    """Aggregate compliance deadlines falling within the next 30 days.
+
+    Two sources, unified into a single sorted list:
+      - "checklist": ContractObligation rows (the compliance register's
+        deadline-bearing obligations). NOTE: the literal ComplianceChecklistItem
+        model carries no due_date/status, so obligations are the checklist-side
+        deadline source here — see the Sprint 5.1 report caveat.
+      - "contract": Contract documents (from the contracts table) whose
+        expiration_date falls in the window.
+
+    Items are sorted by due_date ascending. Returns an empty list when nothing
+    is due (e.g. no supply chain / contract data).
+    """
+    today = _today()
+    horizon = today + timedelta(days=30)
+
+    items: list[UpcomingDeadlineItem] = []
+
+    # a) Compliance obligations with a due_date in [today, today+30]
+    obl_q = select(ContractObligation).where(
+        ContractObligation.due_date != None,  # noqa: E711
+        ContractObligation.due_date >= today,
+        ContractObligation.due_date <= horizon,
+    )
+    for row in (await db.execute(obl_q)).scalars():
+        items.append(
+            UpcomingDeadlineItem(
+                source="checklist",
+                id=row.id,
+                title=row.title,
+                due_date=row.due_date,
+                status=row.status,
+            )
+        )
+
+    # b) Contracts whose expiration_date falls in the window. expiration_date is a
+    #    datetime; compare against day bounds and surface the date component.
+    horizon_end = datetime.combine(horizon, datetime.max.time()).replace(tzinfo=UTC)
+    today_start = datetime.combine(today, datetime.min.time()).replace(tzinfo=UTC)
+    con_q = select(Contract).where(
+        Contract.expiration_date != None,  # noqa: E711
+        Contract.expiration_date >= today_start,
+        Contract.expiration_date <= horizon_end,
+    )
+    for row in (await db.execute(con_q)).scalars():
+        title = row.project_label or row.contract_type or "Untitled contract"
+        items.append(
+            UpcomingDeadlineItem(
+                source="contract",
+                id=row.id,
+                title=title,
+                due_date=row.expiration_date.date() if row.expiration_date else None,
+                status=row.status,
+            )
+        )
+
+    # Sort by due_date ascending (None last, though all here have a due_date).
+    items.sort(key=lambda d: (d.due_date is None, d.due_date or date.max))
+
+    return UpcomingDeadlinesOut(items=items, total=len(items))

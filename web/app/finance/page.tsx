@@ -540,6 +540,13 @@ export default function FinancePage() {
                 icon={TrendingDown}
               />
               <StatCard
+                label="Equipment Capex"
+                value={fmtUSD(summary.capex_equipment_usd)}
+                sub="Ordered equipment"
+                color="orange"
+                icon={TrendingDown}
+              />
+              <StatCard
                 label="Outstanding"
                 value={fmtUSD(summary.total_outstanding_invoices_usd)}
                 sub={

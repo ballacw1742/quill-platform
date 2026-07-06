@@ -27,6 +27,7 @@ import { cn } from "@/lib/utils";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import {
   useComplianceSummary,
+  useComplianceUpcoming,
   useObligations,
   useRegulatoryItems,
   useInsurancePolicies,
@@ -702,6 +703,7 @@ export default function CompliancePage() {
   const [modal, setModal] = React.useState<Tab | null>(null);
 
   const { data: summary, isLoading: summaryLoading } = useComplianceSummary();
+  const { data: upcoming } = useComplianceUpcoming();
   const { data: obligations, isLoading: oblLoading } = useObligations();
   const { data: regulatory, isLoading: regLoading } = useRegulatoryItems();
   const { data: insurance, isLoading: insLoading } = useInsurancePolicies();
@@ -775,6 +777,33 @@ export default function CompliancePage() {
           <div className="mx-4 rounded-2xl bg-bg-secondary border border-separator/30 overflow-hidden">
             {summary!.upcoming_deadlines.map((d) => (
               <DeadlineRow key={`${d.deadline_type}-${d.id}`} item={d} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Sprint 5.1 — Upcoming deadlines (30d): obligations + contract expirations */}
+      {(upcoming?.items?.length ?? 0) > 0 && (
+        <>
+          <div className="flex items-center justify-between px-4 pt-6 pb-2">
+            <h2 className="text-headline font-semibold text-label-primary">Upcoming Deadlines (30 Days)</h2>
+            <span className="text-caption-1 text-label-tertiary">{upcoming!.items.length} due</span>
+          </div>
+          <div className="mx-4 rounded-2xl bg-bg-secondary border border-separator/30 overflow-hidden">
+            {upcoming!.items.map((item) => (
+              <div
+                key={`${item.source}-${item.id}`}
+                className="flex items-center justify-between gap-3 px-4 py-3 border-b border-separator/20 last:border-b-0"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-body text-label-primary">{item.title}</p>
+                  <p className="text-caption-1 text-label-tertiary">
+                    <span className="uppercase">{item.source === "contract" ? "Contract" : "Obligation"}</span>
+                    {item.due_date ? ` · due ${item.due_date}` : ""}
+                  </p>
+                </div>
+                <span className="shrink-0 text-caption-1 text-label-secondary capitalize">{item.status}</span>
+              </div>
             ))}
           </div>
         </>

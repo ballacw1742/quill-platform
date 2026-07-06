@@ -2393,6 +2393,18 @@ export function useCampuses(statusFilter?: string) {
   });
 }
 
+/** GET /v1/campuses?project_id=X — campuses linked to a project (Sprint 5.1 Go-Live check) */
+export function useCampusesByProject(projectId: string | null | undefined) {
+  return useQuery<CampusListResponse>({
+    queryKey: ["campuses", { projectId }],
+    queryFn: async (): Promise<CampusListResponse> =>
+      apiFetch(`/api/v1/campuses?project_id=${encodeURIComponent(projectId ?? "")}`, {
+        schema: CampusListResponseSchema,
+      }),
+    enabled: !!projectId,
+  });
+}
+
 /** GET /v1/campuses/{id} */
 export function useCampus(id: string | null | undefined) {
   return useQuery<Campus>({
@@ -2770,6 +2782,22 @@ export function useCustomers(opts?: UseQueryOptions<CustomerListPage | undefined
     queryKey: ["customers"],
     queryFn: async () =>
       apiFetch("/api/v1/customers", { schema: CustomerListPageSchema }),
+    ...opts,
+  });
+}
+
+/** GET /v1/customers?campus_id=X — customers served by a campus (Sprint 5.1) */
+export function useCustomersByCampus(
+  campusId: string | null | undefined,
+  opts?: UseQueryOptions<CustomerListPage | undefined>,
+) {
+  return useQuery<CustomerListPage | undefined>({
+    queryKey: ["customers", { campusId }],
+    queryFn: async (): Promise<CustomerListPage> =>
+      apiFetch(`/api/v1/customers?campus_id=${encodeURIComponent(campusId ?? "")}`, {
+        schema: CustomerListPageSchema,
+      }),
+    enabled: !!campusId,
     ...opts,
   });
 }
@@ -3299,6 +3327,7 @@ import type {
   ChecklistListPage,
   ChecklistWithItems,
   ChecklistItem,
+  UpcomingDeadlinesResponse,
 } from "@/lib/schemas";
 import {
   ComplianceSummarySchema,
@@ -3312,6 +3341,7 @@ import {
   ChecklistSchema,
   ChecklistWithItemsSchema,
   ChecklistItemSchema,
+  UpcomingDeadlinesResponseSchema,
 } from "@/lib/schemas";
 
 /** GET /v1/compliance/summary */
@@ -3320,6 +3350,19 @@ export function useComplianceSummary(opts?: UseQueryOptions<ComplianceSummary | 
     queryKey: ["compliance-summary"],
     queryFn: async () =>
       apiFetch("/api/v1/compliance/summary", { schema: ComplianceSummarySchema }),
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** GET /v1/compliance/upcoming — obligations + contract expirations due in 30d (Sprint 5.1) */
+export function useComplianceUpcoming(
+  opts?: UseQueryOptions<UpcomingDeadlinesResponse | undefined>,
+) {
+  return useQuery<UpcomingDeadlinesResponse | undefined>({
+    queryKey: ["compliance-upcoming"],
+    queryFn: async () =>
+      apiFetch("/api/v1/compliance/upcoming", { schema: UpcomingDeadlinesResponseSchema }),
     staleTime: 60_000,
     ...opts,
   });

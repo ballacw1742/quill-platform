@@ -26,6 +26,7 @@ import {
   Plus,
   Trash2,
   X,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -48,6 +49,8 @@ import {
   useLinkEstimate,
   useContractsList,
   useListEstimates,
+  useCampusesByProject,
+  useCreateCampus,
 } from "@/lib/api";
 import type { QuillProject, ProjectMilestone, ProjectLogEntry, ProjectDocumentLink } from "@/lib/schemas";
 
@@ -340,6 +343,65 @@ function NotesSection({ project }: { project: QuillProject }) {
 
 // ── Overview Tab ──────────────────────────────────────────────────────────────
 
+// ── Go-Live (Project → Campus graduation, Sprint 5.1) ──────────────────────────
+function GoLiveSection({ project }: { project: QuillProject }) {
+  const router = useRouter();
+  const { data: campusList } = useCampusesByProject(project.id);
+  const createCampus = useCreateCampus();
+  const linkedCampus = campusList?.items?.[0];
+
+  // Only relevant once the project is commissioning, or after a campus exists.
+  if (!linkedCampus && project.phase !== "commissioning") return null;
+
+  return (
+    <Card>
+      <p className="text-callout font-semibold text-label-primary mb-2">Go Live</p>
+      {linkedCampus ? (
+        <button
+          type="button"
+          onClick={() => router.push(`/operations/${linkedCampus.id}`)}
+          className="w-full flex items-center justify-between rounded-xl bg-accent/10 border border-accent/20 px-4 py-3"
+        >
+          <span className="text-callout font-semibold text-accent">
+            Linked Campus: {linkedCampus.name}
+          </span>
+          <ExternalLink className="h-4 w-4 text-accent shrink-0" />
+        </button>
+      ) : (
+        <>
+          <p className="text-caption-1 text-label-secondary mb-3">
+            This project is commissioning. Graduate it to a live campus in Operations.
+          </p>
+          <button
+            type="button"
+            disabled={createCampus.isPending}
+            onClick={() =>
+              createCampus.mutate({
+                name: project.name,
+                project_id: project.id,
+                mw_capacity: 0,
+                status: "commissioning",
+              })
+            }
+            className={cn(
+              "w-full py-3 rounded-xl font-semibold text-callout",
+              "bg-accent text-white flex items-center justify-center gap-2",
+              "transition-all active:scale-[0.98]",
+              createCampus.isPending && "opacity-60 cursor-not-allowed",
+            )}
+          >
+            {createCampus.isPending ? (
+              <><Loader2 className="h-4 w-4 animate-spin" /> Creating campus…</>
+            ) : (
+              <><Zap className="h-4 w-4" /> Go Live</>
+            )}
+          </button>
+        </>
+      )}
+    </Card>
+  );
+}
+
 function OverviewTab({
   project,
   onAdvancePhase,
@@ -437,6 +499,9 @@ function OverviewTab({
           </div>
         )}
       </Card>
+
+      {/* Go Live — Project → Campus graduation (Sprint 5.1) */}
+      <GoLiveSection project={project} />
 
       {/* Budget */}
       <BudgetSection project={project} />

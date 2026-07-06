@@ -19,7 +19,7 @@ from app.models import AgentRegistration
 log = logging.getLogger("quill.agents")
 
 # ---------------------------------------------------------------------------
-# Seed data — 9 agents (5 PMO + 4 DataSite)
+# Seed data — 15 agents (5 PMO + 4 DataSite + 6 specialist data agents)
 # ---------------------------------------------------------------------------
 ADK_ENDPOINT = "https://quill-adk-agents-894031978246.us-central1.run.app"
 
@@ -105,11 +105,68 @@ SEED_AGENTS: list[dict] = [
         "framework": "adk",
         "endpoint_url": ADK_ENDPOINT,
     },
+    # -----------------------------------------------------------------------
+    # Sprint 5.2 — specialist data agents (6 new)
+    # -----------------------------------------------------------------------
+    {
+        "agent_id": "quill_facility_ops",
+        "display_name": "Facility Operations Agent",
+        "description": "Answers questions about campus status, incidents, PUE, uptime, and power metrics. Can query live campus data and surface active P1/P2 incidents.",
+        "role_summary": "Facility Operations",
+        "handled_intents": ["campus", "incident", "uptime", "pue", "facility", "power", "outage"],
+        "framework": "adk",
+        "endpoint_url": ADK_ENDPOINT,
+    },
+    {
+        "agent_id": "quill_sales",
+        "display_name": "Sales & Pipeline Agent",
+        "description": "Answers questions about deals, accounts, pipeline value, win rates, and activity history. Can summarize deal status and flag stalled deals.",
+        "role_summary": "Sales & Pipeline",
+        "handled_intents": ["deal", "pipeline", "account", "prospect", "won", "lost", "sales", "revenue", "crm"],
+        "framework": "adk",
+        "endpoint_url": ADK_ENDPOINT,
+    },
+    {
+        "agent_id": "quill_customer_success",
+        "display_name": "Customer Success Agent",
+        "description": "Answers questions about customer health scores, support tickets, and account notes. Can surface at-risk customers and open P1/P2 tickets.",
+        "role_summary": "Customer Success",
+        "handled_intents": ["customer", "ticket", "support", "health", "churn", "at-risk", "satisfaction", "nps"],
+        "framework": "adk",
+        "endpoint_url": ADK_ENDPOINT,
+    },
+    {
+        "agent_id": "quill_finance",
+        "display_name": "Finance Agent",
+        "description": "Answers questions about ARR, invoices, cash position, capex, and budget vs actuals. Surfaces overdue invoices and budget variances.",
+        "role_summary": "Finance",
+        "handled_intents": ["finance", "invoice", "revenue", "arr", "budget", "cash", "capex", "payment", "overdue"],
+        "framework": "adk",
+        "endpoint_url": ADK_ENDPOINT,
+    },
+    {
+        "agent_id": "quill_intelligence",
+        "display_name": "Executive Intelligence Agent",
+        "description": "Provides cross-module executive summaries: business health, risk flags, and KPI rollups across Operations, Sales, Finance, and Customer Success.",
+        "role_summary": "Executive Intelligence",
+        "handled_intents": ["intelligence", "executive", "summary", "kpi", "dashboard", "briefing", "status", "overview"],
+        "framework": "adk",
+        "endpoint_url": ADK_ENDPOINT,
+    },
+    {
+        "agent_id": "quill_compliance",
+        "display_name": "Compliance Agent",
+        "description": "Answers questions about compliance checklists, upcoming regulatory deadlines, and contract obligations. Flags overdue or at-risk items.",
+        "role_summary": "Compliance",
+        "handled_intents": ["compliance", "regulatory", "deadline", "obligation", "checklist", "audit", "permit", "legal"],
+        "framework": "adk",
+        "endpoint_url": ADK_ENDPOINT,
+    },
 ]
 
 
 async def seed_agents(session: AsyncSession) -> None:
-    """Upsert the 9 seed agents into agent_registrations.
+    """Upsert the seed agents into agent_registrations.
 
     Called from main.py lifespan. Safe to call multiple times (idempotent).
     Only sets display/registry fields — does not overwrite trust_tier,

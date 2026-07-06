@@ -79,6 +79,15 @@ INTENT_TO_ADK_AGENT: dict[str, str] = {
     "procurement":     "quill_supply_chain",
     "lead_time":       "quill_supply_chain",
     "delivery":        "quill_supply_chain",
+    # Sprint 5.2 — Finance
+    "finance":         "quill_finance",
+    "invoice":         "quill_finance",
+    "arr":             "quill_finance",
+    "capex":           "quill_finance",
+    "cash":            "quill_finance",
+    "budget":          "quill_finance",
+    "payment":         "quill_finance",
+    "overdue":         "quill_finance",
     # Sprint 3B — Executive Intelligence
     "intelligence":    "quill_intelligence",
     "brief":           "quill_intelligence",
@@ -86,6 +95,8 @@ INTENT_TO_ADK_AGENT: dict[str, str] = {
     "summary":         "quill_intelligence",
     "kpi":             "quill_intelligence",
     "dashboard":       "quill_intelligence",
+    "executive":       "quill_intelligence",
+    "briefing":        "quill_intelligence",
     # Sprint 4A — Compliance Register
     "compliance":      "quill_compliance",
     "regulatory":      "quill_compliance",
@@ -614,6 +625,11 @@ def classify_intent(message: str, filenames: list[str]) -> str:
         return "rfi"
     if any(w in text for w in ["contract", "agreement", "subcontract", "clause", "terms", "conditions", "liability"]):
         return "contract"
+    # Sprint 5.2 — Finance (invoice / ARR / cash / capex / overdue — finance-specific terms)
+    if any(w in text for w in ["invoice", "capex", "cash position", "cash flow", "accounts receivable", "overdue", "arr", "annual recurring revenue", "budget vs actual", "budget variance", "budget vs. actual"]):
+        return "finance"
+    if "finance" in text or "financial" in text:
+        return "finance"
     # Sprint 2A — Customer Success (check before pipeline/sales to catch customer-specific keywords)
     if any(w in text for w in ["support", "ticket", "health score", "churn", "customer success", "customer health", "at-risk customer", "account health", "open ticket", "p1 ticket", "p2 ticket"]):
         return "customer_success"
@@ -656,6 +672,15 @@ def _intent_label(intent: str) -> str:
         "sales": "Sales Agent",
         "pipeline": "Sales Agent",
         "customer_success": "Customer Success Agent",
+        # Sprint 5.2 — Finance
+        "finance": "Finance Agent",
+        "invoice": "Finance Agent",
+        "arr": "Finance Agent",
+        "capex": "Finance Agent",
+        "cash": "Finance Agent",
+        "budget": "Finance Agent",
+        "payment": "Finance Agent",
+        "overdue": "Finance Agent",
         # Sprint 2B — Supply Chain
         "supply_chain": "Supply Chain Agent",
         "equipment": "Supply Chain Agent",
@@ -670,6 +695,8 @@ def _intent_label(intent: str) -> str:
         "summary": "Intelligence Agent",
         "kpi": "Intelligence Agent",
         "dashboard": "Intelligence Agent",
+        "executive": "Intelligence Agent",
+        "briefing": "Intelligence Agent",
         # Sprint 4A — Compliance Register
         "compliance": "Compliance Agent",
         "regulatory": "Compliance Agent",
@@ -726,6 +753,9 @@ async def submit_request(
     _VALID_INTENTS = {
         "estimate", "schedule", "rfi", "contract", "general",
         "site_evaluation", "site_research", "site_scoring", "site_status",
+        # Sprint 5.2 — specialist data agents (allow explicit intent override)
+        "facility_ops", "sales", "customer_success", "finance",
+        "intelligence", "compliance", "supply_chain",
     }
     file_names = [f.filename or "" for f in files if f.filename]
     if intent_override and intent_override in _VALID_INTENTS:

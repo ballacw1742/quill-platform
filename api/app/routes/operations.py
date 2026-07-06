@@ -260,12 +260,17 @@ async def list_campuses(
     limit: int = 50,
     offset: int = 0,
     status_filter: Optional[str] = None,
+    project_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ) -> CampusListResponse:
     base_where = []
     if status_filter:
         base_where.append(Campus.status == status_filter)
+    # Sprint 5.1 — allow the project detail page to check whether a project has
+    # already graduated to a campus (Project → Campus "Go Live" flow).
+    if project_id:
+        base_where.append(Campus.project_id == project_id)
 
     count_result = await db.execute(
         select(func.count()).select_from(Campus).where(*base_where)
