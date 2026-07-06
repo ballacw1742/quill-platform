@@ -1,4 +1,9 @@
-# quill-worker — Quill dispatch loops on Cloud Run
+# quill-dispatch-worker — Quill dispatch loops on Cloud Run
+
+> **Naming note:** the sprint brief called this service `quill-worker`, but
+> that Cloud Run service name was already taken by the dev-chat Cloud Tasks
+> consumer (built from `worker/`, deployed 2026-06-28). This service is
+> therefore `quill-dispatch-worker`.
 
 Sprint 5.5. This service replaces the four launchd daemons that used to run
 on Charles's Mac Studio (`com.quill.contract-dispatcher`,
@@ -71,7 +76,7 @@ code path; nothing new.
 | `*_POLL_INTERVAL_SECONDS` | env (optional) | per-dispatcher poll tuning |
 
 Deploy: `.github/workflows/worker-deploy.yml` (paths `runtime/**`,
-`dispatch-worker/**`). Cloud Run service `quill-worker`, min-instances=1,
+`dispatch-worker/**`). Cloud Run service `quill-dispatch-worker`, min-instances=1,
 CPU always allocated, Cloud SQL instance attached, no unauthenticated
 ingress (health checks via ID-token curl).
 

@@ -27,13 +27,13 @@ jobs:
       - name: Build and push image
         run: |
           docker build -f dispatch-worker/Dockerfile \
-            -t gcr.io/totemic-formula-467102-s9/quill-worker:${{ github.sha }} .
-          docker push gcr.io/totemic-formula-467102-s9/quill-worker:${{ github.sha }}
+            -t gcr.io/totemic-formula-467102-s9/quill-dispatch-worker:${{ github.sha }} .
+          docker push gcr.io/totemic-formula-467102-s9/quill-dispatch-worker:${{ github.sha }}
 
       - name: Deploy to Cloud Run
         run: |
-          gcloud run deploy quill-worker \
-            --image gcr.io/totemic-formula-467102-s9/quill-worker:${{ github.sha }} \
+          gcloud run deploy quill-dispatch-worker \
+            --image gcr.io/totemic-formula-467102-s9/quill-dispatch-worker:${{ github.sha }} \
             --platform managed \
             --region us-central1 \
             --no-allow-unauthenticated \

@@ -1,6 +1,6 @@
-# quill-worker — the four Quill dispatch loops on Cloud Run (Sprint 5.5).
+# quill-dispatch-worker — the four Quill dispatch loops on Cloud Run (Sprint 5.5).
 # Build context is the REPO ROOT:
-#   docker build -f dispatch-worker/Dockerfile -t quill-worker .
+#   docker build -f dispatch-worker/Dockerfile -t quill-dispatch-worker .
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

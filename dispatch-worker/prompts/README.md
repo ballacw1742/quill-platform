@@ -1,8 +1,8 @@
-# Vendored prompts snapshot — quill-worker
+# Vendored prompts snapshot — quill-dispatch-worker
 
 These files are a **build-time snapshot** of the agent prompts + output
 schemas that the four dispatch loops need. They are baked into the
-`quill-worker` Docker image (`PROMPTS_REPO_PATH=/app/prompts`) so the Cloud
+`quill-dispatch-worker` Docker image (`PROMPTS_REPO_PATH=/app/prompts`) so the Cloud
 Run worker has **no network or filesystem dependency** on the prompts repo
 at runtime.
 
@@ -31,5 +31,5 @@ When prompts change in `agentic-pmo-prompts`:
 1. `cd agentic-pmo-prompts && git pull && git rev-parse HEAD`
 2. Re-copy the four `agents/*/system.md` files and `schemas/*.json` here.
 3. Update the snapshot commit + date above.
-4. Commit; CI rebuilds and redeploys `quill-worker` on push to `main`
+4. Commit; CI rebuilds and redeploys `quill-dispatch-worker` on push to `main`
    (path filter includes `dispatch-worker/**`).

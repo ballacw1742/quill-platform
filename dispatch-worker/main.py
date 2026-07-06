@@ -1,4 +1,4 @@
-"""quill-worker — Cloud Run service hosting the four Quill dispatch loops.
+"""quill-dispatch-worker — Cloud Run service hosting the four Quill dispatch loops.
 
 Sprint 5.5: replaces the four launchd daemons that used to run on Charles's
 Mac Studio (com.quill.{contract,contract-review,classify,estimate}-dispatcher).
@@ -162,7 +162,7 @@ async def lifespan(app: FastAPI):
         # Fail loudly at boot: on Cloud Run the filesystem is ephemeral, so
         # file-based dispatcher state would re-dispatch after every restart.
         raise RuntimeError(
-            "RUNTIME_STATE_DATABASE_URL is required for quill-worker "
+            "RUNTIME_STATE_DATABASE_URL is required for quill-dispatch-worker "
             "(file-based dispatcher state is not safe on Cloud Run)"
         )
     log.info(
@@ -186,7 +186,7 @@ async def lifespan(app: FastAPI):
         log.info("worker.shutdown_complete")
 
 
-app = FastAPI(title="quill-worker", lifespan=lifespan)
+app = FastAPI(title="quill-dispatch-worker", lifespan=lifespan)
 
 
 @app.get("/healthz")
@@ -195,7 +195,7 @@ async def healthz() -> dict[str, Any]:
     all_alive = bool(details) and all(d["alive"] for d in details.values())
     return {
         "status": "ok" if all_alive else "degraded",
-        "service": "quill-worker",
+        "service": "quill-dispatch-worker",
         "dispatchers": details,
     }
 
@@ -213,4 +213,4 @@ async def statusz() -> dict[str, Any]:
             out[name] = await store.status_summary()
         except Exception as exc:  # noqa: BLE001
             out[name] = {"error": str(exc)[:300]}
-    return {"service": "quill-worker", "state": out}
+    return {"service": "quill-dispatch-worker", "state": out}
