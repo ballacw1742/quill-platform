@@ -105,7 +105,9 @@ function prettyKind(kind: string | undefined | null): string {
   if (!kind) return "Take action";
   const cleaned = kind.replace(/[._-]+/g, " ").replace(/\s+/g, " ").trim();
   if (!cleaned) return "Take action";
-  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+  const sentence = cleaned.charAt(0).toUpperCase() + cleaned.slice(1).toLowerCase();
+  // Keep well-known construction acronyms readable ("Rfi classify" → "RFI classify").
+  return sentence.replace(/\b(rfi|rfp|rfq|sop|p6|po|co|noc|ahj)\b/gi, (m) => m.toUpperCase());
 }
 
 /**
@@ -474,7 +476,7 @@ function DetailContent({
             {recommendation}
             {confidencePct && (
               <span className="text-label-secondary inline-flex items-center gap-1">
-                {" "}({confidencePct})
+                {"\u00A0"}({confidencePct})
                 <HelpHint
                   term="confidence"
                   ariaLabel="What does the confidence percentage mean?"

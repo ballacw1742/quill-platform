@@ -60,7 +60,7 @@ export function SegmentedControl<T extends string>({
             aria-selected={active}
             onClick={() => onChange(opt.value)}
             className={cn(
-              "relative flex-1 min-h-[32px] rounded-[8px] px-2 no-tap-highlight",
+              "relative min-w-0 flex-1 min-h-[32px] rounded-[8px] px-2 no-tap-highlight",
               "flex items-center justify-center gap-1.5",
               "text-subhead font-medium transition-colors duration-state",
               active ? "text-label-primary" : "text-label-secondary active:text-label-primary",
