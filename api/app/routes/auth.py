@@ -20,13 +20,14 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_db
+from app.rate_limit import AUTH_LIMIT, limiter
 from app.enums import UserRole
 from app.models import User, WebAuthnCredential
 from app.models_pipeline import Account
@@ -83,7 +84,8 @@ def _require_dev_fallback() -> None:
     status_code=status.HTTP_201_CREATED,
     summary="(dev fallback) Register a user with email + password.",
 )
-async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) -> TokenOut:
+@limiter.limit(AUTH_LIMIT)  # Sprint 5.3 — auth: 10/min per IP (brute-force guard)
+async def register(request: Request, body: RegisterRequest, db: AsyncSession = Depends(get_db)) -> TokenOut:
     _require_dev_fallback()
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalars().first():
@@ -101,7 +103,8 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)) ->
 
 
 @router.post("/login", response_model=TokenOut, summary="(dev fallback) Email/password login.")
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenOut:
+@limiter.limit(AUTH_LIMIT)  # Sprint 5.3 — auth: 10/min per IP (brute-force guard)
+async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenOut:
     _require_dev_fallback()
     res = await db.execute(select(User).where(User.email == body.email))
     user = res.scalars().first()
@@ -135,7 +138,8 @@ class PortalTokenOut(BaseModel):
     response_model=PortalTokenOut,
     summary="Customer portal email/password login.",
 )
-async def portal_login(body: LoginRequest, db: AsyncSession = Depends(get_db)) -> PortalTokenOut:
+@limiter.limit(AUTH_LIMIT)  # Sprint 5.3 — auth: 10/min per IP (brute-force guard)
+async def portal_login(request: Request, body: LoginRequest, db: AsyncSession = Depends(get_db)) -> PortalTokenOut:
     """Authenticate a customer account (type=customer) and return a portal JWT.
 
     Returns 403 if the matching account exists but has type != 'customer'.

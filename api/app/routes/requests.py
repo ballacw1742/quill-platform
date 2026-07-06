@@ -35,7 +35,7 @@ import json
 from pathlib import Path
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_db
 from app.models_requests import RequestRecord
+from app.rate_limit import DISPATCH_LIMIT, GET_LIMIT, limiter
 from app.security import get_current_user, require_agent_secret
 
 _settings = get_settings()
@@ -421,6 +422,68 @@ async def _handle_datasite_inline(intent: str, message: str, user_id: str) -> st
     return "I couldn\'t determine what you need. Please try specifying the site address or ID."
 
 
+# ---------------------------------------------------------------------------
+# Retry policy for transient ADK failures (Sprint 5.3)
+# ---------------------------------------------------------------------------
+_RETRY_MAX_ATTEMPTS = 3
+_RETRY_BACKOFFS = [1, 2, 4]  # seconds — exponential backoff between attempts
+_RETRYABLE_STATUS = {502, 503, 504}          # transient gateway/server errors
+_NON_RETRYABLE_STATUS = {400, 401, 403, 404, 422}  # client errors — retry won't help
+
+
+class _AgentUnavailable(Exception):
+    """Raised when all retry attempts to reach an ADK agent are exhausted."""
+
+
+async def _call_adk_with_retry(
+    endpoint: str,
+    payload: dict,
+    agent_id: str,
+    request_id: str,
+) -> httpx.Response:
+    """POST to the ADK agent with exponential backoff on transient failures.
+
+    Retries on connection errors (httpx transport errors, incl. timeouts) and
+    502/503/504 responses. Does NOT retry 400/401/403/404/422 — those are
+    client errors that won't change on retry, so the response is returned to
+    the caller as-is. After ``_RETRY_MAX_ATTEMPTS`` transient failures, raises
+    :class:`_AgentUnavailable`.
+
+    Each retry logs: attempt number, agent_id, and error type (Sprint 5.3).
+    """
+    last_error_type = "unknown"
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS + 1):
+        try:
+            async with httpx.AsyncClient(timeout=120) as client:
+                resp = await client.post(endpoint, json=payload)
+            if resp.status_code in _RETRYABLE_STATUS:
+                last_error_type = f"http_{resp.status_code}"
+                log.warning(
+                    "dispatch.retry attempt=%d/%d agent_id=%s error_type=%s request_id=%s",
+                    attempt, _RETRY_MAX_ATTEMPTS, agent_id, last_error_type, request_id,
+                )
+                if attempt < _RETRY_MAX_ATTEMPTS:
+                    await asyncio.sleep(_RETRY_BACKOFFS[attempt - 1])
+                    continue
+                raise _AgentUnavailable(last_error_type)
+            # Success (<400) or a non-retryable error (e.g. 400/422): return it
+            # so the caller can surface the agent's own status/body.
+            return resp
+        except httpx.TransportError as exc:
+            # Connection errors, timeouts, read/write/network errors — transient.
+            last_error_type = type(exc).__name__
+            log.warning(
+                "dispatch.retry attempt=%d/%d agent_id=%s error_type=%s request_id=%s",
+                attempt, _RETRY_MAX_ATTEMPTS, agent_id, last_error_type, request_id,
+            )
+            if attempt < _RETRY_MAX_ATTEMPTS:
+                await asyncio.sleep(_RETRY_BACKOFFS[attempt - 1])
+                continue
+            raise _AgentUnavailable(last_error_type) from exc
+    # Defensive — the loop always returns or raises above.
+    raise _AgentUnavailable(last_error_type)
+
+
 async def _dispatch_to_agent(
     request_id: str,
     intent: str,
@@ -460,31 +523,31 @@ async def _dispatch_to_agent(
     )
 
     try:
-        async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(adk_endpoint, json=adk_payload)
-            if resp.status_code < 400:
-                new_status = "complete"
-                try:
-                    body = resp.json()
-                    response_text = body.get("response", "") if isinstance(body, dict) else str(body)
-                except Exception:
-                    response_text = resp.text[:2000]
-            else:
-                response_text = f"ADK agent returned {resp.status_code}: {resp.text[:500]}"
-                new_status = "failed"
-    except httpx.ConnectError as exc:
-        log.warning(
-            "dispatch.connect_error request_id=%s endpoint=%s err=%s",
-            request_id, adk_endpoint, exc,
+        resp = await _call_adk_with_retry(
+            adk_endpoint, adk_payload, agent_name, request_id
         )
-        response_text = f"ADK agent unreachable ({adk_endpoint}): {exc}"
-        new_status = "failed"
-    except httpx.TimeoutException as exc:
+        if resp.status_code < 400:
+            new_status = "complete"
+            try:
+                body = resp.json()
+                response_text = body.get("response", "") if isinstance(body, dict) else str(body)
+            except Exception:
+                response_text = resp.text[:2000]
+        else:
+            # Non-retryable client error surfaced from the agent (e.g. 400/422).
+            response_text = f"ADK agent returned {resp.status_code}: {resp.text[:500]}"
+            new_status = "failed"
+    except _AgentUnavailable as exc:
+        # All retries exhausted on transient failures. The canonical failure
+        # message + HTTP 503 semantics live in _dispatch_to_agent's contract;
+        # since dispatch is a fire-and-forget background task, the 503 is
+        # recorded on the request row rather than returned to the (already
+        # answered) POST /v1/requests caller.
         log.warning(
-            "dispatch.timeout request_id=%s agent=%s err=%s",
-            request_id, agent_name, exc,
+            "dispatch.exhausted request_id=%s agent=%s attempts=%d last_error=%s http_status=503",
+            request_id, agent_name, _RETRY_MAX_ATTEMPTS, exc,
         )
-        response_text = f"ADK agent timed out after 120s (agent={agent_name})"
+        response_text = "Agent unavailable after 3 attempts. Try again later."
         new_status = "failed"
     except Exception as exc:  # noqa: BLE001
         log.exception("dispatch.unexpected_error request_id=%s", request_id)
@@ -723,7 +786,9 @@ def _utcnow() -> datetime:
     status_code=status.HTTP_201_CREATED,
     summary="Submit a project request",
 )
+@limiter.limit(DISPATCH_LIMIT)  # Sprint 5.3 — agent dispatch: 20/min per IP
 async def submit_request(
+    request: Request,
     message: str = Form(..., description="Describe your request"),
     files: list[UploadFile] = File(default=[]),
     drive_url: str = Form(default="", description="Optional Google Drive link"),
@@ -866,7 +931,9 @@ async def update_request(
     response_model=RequestListResponse,
     summary="List project request history for the current user",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def list_requests(
+    request: Request,
     limit: int = 50,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
@@ -907,7 +974,9 @@ async def list_requests(
     response_model=RequestOut,
     summary="Get a single project request",
 )
+@limiter.limit(GET_LIMIT)  # Sprint 5.3 — list/query: 120/min per IP
 async def get_request(
+    request: Request,
     request_id: str,
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),

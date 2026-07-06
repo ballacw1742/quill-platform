@@ -24,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import {
   useComplianceSummary,
@@ -698,7 +699,7 @@ function EmptyState({ label, onAdd }: { label: string; onAdd: () => void }) {
 
 type Tab = "obligations" | "regulatory" | "insurance" | "checklists";
 
-export default function CompliancePage() {
+function CompliancePageInner() {
   const [tab, setTab] = React.useState<Tab>("obligations");
   const [modal, setModal] = React.useState<Tab | null>(null);
 
@@ -925,5 +926,13 @@ export default function CompliancePage() {
       {modal === "insurance"   && <NewInsuranceModal  onClose={() => setModal(null)} />}
       {modal === "checklists"  && <NewChecklistModal  onClose={() => setModal(null)} />}
     </MobileShell>
+  );
+}
+
+export default function CompliancePage() {
+  return (
+    <ErrorBoundary moduleName="Compliance">
+      <CompliancePageInner />
+    </ErrorBoundary>
   );
 }

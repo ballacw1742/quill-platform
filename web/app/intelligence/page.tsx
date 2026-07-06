@@ -25,6 +25,7 @@ import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { useKpis, useExceptions, useBrief, useAgentActivity } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import type { KpiSnapshot, ExceptionList, Brief, AgentActivityList } from "@/lib/schemas";
 
 /* ── KPI card ─────────────────────────────────────────────────────────────── */
@@ -196,7 +197,7 @@ function ActivityRow({ item }: { item: AgentActivityList["items"][number] }) {
 
 /* ── Main page ─────────────────────────────────────────────────────────────── */
 
-export default function IntelligencePage() {
+function IntelligencePageInner() {
   const kpisQuery = useKpis();
   const exceptionsQuery = useExceptions();
   const briefQuery = useBrief();
@@ -569,4 +570,12 @@ function formatUsdCompact(v: number): string {
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
   if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
   return `$${v.toFixed(0)}`;
+}
+
+export default function IntelligencePage() {
+  return (
+    <ErrorBoundary moduleName="Intelligence">
+      <IntelligencePageInner />
+    </ErrorBoundary>
+  );
 }

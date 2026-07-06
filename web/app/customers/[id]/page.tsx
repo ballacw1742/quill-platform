@@ -22,6 +22,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import {
@@ -578,7 +579,7 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function CustomerDetailPage() {
+function CustomerDetailPageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const [tab, setTab] = React.useState<TabKey>("tickets");
@@ -668,5 +669,13 @@ export default function CustomerDetailPage() {
         )}
       </div>
     </MobileShell>
+  );
+}
+
+export default function CustomerDetailPage() {
+  return (
+    <ErrorBoundary moduleName="Customers">
+      <CustomerDetailPageInner />
+    </ErrorBoundary>
   );
 }

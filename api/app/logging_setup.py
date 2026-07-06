@@ -19,7 +19,12 @@ class JsonFormatter(logging.Formatter):
         }
         if record.exc_info:
             out["exc"] = self.formatException(record.exc_info)
-        for k in ("request_id", "actor", "approval_id"):
+        # Structured extras carried on the LogRecord. event/method/path/status/
+        # duration_ms power the Sprint 5.3 http_request access log line.
+        for k in (
+            "request_id", "actor", "approval_id",
+            "event", "method", "path", "status", "duration_ms",
+        ):
             v = getattr(record, k, None)
             if v is not None:
                 out[k] = v

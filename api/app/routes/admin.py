@@ -126,6 +126,58 @@ async def litigation_hold(
 
 @router.get("/admin/health", response_model=HealthOut)
 async def health(db: AsyncSession = Depends(get_db)) -> HealthOut:
+    from sqlalchemy import text as _sql_text
+
+    from app.models_requests import RequestRecord
+
+    # --- Sprint 5.3: explicit DB connectivity probe (SELECT 1) ---------------
+    database = "ok"
+    try:
+        await db.execute(_sql_text("SELECT 1"))
+    except Exception:  # noqa: BLE001
+        database = "error"
+
+    # --- Sprint 5.3: agent registry count (enabled agents) ------------------
+    agents_enabled = 0
+    if database == "ok":
+        try:
+            agents_enabled = (
+                await db.execute(
+                    select(func.count(AgentRegistration.agent_id)).where(
+                        AgentRegistration.enabled.is_(True)
+                    )
+                )
+            ).scalar_one()
+        except Exception:  # noqa: BLE001
+            agents_enabled = 0
+
+    # --- Sprint 5.3: timestamp of the most recent request row ---------------
+    last_request_at: str | None = None
+    if database == "ok":
+        try:
+            last_dt = (
+                await db.execute(select(func.max(RequestRecord.created_at)))
+            ).scalar_one_or_none()
+            if last_dt is not None:
+                last_request_at = last_dt.isoformat()
+        except Exception:  # noqa: BLE001
+            last_request_at = None
+
+    # --- Sprint 5.3: uptime since process start -----------------------------
+    import time as _time
+
+    from app.main import START_TIME  # lazy import — avoids circular import at load
+
+    uptime_seconds = int(max(0, _time.time() - START_TIME))
+
+    # --- Sprint 5.3: top-level status roll-up -------------------------------
+    if database != "ok":
+        overall_status = "error"
+    elif agents_enabled == 0:
+        overall_status = "degraded"
+    else:
+        overall_status = "ok"
+
     db_ok = "ok"
     try:
         pending = (
@@ -180,6 +232,12 @@ async def health(db: AsyncSession = Depends(get_db)) -> HealthOut:
         audit_chain_length=chain_count,
         sla_breaches_open=sla_breaches,
         version=__version__,
+        # Sprint 5.3 — expanded monitoring fields
+        status=overall_status,  # type: ignore[arg-type]
+        uptime_seconds=uptime_seconds,
+        database=database,  # type: ignore[arg-type]
+        agents_enabled=agents_enabled,
+        last_request_at=last_request_at,
     )
 
 

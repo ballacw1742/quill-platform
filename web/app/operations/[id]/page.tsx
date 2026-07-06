@@ -27,6 +27,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell";
 import {
   useCampus,
@@ -818,7 +819,7 @@ const TABS: { label: string; value: TabValue }[] = [
   { label: "Details", value: "details" },
 ];
 
-export default function CampusDetailPage() {
+function CampusDetailPageInner() {
   const params = useParams();
   const router = useRouter();
   const campusId = typeof params.id === "string" ? params.id : (params.id?.[0] ?? "");
@@ -922,5 +923,13 @@ export default function CampusDetailPage() {
         {tab === "details" && campus && <DetailsTab campus={campus} />}
       </div>
     </MobileShell>
+  );
+}
+
+export default function CampusDetailPage() {
+  return (
+    <ErrorBoundary moduleName="Operations">
+      <CampusDetailPageInner />
+    </ErrorBoundary>
   );
 }

@@ -206,6 +206,13 @@ class HealthOut(_Base):
     audit_chain_length: int
     sla_breaches_open: int
     version: str
+    # Sprint 5.3 — expanded health/monitoring fields (additive; existing
+    # consumers keep working since the original fields are unchanged).
+    status: Literal["ok", "degraded", "error"] = "ok"
+    uptime_seconds: int = 0
+    database: Literal["ok", "error"] = "ok"
+    agents_enabled: int = 0
+    last_request_at: str | None = None
 
 
 class LitigationHoldRequest(_Base):
