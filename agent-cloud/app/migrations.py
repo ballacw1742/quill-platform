@@ -186,6 +186,38 @@ CREATE INDEX IF NOT EXISTS agentcloud_jobs_tenant_idx
     ON agentcloud_jobs (tenant_id, status)""",
 ]
 
+# A4: per-tenant schedules (cron/reminders). One statement each (asyncpg
+# constraint), additive + idempotent.
+DDL_A4 = [
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_schedules (
+    schedule_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id        TEXT NOT NULL,
+    agent_id         TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    cron_expr        TEXT,
+    timezone         TEXT NOT NULL DEFAULT 'UTC',
+    run_at           TIMESTAMPTZ,
+    payload          JSONB NOT NULL DEFAULT '{}',
+    session_id       UUID,
+    enabled          BOOLEAN NOT NULL DEFAULT TRUE,
+    delete_after_run BOOLEAN NOT NULL DEFAULT FALSE,
+    next_run_at      TIMESTAMPTZ,
+    last_run_at      TIMESTAMPTZ,
+    last_status      TEXT,
+    last_job_id      UUID,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_schedules_due_idx
+    ON agentcloud_schedules (enabled, next_run_at)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_schedules_tenant_idx
+    ON agentcloud_schedules (tenant_id, agent_id)""",
+]
+
 _RLS_TABLES = [
     "agentcloud_tenants",
     "agentcloud_agents",
@@ -195,6 +227,7 @@ _RLS_TABLES = [
     "agentcloud_memory",
     "agentcloud_events",
     "agentcloud_jobs",
+    "agentcloud_schedules",
 ]
 
 
@@ -230,6 +263,7 @@ async def run_migrations(engine: AsyncEngine) -> None:
         *DDL_ADDITIVE,
         *_memory_ddl(get_settings().EMBEDDING_DIM),
         *DDL_A3,
+        *DDL_A4,
     ]
     for table in _RLS_TABLES:
         statements.extend(_rls_ddl(table))
@@ -237,5 +271,5 @@ async def run_migrations(engine: AsyncEngine) -> None:
         for stmt in statements:
             await conn.execute(text(stmt))
     log.info(
-        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + RLS)"
+        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + RLS)"
     )
