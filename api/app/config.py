@@ -67,6 +67,21 @@ class Settings(BaseSettings):
         description="Quill ADK agents Cloud Run service URL.",
     )
 
+    # Agent Cloud bridge (Sprint A5 — agent-cloud/WEBCHAT.md)
+    AGENTCLOUD_URL: str = Field(
+        default="http://localhost:8010",
+        description="quill-agent-orchestrator base URL (Cloud Run URL in prod).",
+    )
+    AGENTCLOUD_TENANT_ID: str = Field(
+        default="quill-main",
+        description="This deployment's agent-cloud tenant id (WEBCHAT.md §1). "
+        "Never taken from the client. smoke- prefix seeds cheap-tier models.",
+    )
+    AGENTCLOUD_TIMEOUT_SECONDS: float = Field(
+        default=120.0,
+        description="Per-request budget for non-stream agent-cloud calls.",
+    )
+
     # Documents service (Phase D.1)
     DOCUMENTS_BLOB_PATH: str = Field(
         default="./_local_documents",
