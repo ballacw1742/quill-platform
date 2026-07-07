@@ -37,6 +37,22 @@ class Settings(BaseSettings):
     VERTEX_PROJECT: str = Field(default="totemic-formula-467102-s9")
     VERTEX_REGION: str = Field(default="global")
 
+    # --- Embeddings (memory subsystem) ----------------------------------
+    # "gemini" (Gemini API direct, GEMINI_API_KEY — live path today) |
+    # "vertex" (IAM-auth'd Vertex text embeddings; config-gated like
+    # MODEL_PROVIDER) | "none" (memory falls back to text search).
+    EMBEDDING_PROVIDER: str = Field(default="gemini")
+    EMBEDDING_MODEL: str = Field(default="gemini-embedding-001")
+    # Must match the vector(<dim>) column created by migrations.
+    EMBEDDING_DIM: int = Field(default=768)
+    GEMINI_API_KEY: str = Field(default="")
+    EMBEDDING_TIMEOUT_SECONDS: float = Field(default=15.0)
+
+    # --- Memory policy knobs ---------------------------------------------
+    MEMORY_RECALL_TOP_K: int = Field(default=5)
+    MEMORY_RECALL_MAX_CHARS: int = Field(default=2000)
+    MEMORY_CONTENT_MAX_CHARS: int = Field(default=4000)
+
     # Optional JSON override for the pricing table, e.g.
     # {"claude-haiku-4-5": [1.0, 5.0]}  (USD per MTok in/out)
     PRICING_JSON: str = Field(default="")

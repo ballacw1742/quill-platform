@@ -49,6 +49,8 @@ class AgentDef(Base):
         sa.Numeric(10, 2), nullable=False, default=20.0
     )
     enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
+    # off | tools_only | auto_recall (A2 memory subsystem)
+    memory_policy: Mapped[str] = mapped_column(sa.Text, nullable=False, default="off")
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
     )
@@ -92,6 +94,45 @@ class Message(Base):
     content: Mapped[object] = mapped_column(JSONVariant, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class MemoryRow(Base):
+    """Long-term memory, namespaced by (tenant, agent) (design doc §3.2).
+
+    The pgvector `embedding vector(<dim>)` column is intentionally NOT mapped
+    here: it only exists on Postgres when the pgvector extension is available
+    (added by migrations), and all vector reads/writes go through raw SQL in
+    app/memory.py. sqlite (tests) uses this ORM shape + text-search fallback.
+    """
+
+    __tablename__ = "agentcloud_memory"
+    __table_args__ = (
+        sa.ForeignKeyConstraint(
+            ["tenant_id", "agent_id"],
+            ["agentcloud_agents.tenant_id", "agentcloud_agents.agent_id"],
+        ),
+        sa.Index("agentcloud_memory_tenant_idx", "tenant_id", "agent_id", "kind"),
+    )
+
+    memory_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    agent_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    kind: Mapped[str] = mapped_column(sa.Text, nullable=False, default="fact")
+    content: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    meta: Mapped[dict] = mapped_column(
+        "metadata", JSONVariant, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    last_accessed: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
     )
 
 
