@@ -35,6 +35,7 @@ from app.routes import intelligence as intelligence_routes
 from app.routes import finance as finance_routes
 from app.routes import compliance as compliance_routes
 from app.routes import portal as portal_routes  # Sprint 4B — Customer Portal
+from app.routes import agent_cloud as agent_cloud_routes  # Sprint A5 — Agent Cloud bridge (WEBCHAT.md)
 from app.services import sentry as sentry_svc
 from app.services.audit_mirror import get_mirror
 from app.services.sla import run_forever as sla_run_forever
@@ -181,4 +182,5 @@ app.include_router(intelligence_routes.router)   # Sprint 3B — Executive Intel
 app.include_router(finance_routes.router)  # Sprint 3A — Finance module
 app.include_router(compliance_routes.router)  # Sprint 4A — Compliance Register
 app.include_router(portal_routes.router)   # Sprint 4B — Customer Portal
+app.include_router(agent_cloud_routes.router)  # Sprint A5 — Agent Cloud bridge (agent-cloud/WEBCHAT.md)
 # Sprint DC.4: Agent Registry routes are in admin.py (GET/PATCH /v1/agents). Seed on startup via lifespan.
