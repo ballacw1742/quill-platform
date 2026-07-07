@@ -64,6 +64,25 @@ class Settings(BaseSettings):
     QUILL_AGENT_SECRET: str = Field(default="")
     QUILL_TOOL_TIMEOUT_SECONDS: float = Field(default=30.0)
 
+    # --- Events (A3) ---------------------------------------------------
+    # "inline" (in-process dispatch — local/dev/tests) | "pubsub"
+    # (google-cloud-pubsub publisher; see EVENTS.md for the contract,
+    # dead-letter + retry policy). Publish is always best-effort.
+    EVENT_BUS: str = Field(default="inline")
+    PUBSUB_PROJECT: str = Field(default="totemic-formula-467102-s9")
+    EVENT_TOPIC: str = Field(default="agentcloud-events")
+    EVENT_DEADLETTER_TOPIC: str = Field(default="agentcloud-events-deadletter")
+    EVENT_PUBLISH_TIMEOUT_SECONDS: float = Field(default=5.0)
+
+    # --- Sub-agent jobs (A3) ---------------------------------------------
+    # "local" (in-process asyncio task — dev/tests) | "cloudrun"
+    # (Cloud Run Job execution running `python -m app.jobs run <job_id>`).
+    JOBS_BACKEND: str = Field(default="local")
+    CLOUDRUN_JOB_NAME: str = Field(default="agentcloud-subagent")
+    CLOUDRUN_JOB_REGION: str = Field(default="us-central1")
+    CLOUDRUN_JOB_PROJECT: str = Field(default="totemic-formula-467102-s9")
+    SUBAGENT_TASK_MAX_CHARS: int = Field(default=8000)
+
     # --- Budgets ------------------------------------------------------------
     DEFAULT_BUDGET_MONTHLY_USD: float = Field(default=20.0)
 

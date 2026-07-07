@@ -148,6 +148,44 @@ EXCEPTION WHEN OTHERS THEN
 END $$""",
     ]
 
+# A3: durable events + sub-agent jobs (EVENTS.md). One statement each
+# (asyncpg constraint), additive + idempotent.
+DDL_A3 = [
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_events (
+    event_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id   TEXT NOT NULL,
+    agent_id    TEXT NOT NULL DEFAULT '',
+    session_id  UUID,
+    type        TEXT NOT NULL,
+    payload     JSONB NOT NULL DEFAULT '{}',
+    attempt     INTEGER NOT NULL DEFAULT 1,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_events_tenant_idx
+    ON agentcloud_events (tenant_id, created_at)""",
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_jobs (
+    job_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id         TEXT NOT NULL,
+    agent_id          TEXT NOT NULL,
+    parent_session_id UUID,
+    session_id        UUID,
+    task              TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'queued',
+    payload           JSONB NOT NULL DEFAULT '{}',
+    result            JSONB,
+    error             TEXT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at        TIMESTAMPTZ,
+    finished_at       TIMESTAMPTZ
+)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_jobs_tenant_idx
+    ON agentcloud_jobs (tenant_id, status)""",
+]
+
 _RLS_TABLES = [
     "agentcloud_tenants",
     "agentcloud_agents",
@@ -155,6 +193,8 @@ _RLS_TABLES = [
     "agentcloud_messages",
     "agentcloud_usage",
     "agentcloud_memory",
+    "agentcloud_events",
+    "agentcloud_jobs",
 ]
 
 
@@ -189,10 +229,13 @@ async def run_migrations(engine: AsyncEngine) -> None:
         *DDL_TABLES,
         *DDL_ADDITIVE,
         *_memory_ddl(get_settings().EMBEDDING_DIM),
+        *DDL_A3,
     ]
     for table in _RLS_TABLES:
         statements.extend(_rls_ddl(table))
     async with engine.begin() as conn:
         for stmt in statements:
             await conn.execute(text(stmt))
-    log.info("agentcloud migrations applied (tables + additive columns + memory + RLS)")
+    log.info(
+        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + RLS)"
+    )
