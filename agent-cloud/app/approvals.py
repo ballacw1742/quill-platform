@@ -71,8 +71,8 @@ VALID_PHASES = (
     "commissioning",
     "turnover",
 )
-VALID_PROJECT_STATUSES = ("active", "on_hold", "completed", "cancelled")
-VALID_ENTRY_TYPES = ("note", "issue", "progress", "weather", "safety")
+VALID_PROJECT_STATUSES = ("active", "on_hold", "complete", "cancelled")
+VALID_ENTRY_TYPES = ("general", "issue", "milestone", "decision")
 VALID_DEAL_STAGES = ("prospect", "qualified", "proposal", "negotiating", "won", "lost")
 VALID_REQUEST_STATUSES = ("complete", "failed")
 

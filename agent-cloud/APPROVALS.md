@@ -32,7 +32,7 @@ validated *before* queueing (agent-cloud) and *again* before executing (api).
 | Tool | Workflow | Executes (api-side) |
 |---|---|---|
 | `quill_project_update` | `agentcloud.project_update` | `Project` phase/status/notes update; `advance_phase=true` steps `PHASE_ORDER`; explicit `phase`/`status` must be in `VALID_PHASES`/`VALID_STATUSES` |
-| `quill_project_log_note` | `agentcloud.project_log_note` | insert `ProjectLogEntry` (`entry_type` ∈ `VALID_ENTRY_TYPES`) |
+| `quill_project_log_note` | `agentcloud.project_log_note` | insert `ProjectLogEntry` (`entry_type` ∈ `VALID_ENTRY_TYPES`: general/issue/milestone/decision) |
 | `quill_project_milestone_create` | `agentcloud.project_milestone_create` | insert `ProjectMilestone` (name, description?, due_date? ISO date) |
 | `quill_deal_update` | `agentcloud.deal_update` | `Deal` update (stage ∈ `VALID_DEAL_STAGES`, value_usd, probability_pct, expected_close?, notes, lost_reason); stage→won upgrades the account to customer, same as the human PATCH route |
 | `quill_request_update` | `agentcloud.request_update` | `RequestRecord` status ∈ {complete, failed} + response text, mirroring the agent-facing PATCH `/v1/requests/{id}` semantics |

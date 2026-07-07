@@ -81,6 +81,14 @@ class Settings(BaseSettings):
         default=120.0,
         description="Per-request budget for non-stream agent-cloud calls.",
     )
+    # Sprint A6 — agent-cloud/APPROVALS.md §6. Shared secret for the
+    # best-effort resolution notify POST to agent-cloud
+    # /v1/internal/approvals/notify. Empty ⇒ notify disabled (the agent-cloud
+    # reconcile sweep still closes the loop by polling).
+    AGENTCLOUD_NOTIFY_SECRET: str = Field(
+        default="",
+        description="Shared secret for agent-cloud approvals resolution notify.",
+    )
 
     # Documents service (Phase D.1)
     DOCUMENTS_BLOB_PATH: str = Field(
