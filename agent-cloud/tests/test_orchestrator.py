@@ -151,7 +151,8 @@ async def test_personal_agent_is_not_offered_quill_tools():
     await chat_turn(
         tenant_id=TENANT_A, agent_id="personal", message="hi again", provider=spy
     )
-    assert seen["tools"] == ["get_time"]
+    assert seen["tools"] == ["get_time", "memory_save", "memory_search"]
+    assert not any(t.startswith("quill_") for t in seen["tools"])
 
 
 # --------------------------- isolation suite (app layer) --------------------

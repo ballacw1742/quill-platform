@@ -23,6 +23,8 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from app.config import get_settings
+
 log = logging.getLogger("agentcloud.migrations")
 
 # NOTE: asyncpg cannot prepare multi-statement strings — every entry below
@@ -89,7 +91,62 @@ ALTER TABLE agentcloud_agents
     """
 ALTER TABLE agentcloud_agents
     ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE""",
+    # A2: memory_policy — off | tools_only | auto_recall (design doc §3.3
+    # agent-definitions-as-data; enforced in orchestrator, default safe).
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS memory_policy TEXT NOT NULL DEFAULT 'off'""",
 ]
+
+
+def _memory_ddl(dim: int) -> list[str]:
+    """A2 memory table. Every entry is one statement (asyncpg constraint).
+
+    pgvector: `CREATE EXTENSION vector` may need privileges the app role
+    lacks; the DO block degrades cleanly (NOTICE, no failure). The embedding
+    column + ANN index are only added when the extension is present, so the
+    table (and text-search fallback) works without pgvector. Cloud SQL
+    Postgres ships pgvector, so prod gets the vector path.
+    """
+    dim = int(dim)
+    return [
+        """DO $$ BEGIN
+    CREATE EXTENSION IF NOT EXISTS vector;
+EXCEPTION WHEN insufficient_privilege OR undefined_file THEN
+    RAISE NOTICE 'pgvector extension unavailable (%) — memory falls back to text search', SQLERRM;
+END $$""",
+        """
+CREATE TABLE IF NOT EXISTS agentcloud_memory (
+    memory_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id     TEXT NOT NULL,
+    agent_id      TEXT NOT NULL,
+    kind          TEXT NOT NULL DEFAULT 'fact',
+    content       TEXT NOT NULL,
+    metadata      JSONB NOT NULL DEFAULT '{}',
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_accessed TIMESTAMPTZ,
+    FOREIGN KEY (tenant_id, agent_id)
+        REFERENCES agentcloud_agents(tenant_id, agent_id)
+)""",
+        """
+CREATE INDEX IF NOT EXISTS agentcloud_memory_tenant_idx
+    ON agentcloud_memory (tenant_id, agent_id, kind)""",
+        f"""DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+        ALTER TABLE agentcloud_memory
+            ADD COLUMN IF NOT EXISTS embedding vector({dim});
+    END IF;
+END $$""",
+        """DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+        CREATE INDEX IF NOT EXISTS agentcloud_memory_embedding_idx
+            ON agentcloud_memory USING hnsw (embedding vector_cosine_ops);
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'hnsw index unavailable (%) — sequential vector scan', SQLERRM;
+END $$""",
+    ]
 
 _RLS_TABLES = [
     "agentcloud_tenants",
@@ -97,6 +154,7 @@ _RLS_TABLES = [
     "agentcloud_sessions",
     "agentcloud_messages",
     "agentcloud_usage",
+    "agentcloud_memory",
 ]
 
 
@@ -127,10 +185,14 @@ async def run_migrations(engine: AsyncEngine) -> None:
             await conn.run_sync(Base.metadata.create_all)
         return
 
-    statements: list[str] = [*DDL_TABLES, *DDL_ADDITIVE]
+    statements: list[str] = [
+        *DDL_TABLES,
+        *DDL_ADDITIVE,
+        *_memory_ddl(get_settings().EMBEDDING_DIM),
+    ]
     for table in _RLS_TABLES:
         statements.extend(_rls_ddl(table))
     async with engine.begin() as conn:
         for stmt in statements:
             await conn.execute(text(stmt))
-    log.info("agentcloud migrations applied (tables + additive columns + RLS)")
+    log.info("agentcloud migrations applied (tables + additive columns + memory + RLS)")

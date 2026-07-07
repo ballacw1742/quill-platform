@@ -15,11 +15,14 @@ from typing import Any
 
 from app.tools.base import Tool, ToolNotAllowedError, ToolNotFoundError
 from app.tools.builtin import BUILTIN_TOOLS
+from app.tools.memory import MEMORY_TOOL_NAMES, MEMORY_TOOLS
 from app.tools.quill import QUILL_TOOLS
 
 log = logging.getLogger("agentcloud.tools")
 
-REGISTRY: dict[str, Tool] = {t.name: t for t in (*BUILTIN_TOOLS, *QUILL_TOOLS)}
+REGISTRY: dict[str, Tool] = {
+    t.name: t for t in (*BUILTIN_TOOLS, *QUILL_TOOLS, *MEMORY_TOOLS)
+}
 
 
 def specs_for_allowlist(allowlist: list[str]) -> list[dict[str, Any]]:
@@ -47,6 +50,7 @@ async def run_tool(name: str, args: dict[str, Any], allowlist: list[str]) -> str
 
 
 __all__ = [
+    "MEMORY_TOOL_NAMES",
     "REGISTRY",
     "Tool",
     "ToolNotAllowedError",
