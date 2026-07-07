@@ -30,10 +30,10 @@ export const viewport: Viewport = {
 export const metadata: Metadata = {
   metadataBase: new URL("https://quillpm.com"),
   title: "Quill",
-  description: "AI-native project management. Agents that research, draft, and execute — every action approval-gated and audit-chained.",
+  description: "Agentic Infrastructure Management Platform. Agents that research, draft, and execute — every action approval-gated and audit-chained.",
   applicationName: "Quill",
   openGraph: {
-    title: "Quill — AI-native project management",
+    title: "Quill — Agentic Infrastructure Management Platform",
     description:
       "Agents that research, draft, and execute — every action approval-gated and audit-chained.",
     url: "https://quillpm.com",
@@ -42,7 +42,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Quill — AI-native project management",
+    title: "Quill — Agentic Infrastructure Management Platform",
     description:
       "Agents that research, draft, and execute — every action approval-gated and audit-chained.",
   },
