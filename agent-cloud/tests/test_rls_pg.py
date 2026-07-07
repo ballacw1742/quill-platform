@@ -36,6 +36,7 @@ async def pg_engine():
     async with engine.begin() as conn:
         await conn.execute(text("SELECT set_config('app.admin', 'on', true)"))
         for t in (
+            "agentcloud_proposals",
             "agentcloud_schedules",
             "agentcloud_events",
             "agentcloud_jobs",
@@ -108,6 +109,17 @@ async def _seed(engine, tenant: str) -> uuid.UUID:
             ),
             {"t": tenant},
         )
+        # A6 table: one proposal per tenant
+        await conn.execute(
+            text(
+                "INSERT INTO agentcloud_proposals "
+                "(tenant_id, agent_id, tool_name, action, args, idempotency_key, "
+                " quill_approval_id, status) "
+                "VALUES (:t, 'personal', 'quill_project_update', 'project_update', "
+                "'{}'::jsonb, :k, 'appr-x', 'pending')"
+            ),
+            {"t": tenant, "k": f"sha256:{tenant}"},
+        )
     return sid
 
 
@@ -126,6 +138,7 @@ async def test_rls_wrong_tenant_guc_sees_zero_rows(pg_engine):
             "agentcloud_events",
             "agentcloud_jobs",
             "agentcloud_schedules",
+            "agentcloud_proposals",
         ):
             n = (
                 await conn.execute(
@@ -160,6 +173,7 @@ async def test_rls_correct_guc_sees_own_rows(pg_engine):
             "agentcloud_events",
             "agentcloud_jobs",
             "agentcloud_schedules",
+            "agentcloud_proposals",
         ):
             n = (
                 await conn.execute(text(f"SELECT count(*) FROM {table}"))
@@ -172,7 +186,12 @@ async def test_rls_no_guc_sees_zero_a3_rows(pg_engine):
 
     await _seed(pg_engine, TENANT_A)
     async with pg_engine.begin() as conn:
-        for table in ("agentcloud_events", "agentcloud_jobs", "agentcloud_schedules"):
+        for table in (
+            "agentcloud_events",
+            "agentcloud_jobs",
+            "agentcloud_schedules",
+            "agentcloud_proposals",
+        ):
             n = (
                 await conn.execute(text(f"SELECT count(*) FROM {table}"))
             ).scalar_one()
