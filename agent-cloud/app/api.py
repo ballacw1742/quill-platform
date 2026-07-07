@@ -11,6 +11,10 @@ Routes:
   GET  /healthz           — same handler (container-internal use only).
   POST /v1/agents/chat    — chat turn. body.stream=true => SSE
                             (events: session, text, tool, done, error).
+  GET  /v1/agents           — list tenant agents (A5, WEBCHAT.md §5;
+                              provisions tenant + seeds idempotently).
+  GET  /v1/agents/sessions      — list tenant sessions (A5, WEBCHAT.md §5).
+  GET  /v1/agents/sessions/{id} — full session transcript (A5).
   POST /v1/agents/subagents      — create a sub-agent job (EVENTS.md §jobs).
   GET  /v1/agents/subagents/{id} — job status/result (tenant_id query param).
   POST   /v1/agents/schedules      — create a schedule (A4 cron/reminders).
@@ -37,6 +41,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from app import db as db_mod
+from app import directory as directory_mod
 from app import jobs as jobs_mod
 from app import scheduler as scheduler_mod
 from app.config import get_settings
@@ -237,6 +242,37 @@ async def chat(body: ChatIn):
         ),
         budget_exceeded=result.budget_exceeded,
     )
+
+
+@app.get("/v1/agents")
+async def list_agents(tenant_id: str, limit: int = 100, offset: int = 0):
+    """Tenant agent directory (WEBCHAT.md §3.1). Idempotently provisions the
+    tenant + seed agents first so a fresh tenant sees `personal` + `quill`
+    before its first chat turn."""
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    return await directory_mod.list_agents(tenant_id, limit=limit, offset=offset)
+
+
+@app.get("/v1/agents/sessions")
+async def list_sessions(
+    tenant_id: str, agent_id: str | None = None, limit: int = 50, offset: int = 0
+):
+    """Tenant sessions, newest-updated first (WEBCHAT.md §3.2)."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    return await directory_mod.list_sessions(
+        tenant_id, agent_id=agent_id, limit=limit, offset=offset
+    )
+
+
+@app.get("/v1/agents/sessions/{session_id}")
+async def get_session_transcript(session_id: uuid.UUID, tenant_id: str):
+    """Full transcript (WEBCHAT.md §3.3); 404 unknown/cross-tenant."""
+    try:
+        return await directory_mod.get_transcript(tenant_id, session_id)
+    except directory_mod.DirectorySessionNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
 
 
 @app.post("/v1/agents/subagents", status_code=202)
