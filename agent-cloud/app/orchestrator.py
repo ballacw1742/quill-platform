@@ -25,13 +25,19 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql, sqlite
 
 from app import budget as budget_mod
+from app import memory as memory_mod
 from app.config import get_settings
 from app.db import tenant_session
 from app.logging_setup import agent_id_var, session_id_var, tenant_id_var
 from app.models import AgentDef, Message, Session, Tenant
 from app.providers import ModelProvider, get_provider
 from app.seeds import SEED_AGENTS, seed_model_for_tenant
-from app.tools import ToolNotAllowedError, run_tool, specs_for_allowlist
+from app.tools import (
+    MEMORY_TOOL_NAMES,
+    ToolNotAllowedError,
+    run_tool,
+    specs_for_allowlist,
+)
 
 log = logging.getLogger("agentcloud.orchestrator")
 
@@ -82,6 +88,7 @@ class _TurnContext:
     allowlist: list[str]
     budget_monthly_usd: float
     month_spend_usd: float
+    memory_policy: str = "off"
     history: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -113,6 +120,7 @@ async def _prepare(
                         "tools": list(seed.tools),
                         "budget_monthly_usd": s.DEFAULT_BUDGET_MONTHLY_USD,
                         "enabled": True,
+                        "memory_policy": seed.memory_policy,
                     },
                     dialect,
                 )
@@ -162,13 +170,21 @@ async def _prepare(
 
         spend = await budget_mod.month_spend_usd(db, tenant_id, agent_id)
 
+        memory_policy = agent.memory_policy or "off"
+        allowlist = list(agent.tools or [])
+        if memory_policy == "off":
+            # policy gate on top of the allow-list: memory tools are neither
+            # offered to the model nor executable when memory is off.
+            allowlist = [t for t in allowlist if t not in MEMORY_TOOL_NAMES]
+
         return _TurnContext(
             session_id=sid,
             model=agent.model,
             system_prompt=agent.system_prompt,
-            allowlist=list(agent.tools or []),
+            allowlist=allowlist,
             budget_monthly_usd=float(agent.budget_monthly_usd),
             month_spend_usd=spend,
+            memory_policy=memory_policy,
             history=history,
         )
 
@@ -268,6 +284,14 @@ async def stream_turn(
         yield {"type": "done", **result.as_dict()}
         return
 
+    # --- auto_recall: inject top-k relevant memories into the system prompt.
+    # Runs after the budget gate (a refused turn embeds nothing) and outside
+    # any DB transaction (embedding call is network I/O; the fetch is its own
+    # short tx) — the tx1 → model loop → tx2 discipline is preserved.
+    system_prompt = ctx.system_prompt
+    if ctx.memory_policy == "auto_recall":
+        system_prompt += await memory_mod.recall_block(tenant_id, agent_id, message)
+
     prov = provider or get_provider()
     tools_spec = specs_for_allowlist(ctx.allowlist)
     messages = [*ctx.history, {"role": "user", "content": message}]
@@ -283,7 +307,7 @@ async def stream_turn(
             resp = None
             async for ev in prov.stream(
                 model=ctx.model,
-                system=ctx.system_prompt,
+                system=system_prompt,
                 messages=messages,
                 tools=tools_spec,
                 max_tokens=s.MAX_TOKENS,
@@ -297,7 +321,7 @@ async def stream_turn(
         else:
             resp = await prov.complete(
                 model=ctx.model,
-                system=ctx.system_prompt,
+                system=system_prompt,
                 messages=messages,
                 tools=tools_spec,
                 max_tokens=s.MAX_TOKENS,

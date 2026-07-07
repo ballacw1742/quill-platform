@@ -8,7 +8,12 @@ Never exposed over HTTP. Subcommands:
       Wrong/no GUC must return zero rows (gate: isolation).
 
   set-agent --tenant T --agent A [--model M] [--budget USD] [--enabled true|false]
-      Tweak one agent definition (model tiering / budget caps / kill switch).
+            [--memory-policy off|tools_only|auto_recall]
+      Tweak one agent definition (model tiering / budget caps / kill switch
+      / memory policy).
+
+  list-memory --tenant T [--agent A] [--limit N]
+      Show a tenant's stored memories (id, agent, kind, content, embedded?).
 
   seed-tenant --tenant T
       Provision a tenant + its two seed agents without a chat call.
@@ -46,6 +51,7 @@ TABLES = [
     "agentcloud_sessions",
     "agentcloud_messages",
     "agentcloud_usage",
+    "agentcloud_memory",
 ]
 
 
@@ -132,6 +138,7 @@ async def set_agent(
     model: str | None,
     budget: float | None,
     enabled: str | None,
+    memory_policy: str | None = None,
 ) -> None:
     values: dict = {}
     if model is not None:
@@ -140,6 +147,11 @@ async def set_agent(
         values["budget_monthly_usd"] = budget
     if enabled is not None:
         values["enabled"] = enabled.lower() in ("true", "1", "yes", "on")
+    if memory_policy is not None:
+        if memory_policy not in ("off", "tools_only", "auto_recall"):
+            _out({"error": f"invalid memory_policy {memory_policy!r}"})
+            return
+        values["memory_policy"] = memory_policy
     if not values:
         _out({"error": "nothing to set"})
         return
@@ -166,6 +178,63 @@ async def seed_tenant(tenant: str) -> None:
     _out({"seeded": tenant})
 
 
+async def list_memory(tenant: str, agent: str | None, limit: int) -> None:
+    limit = max(1, min(limit, 200))
+    where = "WHERE tenant_id = :tenant"
+    params: dict = {"tenant": tenant, "limit": limit}
+    if agent:
+        where += " AND agent_id = :agent"
+        params["agent"] = agent
+    async with tenant_session(tenant) as s:
+        has_embedding = (
+            await s.execute(
+                text(
+                    "SELECT count(*) FROM information_schema.columns "
+                    "WHERE table_name = 'agentcloud_memory' AND column_name = 'embedding'"
+                )
+            )
+        ).scalar_one()
+        embedded_expr = (
+            "(embedding IS NOT NULL)" if has_embedding else "FALSE"
+        )
+        rows = (
+            await s.execute(
+                text(
+                    f"SELECT memory_id, agent_id, kind, content, metadata, "
+                    f"created_at, last_accessed, {embedded_expr} AS embedded "
+                    f"FROM agentcloud_memory {where} "
+                    "ORDER BY created_at DESC LIMIT :limit"
+                ),
+                params,
+            )
+        ).all()
+    _out(
+        {
+            "tenant": tenant,
+            "agent": agent,
+            "count": len(rows),
+            "items": [
+                dict(
+                    zip(
+                        (
+                            "memory_id",
+                            "agent_id",
+                            "kind",
+                            "content",
+                            "metadata",
+                            "created_at",
+                            "last_accessed",
+                            "embedded",
+                        ),
+                        r,
+                    )
+                )
+                for r in rows
+            ],
+        }
+    )
+
+
 async def cleanup_smoke(prefix: str) -> None:
     if not prefix or prefix in ("%", "%%"):
         _out({"error": "refusing empty/wildcard prefix"})
@@ -177,6 +246,7 @@ async def cleanup_smoke(prefix: str) -> None:
             "agentcloud_messages",
             "agentcloud_sessions",
             "agentcloud_usage",
+            "agentcloud_memory",
             "agentcloud_agents",
             "agentcloud_tenants",
         ):
@@ -210,9 +280,15 @@ async def amain(argv: list[str]) -> None:
     p.add_argument("--model")
     p.add_argument("--budget", type=float)
     p.add_argument("--enabled")
+    p.add_argument("--memory-policy", dest="memory_policy")
 
     p = sub.add_parser("seed-tenant")
     p.add_argument("--tenant", required=True)
+
+    p = sub.add_parser("list-memory")
+    p.add_argument("--tenant", required=True)
+    p.add_argument("--agent")
+    p.add_argument("--limit", type=int, default=50)
 
     p = sub.add_parser("cleanup-smoke")
     p.add_argument("--prefix", default="smoke-")
@@ -229,7 +305,12 @@ async def amain(argv: list[str]) -> None:
     if args.cmd == "rls-probe":
         await rls_probe(args.tenant_a, args.tenant_b)
     elif args.cmd == "set-agent":
-        await set_agent(args.tenant, args.agent, args.model, args.budget, args.enabled)
+        await set_agent(
+            args.tenant, args.agent, args.model, args.budget, args.enabled,
+            args.memory_policy,
+        )
+    elif args.cmd == "list-memory":
+        await list_memory(args.tenant, args.agent, args.limit)
     elif args.cmd == "seed-tenant":
         await seed_tenant(args.tenant)
     elif args.cmd == "cleanup-smoke":

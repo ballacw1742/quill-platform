@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from app.config import get_settings
 from app.tools.builtin import BUILTIN_TOOLS
+from app.tools.memory import MEMORY_TOOLS
 from app.tools.quill import QUILL_TOOLS
 
 SMOKE_TENANT_PREFIX = "smoke-"
@@ -23,8 +24,10 @@ SMOKE_TENANT_PREFIX = "smoke-"
 PERSONAL_SYSTEM_PROMPT = (
     "You are the personal assistant agent for tenant {tenant_id} on Quill "
     "Agent Cloud. Be concise, helpful, and direct. Use your tools when they "
-    "help. You do not have access to Quill business data tools; if asked for "
-    "Quill financials or operations, suggest the tenant's 'quill' agent."
+    "help. Save durable facts, preferences, and summaries with memory_save; "
+    "recall them with memory_search. You do not have access to Quill "
+    "business data tools; if asked for Quill financials or operations, "
+    "suggest the tenant's 'quill' agent."
 )
 
 QUILL_SYSTEM_PROMPT = (
@@ -42,18 +45,23 @@ class SeedAgent:
     agent_id: str
     system_prompt: str
     tools: tuple[str, ...]
+    # off | tools_only | auto_recall (A2 memory subsystem)
+    memory_policy: str = "off"
 
 
 SEED_AGENTS = (
     SeedAgent(
         agent_id="personal",
         system_prompt=PERSONAL_SYSTEM_PROMPT,
-        tools=tuple(t.name for t in BUILTIN_TOOLS),
+        tools=tuple(t.name for t in BUILTIN_TOOLS)
+        + tuple(t.name for t in MEMORY_TOOLS),
+        memory_policy="auto_recall",  # design §3.3: personal agent, memory on
     ),
     SeedAgent(
         agent_id="quill",
         system_prompt=QUILL_SYSTEM_PROMPT,
         tools=tuple(t.name for t in BUILTIN_TOOLS) + tuple(t.name for t in QUILL_TOOLS),
+        memory_policy="off",
     ),
 )
 
