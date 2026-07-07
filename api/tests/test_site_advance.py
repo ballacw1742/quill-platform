@@ -68,8 +68,9 @@ async def test_advance_creates_approval_not_project(client, owner_token, fake_da
     assert r.status_code == 200
     assert r.json()["total"] == 0
 
-    # Approval is pending in the queue, lane 2.
-    r = await client.get(f"/v1/approvals/{approval_id}")
+    # Approval is pending in the queue, lane 2. (Reads require auth as of the
+    # approvals lockdown — owner token here, agent secret also accepted.)
+    r = await client.get(f"/v1/approvals/{approval_id}", headers=auth_h(tok))
     assert r.status_code == 200
     item = r.json()
     assert item["status"] == "pending"
@@ -121,7 +122,7 @@ async def test_approve_creates_project_with_site_data(client, owner_token, fake_
     assert "123 Adams Fork Rd" in proj["address"]
 
     # Audit chain: created → decision → executed (with project_id).
-    r = await client.get(f"/v1/approvals/{approval_id}/audit")
+    r = await client.get(f"/v1/approvals/{approval_id}/audit", headers=auth_h(tok))
     events = [e["event_type"] for e in r.json()]
     assert "approval.created" in events
     assert "approval.decision.approve" in events

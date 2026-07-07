@@ -30,13 +30,13 @@ async def test_full_lifecycle(client, owner_token):
     assert item["audit_hash"]
 
     # List
-    r = await client.get("/v1/approvals?lane=2")
+    r = await client.get("/v1/approvals?lane=2", headers=agent_h())
     assert r.status_code == 200
     page = r.json()
     assert page["total"] >= 1
 
     # Get
-    r = await client.get(f"/v1/approvals/{aid}")
+    r = await client.get(f"/v1/approvals/{aid}", headers=agent_h())
     assert r.status_code == 200
     assert r.json()["id"] == aid
 
@@ -52,7 +52,7 @@ async def test_full_lifecycle(client, owner_token):
     assert len(decided["records"]) == 1
 
     # Audit chain
-    r = await client.get(f"/v1/approvals/{aid}/audit")
+    r = await client.get(f"/v1/approvals/{aid}/audit", headers=agent_h())
     assert r.status_code == 200
     chain = r.json()
     assert len(chain) >= 2  # created + decided + executed

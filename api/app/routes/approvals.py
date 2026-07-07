@@ -18,7 +18,7 @@ from app.schemas import (
     CancelRequest,
     DecisionRequest,
 )
-from app.security import get_current_user, require_agent_secret
+from app.security import get_current_user, get_current_user_or_agent, require_agent_secret
 from app.services import approvals as svc
 from app.services.security import (
     used_action_jtis,
@@ -59,6 +59,7 @@ async def list_approvals(
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
+    _actor=Depends(get_current_user_or_agent),
 ) -> ApprovalListPage:
     items, total = await svc.list_pending(
         db,
@@ -78,7 +79,11 @@ async def list_approvals(
 
 
 @router.get("/{approval_id}", response_model=ApprovalOut, summary="Get one approval")
-async def get_approval(approval_id: str, db: AsyncSession = Depends(get_db)) -> ApprovalOut:
+async def get_approval(
+    approval_id: str,
+    db: AsyncSession = Depends(get_db),
+    _actor=Depends(get_current_user_or_agent),
+) -> ApprovalOut:
     item = await db.get(ApprovalItem, approval_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "approval not found")
@@ -196,7 +201,9 @@ async def decide(
     summary="Audit trail for one approval",
 )
 async def audit_for_approval(
-    approval_id: str, db: AsyncSession = Depends(get_db)
+    approval_id: str,
+    db: AsyncSession = Depends(get_db),
+    _actor=Depends(get_current_user_or_agent),
 ) -> list[AuditEntryOut]:
     item = await db.get(ApprovalItem, approval_id)
     if item is None:
