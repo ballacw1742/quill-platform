@@ -43,6 +43,7 @@ from app.schemas import (
     PasskeyOptionsOut,
     PasskeyRegisterBegin,
     PasskeyRegisterComplete,
+    PasswordChallengeRequest,
     RegisterRequest,
     TokenOut,
     UserOut,
@@ -454,6 +455,58 @@ async def passkey_challenge_complete(
         user_role=user.role,
         credential_id_b64=cred.credential_id_b64,
         action_intent=inbound_intent,
+    )
+    return ActionAssertionOut(
+        auth_assertion=token, expires_in=_settings.ACTION_ASSERTION_TTL_SECONDS
+    )
+
+
+# ---------------------------------------------------------------------------
+# Password re-auth fallback for approval decisions
+# ---------------------------------------------------------------------------
+@router.post("/password/challenge", response_model=ActionAssertionOut)
+@limiter.limit(AUTH_LIMIT)  # 10/min per IP — same brute-force posture as /login
+async def password_challenge(
+    request: Request,
+    body: PasswordChallengeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ActionAssertionOut:
+    """Mint an action-assertion via password re-auth (WebAuthn fallback).
+
+    Two proofs from the SAME user are required: a live bearer session (the
+    ``get_current_user`` dependency) AND the account password. This is the
+    fallback path for when the passkey ceremony fails or the user has no
+    usable passkey (e.g. orphaned after the quillpm.com domain move).
+
+    The minted token is byte-for-byte the same shape as the passkey path
+    (:func:`mint_action_assertion_jwt`), with ``method="password"`` so the
+    approvals route records ``auth_method=password`` for audit fidelity.
+    ``verify_action_assertion_jwt`` never inspects ``method``/``cred``, so
+    ``/v1/approvals/{id}/decide`` accepts it with zero changes.
+    """
+    inbound_intent = body.action_intent.model_dump(mode="json")
+
+    # Same authority pre-check the passkey path runs (owner/partner only);
+    # final enforcement still lives in services.approvals.decide_approval.
+    _check_lane_authority(user, inbound_intent, db_for_lane_lookup=db)
+
+    # Google-SSO-only users have no password_hash — steer them to a passkey.
+    if not user.password_hash:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "account has no password set — register a passkey to approve",
+        )
+
+    if not verify_password(body.password, user.password_hash):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid password")
+
+    token, _jti = mint_action_assertion_jwt(
+        user_id=user.id,
+        user_role=user.role,
+        credential_id_b64="password",  # sentinel — no credential id for pw path
+        action_intent=inbound_intent,
+        method="password",
     )
     return ActionAssertionOut(
         auth_assertion=token, expires_in=_settings.ACTION_ASSERTION_TTL_SECONDS
