@@ -36,6 +36,7 @@ async def pg_engine():
     async with engine.begin() as conn:
         await conn.execute(text("SELECT set_config('app.admin', 'on', true)"))
         for t in (
+            "agentcloud_schedules",
             "agentcloud_events",
             "agentcloud_jobs",
             "agentcloud_messages",
@@ -98,6 +99,15 @@ async def _seed(engine, tenant: str) -> uuid.UUID:
             ),
             {"t": tenant},
         )
+        # A4 table: one schedule per tenant
+        await conn.execute(
+            text(
+                "INSERT INTO agentcloud_schedules "
+                "(tenant_id, agent_id, name, kind, cron_expr) "
+                "VALUES (:t, 'personal', 'secret schedule', 'cron', '0 9 * * *')"
+            ),
+            {"t": tenant},
+        )
     return sid
 
 
@@ -115,6 +125,7 @@ async def test_rls_wrong_tenant_guc_sees_zero_rows(pg_engine):
             "agentcloud_tenants",
             "agentcloud_events",
             "agentcloud_jobs",
+            "agentcloud_schedules",
         ):
             n = (
                 await conn.execute(
@@ -144,7 +155,12 @@ async def test_rls_correct_guc_sees_own_rows(pg_engine):
         await conn.execute(
             text("SELECT set_config('app.tenant_id', :t, true)"), {"t": TENANT_A}
         )
-        for table in ("agentcloud_sessions", "agentcloud_events", "agentcloud_jobs"):
+        for table in (
+            "agentcloud_sessions",
+            "agentcloud_events",
+            "agentcloud_jobs",
+            "agentcloud_schedules",
+        ):
             n = (
                 await conn.execute(text(f"SELECT count(*) FROM {table}"))
             ).scalar_one()
@@ -156,7 +172,7 @@ async def test_rls_no_guc_sees_zero_a3_rows(pg_engine):
 
     await _seed(pg_engine, TENANT_A)
     async with pg_engine.begin() as conn:
-        for table in ("agentcloud_events", "agentcloud_jobs"):
+        for table in ("agentcloud_events", "agentcloud_jobs", "agentcloud_schedules"):
             n = (
                 await conn.execute(text(f"SELECT count(*) FROM {table}"))
             ).scalar_one()
