@@ -1,4 +1,4 @@
-# EVENTS.md — Quill Agent Cloud event contract (A3, A4 + A6 addenda)
+# EVENTS.md — Quill Agent Cloud event contract (A3, A4 + A6/B2 addenda)
 
 This is the canonical contract for platform events and sub-agent wakes
 (design doc §3.1 "Pub/Sub (events, wakes, completions)" and §3.4). All code
@@ -40,7 +40,7 @@ when ordered delivery is enabled on the subscription.
 |---|---|---|
 | `turn.completed` | a chat turn finishes (incl. refusals) | `{model, tool_calls: [str], input_tokens, output_tokens, cost_usd, budget_exceeded: bool}` |
 | `tool.executed` | each tool call inside a turn | `{name, status: "ok"\|"denied"}` |
-| `budget.exceeded` | the monthly-cap refusal fires | `{month_spend_usd, budget_monthly_usd}` |
+| `budget.exceeded` | the monthly-cap refusal fires (agent **or** tenant cap — B2, LIMITS.md §1) | `{scope: "agent"\|"tenant", month_spend_usd, budget_monthly_usd, tenant_month_spend_usd, tenant_budget_monthly_usd}` — `month_spend_usd`/`budget_monthly_usd` remain the *agent*-level pair (pre-B2 consumers keep working); `scope` names which cap tripped (agent wins when both are exhausted) |
 | `subagent.started` | a job transitions queued→running | `{job_id, task_preview}` (task truncated to 200 chars) |
 | `subagent.completed` | a job finishes ok | `{job_id, reply_preview, budget_exceeded: bool, cost_usd}` |
 | `subagent.failed` | a job errors or times out | `{job_id, error}` |
@@ -48,6 +48,7 @@ when ordered delivery is enabled on the subscription.
 | `schedule.failed` | a due schedule fails to fire (e.g. unknown/disabled agent, dispatch error) | `{schedule_id, name, error}` |
 | `approval.requested` | a write tool queues a proposal in the Quill /queue (A6, APPROVALS.md) | `{proposal_id, tool, action, quill_approval_id, args_preview}` |
 | `approval.resolved` | a proposal reaches a terminal state — emitted exactly once even when the notify push and the reconcile sweep race | `{proposal_id, quill_approval_id, status: "executed"\|"declined"\|"failed"\|"expired", external_ref?, error?, source: "notify"\|"reconcile"}` |
+| `rate_limit.exceeded` | the **first** rejected request of a (tenant, bucket, window) — at most one event per tenant per bucket per minute, so an abusive client cannot flood the events table (B2, LIMITS.md §3) | `{bucket: "chat"\|"jobs", limit_per_min, retry_after_seconds}` — `agent_id`/`session_id` are empty/null (the request was rejected before agent resolution) |
 
 `session_id` on subagent events is the **sub-agent's own session**; the
 parent session is in the job row (`agentcloud_jobs.parent_session_id`).
