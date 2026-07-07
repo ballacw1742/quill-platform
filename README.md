@@ -193,6 +193,26 @@ Decisions that need a passkey assertion (approve / reject / edit /
 escalate) deliver a **60-second** signed deep link to the web UI;
 Telegram cannot run a WebAuthn ceremony itself.
 
+### Passkey re-registration after the quillpm.com move
+
+The app now lives at **quillpm.com**, so the WebAuthn Relying Party ID is
+`RP_ID=quillpm.com`. Any passkey registered before the move (under the old
+`*.run.app` RP) is **orphaned** — browsers refuse to use it on the new
+domain — and must be re-added at **/profile/passkeys**.
+
+Until a user re-registers (and for anyone who never had a passkey, e.g.
+Google-SSO-only accounts), approvals fall back to **password re-auth**:
+`POST /v1/auth/password/challenge` mints the *same* intent-bound, one-shot,
+60-second action-assertion the passkey path produces (with a
+`method="password"` claim), so `/v1/approvals/{id}/decide` accepts it
+unchanged. Two proofs are still required — a live bearer session **and** the
+account password — and the endpoint is `AUTH_LIMIT` rate-limited (10/min per
+IP), identical to `/v1/auth/login`. Decision records store
+`auth_method="password"` so a password-confirmed approval stays
+distinguishable from a passkey-signed one in the audit trail. The web approve
+flow offers this automatically when the passkey ceremony fails or no usable
+passkey exists, plus a manual “Use password instead” escape hatch.
+
 Daily Brief lands at **07:00 ET** every morning, archived to Drive at
 `/Quill/briefs/YYYY-MM-DD-daily.md`. If the runtime is unreachable, the
 bot falls back to a deterministic Markdown brief so you still get the
