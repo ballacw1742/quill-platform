@@ -40,6 +40,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from app import approvals as approvals_mod
 from app import db as db_mod
 from app import directory as directory_mod
 from app import jobs as jobs_mod
@@ -363,6 +364,43 @@ async def delete_schedule(schedule_id: uuid.UUID, tenant_id: str):
         await scheduler_mod.delete_schedule(tenant_id, schedule_id)
     except scheduler_mod.ScheduleNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+class ApprovalNotifyIn(BaseModel):
+    """api → agent-cloud resolution push (APPROVALS.md §6)."""
+
+    approval_id: str = Field(min_length=1, max_length=128)
+    workflow: str = Field(min_length=1, max_length=128)
+    status: str = Field(min_length=1, max_length=32)  # Quill ApprovalStatus
+    tenant_id: str = Field(min_length=1, max_length=128)
+    proposal_id: str | None = None
+    external_ref: str | None = None
+    error: str | None = None
+
+
+@app.post("/v1/internal/approvals/notify")
+async def approvals_notify(body: ApprovalNotifyIn, x_agent_secret: str = Header(default="")):
+    """Best-effort resolution push from the Quill api approvals executor.
+
+    Auth: X-Agent-Secret must equal APPROVALS_NOTIFY_SECRET (same
+    403-when-unset pattern as the scheduler tick). Idempotent: a proposal
+    already finalized (e.g. by the reconcile sweep) is a no-op.
+    """
+    secret = get_settings().APPROVALS_NOTIFY_SECRET
+    if not secret or x_agent_secret != secret:
+        raise HTTPException(403, "approvals notify: invalid or missing X-Agent-Secret")
+    mapped = approvals_mod.QUILL_STATUS_MAP.get(body.status)
+    if mapped is None:
+        raise HTTPException(400, f"non-terminal approval status {body.status!r}")
+    finalized = await approvals_mod.finalize_proposal(
+        tenant_id=body.tenant_id,
+        quill_approval_id=body.approval_id,
+        status=mapped,
+        external_ref=body.external_ref,
+        error=body.error,
+        source="notify",
+    )
+    return {"finalized": finalized, "status": mapped}
 
 
 @app.post("/v1/internal/scheduler/tick")

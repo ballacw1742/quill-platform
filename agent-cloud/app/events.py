@@ -41,6 +41,8 @@ EVENT_TYPES = (
     "subagent.failed",
     "schedule.fired",
     "schedule.failed",
+    "approval.requested",
+    "approval.resolved",
 )
 
 

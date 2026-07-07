@@ -524,6 +524,11 @@ async def tick(now: datetime | None = None) -> dict[str, int]:
             fired += 1
         else:
             failed += 1
+    # A6: approvals reconcile sweep (belt #2 for lost notify webhooks).
+    # Never raises — same contract as schedule firing (APPROVALS.md §7).
+    from app import approvals as approvals_mod  # noqa: PLC0415 — avoid cycle
+
+    reconciled = await approvals_mod.reconcile_sweep(now)
     if claimed:
         log.info(
             "scheduler tick",
@@ -535,7 +540,11 @@ async def tick(now: datetime | None = None) -> dict[str, int]:
                 }
             },
         )
-    return {"claimed": len(claimed), "fired": fired, "failed": failed}
+    out = {"claimed": len(claimed), "fired": fired, "failed": failed}
+    if reconciled["checked"]:
+        out["approvals_checked"] = reconciled["checked"]
+        out["approvals_resolved"] = reconciled["resolved"]
+    return out
 
 
 # --------------------------------------------------------------------------

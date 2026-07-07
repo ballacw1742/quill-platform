@@ -19,6 +19,7 @@ from app.enums import (
     UserRole,
 )
 from app.models import ApprovalItem, ApprovalRecord, User
+from app.services import agentcloud_actions
 from app.services import audit as audit_svc
 from app.services.realtime import broadcaster
 
@@ -256,6 +257,9 @@ async def decide_approval(
         {"type": "approval.decided", "id": item.id, "status": item.status, "decision": decision.value}
     )
 
+    if item.status == ApprovalStatus.REJECTED.value:
+        await agentcloud_actions.notify_agentcloud_resolution(item)
+
     if item.status == ApprovalStatus.APPROVED.value:
         await execute_approval(session, item.id, actor=approver.id)
         await session.refresh(item)
@@ -408,6 +412,33 @@ async def execute_approval(
         if (is_contract_extraction or is_contract_review or is_contract_draft)
         else None
     )
+
+    # ---- Sprint A6: agent-cloud proposed writes (agent-cloud/APPROVALS.md) ----
+    agentcloud_ref: str | None = None
+    if agentcloud_actions.is_agentcloud_workflow(item.workflow):
+        try:
+            agentcloud_ref = await agentcloud_actions.execute_agentcloud_action(
+                session, item, actor=actor
+            )
+        except Exception as exc:  # noqa: BLE001 — validation/lookup/db errors
+            item.status = ApprovalStatus.EXECUTION_FAILED.value
+            item.executed_at = _utcnow()
+            item.execution_result = ExecutionResult.FAILED.value
+            entry = await audit_svc.record_event(
+                session,
+                event_type="approval.execution_failed",
+                actor=actor,
+                approval_item_id=item.id,
+                payload={"error": str(exc), "workflow": item.workflow},
+            )
+            item.prev_audit_hash = item.audit_hash
+            item.audit_hash = entry.hash
+            await session.commit()
+            await broadcaster.publish(
+                {"type": "approval.execution_failed", "id": item.id, "status": item.status}
+            )
+            await agentcloud_actions.notify_agentcloud_resolution(item, error=str(exc))
+            raise
 
     # ---- Sprint 2: site → project advance path ----
     project_id: str | None = None
@@ -599,6 +630,9 @@ async def execute_approval(
     elif project_id is not None:
         item.execution_result = ExecutionResult.SUCCESS.value
         item.external_ref = f"project:{project_id}"
+    elif agentcloud_ref is not None:
+        item.execution_result = ExecutionResult.SUCCESS.value
+        item.external_ref = agentcloud_ref
     else:
         # Non-publish workflows still flow through the Sprint 1 stub.
         item.execution_result = ExecutionResult.DRY_RUN.value
@@ -611,6 +645,8 @@ async def execute_approval(
     }
     if document_id is not None:
         audit_payload["document_id"] = document_id
+    if agentcloud_ref is not None:
+        audit_payload["agentcloud_workflow"] = item.workflow
     if project_id is not None:
         audit_payload["project_id"] = project_id
         audit_payload["site_id"] = (item.payload or {}).get("site_id")
@@ -629,6 +665,7 @@ async def execute_approval(
     await broadcaster.publish(
         {"type": "approval.executed", "id": item.id, "status": item.status}
     )
+    await agentcloud_actions.notify_agentcloud_resolution(item)
     return item
 
 
@@ -656,6 +693,7 @@ async def cancel_approval(
     item.audit_hash = entry.hash
     await session.commit()
     await broadcaster.publish({"type": "approval.cancelled", "id": item.id})
+    await agentcloud_actions.notify_agentcloud_resolution(item)
     return item
 
 

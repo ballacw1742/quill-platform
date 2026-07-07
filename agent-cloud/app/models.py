@@ -238,6 +238,43 @@ class Schedule(Base):
     )
 
 
+class Proposal(Base):
+    """Agent-proposed Quill write pending human approval (APPROVALS.md).
+
+    status: pending | executed | declined | failed | expired. The terminal
+    transition is a conditional UPDATE (WHERE status='pending') so the
+    notify and reconcile paths can race without double-finalizing.
+    """
+
+    __tablename__ = "agentcloud_proposals"
+    __table_args__ = (
+        sa.Index("agentcloud_proposals_tenant_idx", "tenant_id", "status"),
+    )
+
+    proposal_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    agent_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, nullable=True)
+    tool_name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    action: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    args: Mapped[dict] = mapped_column(JSONVariant, nullable=False, default=dict)
+    idempotency_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    quill_approval_id: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="pending")
+    result: Mapped[dict | None] = mapped_column(JSONVariant, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+
+
 class Usage(Base):
     """Per (tenant, agent, day) token + cost meter (design doc §6 metering)."""
 
