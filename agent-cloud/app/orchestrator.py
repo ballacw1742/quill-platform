@@ -25,12 +25,14 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql, sqlite
 
 from app import budget as budget_mod
+from app import events as events_mod
 from app import memory as memory_mod
 from app.config import get_settings
 from app.db import tenant_session
 from app.logging_setup import agent_id_var, session_id_var, tenant_id_var
 from app.models import AgentDef, Message, Session, Tenant
 from app.providers import ModelProvider, get_provider
+from app.providers.pricing import cost_usd as pricing_cost_usd
 from app.seeds import SEED_AGENTS, seed_model_for_tenant
 from app.tools import (
     MEMORY_TOOL_NAMES,
@@ -198,8 +200,12 @@ async def _persist(
     input_tokens: int,
     output_tokens: int,
     calls: int,
+    events: list[dict[str, Any]] | None = None,
 ) -> float:
     async with tenant_session(tenant_id) as db:
+        if events:
+            # durable event rows commit atomically with the turn (EVENTS.md)
+            events_mod.record_events(db, events)
         for turn in new_turns:
             db.add(
                 Message(
@@ -261,6 +267,32 @@ async def stream_turn(
                 }
             },
         )
+        refusal_events = [
+            events_mod.make_event(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                session_id=ctx.session_id,
+                type="budget.exceeded",
+                payload={
+                    "month_spend_usd": round(ctx.month_spend_usd, 6),
+                    "budget_monthly_usd": ctx.budget_monthly_usd,
+                },
+            ),
+            events_mod.make_event(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                session_id=ctx.session_id,
+                type="turn.completed",
+                payload={
+                    "model": ctx.model,
+                    "tool_calls": [],
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "cost_usd": 0.0,
+                    "budget_exceeded": True,
+                },
+            ),
+        ]
         await _persist(
             tenant_id,
             agent_id,
@@ -272,7 +304,9 @@ async def stream_turn(
             input_tokens=0,
             output_tokens=0,
             calls=0,
+            events=refusal_events,
         )
+        await events_mod.emit(refusal_events)
         result = ChatResult(
             session_id=ctx.session_id,
             reply=refusal,
@@ -297,6 +331,7 @@ async def stream_turn(
     messages = [*ctx.history, {"role": "user", "content": message}]
     new_turns: list[dict[str, Any]] = [{"role": "user", "content": message}]
     tool_calls: list[str] = []
+    turn_events: list[dict[str, Any]] = []
     total_in = 0
     total_out = 0
     calls = 0
@@ -349,6 +384,15 @@ async def stream_turn(
                 out = f'{{"error": "{exc}"}}'
                 status = "denied"
             yield {"type": "tool", "name": name, "status": status}
+            turn_events.append(
+                events_mod.make_event(
+                    tenant_id=tenant_id,
+                    agent_id=agent_id,
+                    session_id=ctx.session_id,
+                    type="tool.executed",
+                    payload={"name": name, "status": status},
+                )
+            )
             results.append(
                 {
                     "type": "tool_result",
@@ -361,6 +405,25 @@ async def stream_turn(
     else:
         reply = "(tool iteration limit reached)"
 
+    # cost is deterministic from the pricing table, so turn.completed can be
+    # built up front and committed in the same tx2 as the messages (EVENTS.md).
+    expected_cost = pricing_cost_usd(ctx.model, total_in, total_out) if calls else 0.0
+    turn_events.append(
+        events_mod.make_event(
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            session_id=ctx.session_id,
+            type="turn.completed",
+            payload={
+                "model": ctx.model,
+                "tool_calls": tool_calls,
+                "input_tokens": total_in,
+                "output_tokens": total_out,
+                "cost_usd": round(expected_cost, 6),
+                "budget_exceeded": False,
+            },
+        )
+    )
     cost = await _persist(
         tenant_id,
         agent_id,
@@ -369,7 +432,9 @@ async def stream_turn(
         input_tokens=total_in,
         output_tokens=total_out,
         calls=calls,
+        events=turn_events,
     )
+    await events_mod.emit(turn_events)
 
     result = ChatResult(
         session_id=ctx.session_id,

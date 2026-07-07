@@ -1,4 +1,4 @@
-# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprints A1–A2)
+# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprints A1–A3)
 
 Multi-tenant agent orchestrator on Cloud Run. Hardened from the P0 spike
 (`SPIKE_FINDINGS.md`) per the design doc
@@ -16,10 +16,12 @@ agent-cloud/
 │   ├── models.py           # ORM for agentcloud_* tables
 │   ├── migrations.py       # additive idempotent DDL + RLS policies (own-DDL pattern)
 │   ├── budget.py           # usage metering + monthly hard cap (polite refusal)
+│   ├── events.py           # A3: event bus (inline|pubsub) + durable event rows
+│   ├── jobs.py             # A3: sub-agent jobs (local|cloudrun) + CLI entrypoint
 │   ├── memory.py           # A2: memory save/search core (pgvector + text fallback)
 │   ├── seeds.py            # per-tenant "personal" + "quill" agent definitions
 │   ├── orchestrator.py     # the chat/tool loop (stream + non-stream)
-│   ├── api.py              # FastAPI: /health, POST /v1/agents/chat (SSE opt-in)
+│   ├── api.py              # FastAPI: /health, /v1/agents/chat, /v1/agents/subagents
 │   ├── admin.py            # maintenance CLI (Cloud Run job): rls-probe, set-agent, …
 │   ├── providers/          # ModelProvider interface
 │   │   ├── anthropic_direct.py   # live today (ANTHROPIC_API_KEY)
@@ -80,6 +82,24 @@ agent-cloud/
   = `auto_recall` (memory on, per design §3.3); `quill` = `off`. Override:
   `python -m app.admin set-agent --memory-policy …`. Recall runs after the
   budget gate and is best-effort — it can never fail a turn.
+- **Events (A3):** contract in `EVENTS.md` (read it before touching event
+  code). Every event is written durably to `agentcloud_events` (RLS'd,
+  tenant-namespaced) in the same tx2 that persists the turn/job, then
+  published best-effort via `EVENT_BUS=inline|pubsub` — a publish failure is
+  logged and can never fail a user turn. Emitted: `turn.completed`,
+  `tool.executed`, `budget.exceeded`, `subagent.started/completed/failed`.
+  Pub/Sub topic `agentcloud-events` (+ `agentcloud-events-deadletter`,
+  max 5 delivery attempts) — topics/subscriptions are created ops-side.
+- **Sub-agent jobs (A3):** `agentcloud_jobs` rows
+  (queued|running|ok|error|timeout) executed per `JOBS_BACKEND`:
+  `local` = in-process asyncio task (dev/tests); `cloudrun` = one Cloud Run
+  Job execution of `CLOUDRUN_JOB_NAME` running `python -m app.jobs run
+  <job_id>` (env `JOB_ID`/`JOB_TENANT_ID` are set per execution). A job is a
+  normal orchestrator turn in a fresh sub-session — same budget rows, same
+  refusal semantics (a budget refusal is a *completed* job with
+  `result.budget_exceeded=true`). On completion the parent session (if any)
+  gets exactly one `[system wake]` user-role message in the same tx that
+  finalizes the job (wake semantics in EVENTS.md).
 - **Model tiering:** seeds use `MODEL_DEFAULT` (claude-fable-5); tenants with
   the `smoke-` prefix seed on `MODEL_CHEAP` (claude-haiku-4-5) so test loops
   stay cheap. Per-agent overrides via `python -m app.admin set-agent`.
@@ -104,6 +124,12 @@ only.
     `tool` (`{name, status: start|ok|denied}`), `done` (full result),
     `error` (`{detail, status}`).
 
+- `POST /v1/agents/subagents` `{tenant_id, agent_id, task, session_id?}`
+  (session_id = parent session to wake) → `202 {job_id, status: "queued"}`.
+- `GET /v1/agents/subagents/{job_id}?tenant_id=…` → full job record
+  `{job_id, status, result{reply, session_id, usage, budget_exceeded},
+  error, …timestamps}`.
+
 Errors use the standard envelope `{"detail": "..."}` (404 unknown
 agent/session incl. cross-tenant attempts, 403 disabled agent, 502 provider).
 
@@ -112,7 +138,16 @@ agent/session incl. cross-tenant attempts, 403 disabled agent, 502 provider).
 CI: `.github/workflows/agentcloud-deploy.yml` (paths `agent-cloud/**`) —
 pytest → docker build → `gcloud run deploy` with `--update-env-vars` /
 `--update-secrets` (backend-deploy conventions). Secrets:
-`DATABASE_URL=QUILL_DATABASE_URL`, `ANTHROPIC_API_KEY`, `QUILL_AGENT_SECRET`.
+`DATABASE_URL=QUILL_DATABASE_URL`, `ANTHROPIC_API_KEY`, `QUILL_AGENT_SECRET`,
+`GEMINI_API_KEY` (rotated 2026-07-06; enables A2 semantic embeddings via
+`EMBEDDING_PROVIDER=gemini`).
+
+A3 flags default safe (`EVENT_BUS=inline`, `JOBS_BACKEND=local`). Flipping to
+`pubsub`/`cloudrun` additionally needs ops-side resources (not created by
+app code): the two Pub/Sub topics + subscription with dead-letter policy
+(EVENTS.md), and a `agentcloud-subagent` Cloud Run Job on this image with
+`--command python --args -m,app.jobs,run` + the same secrets, plus
+`run.jobs.run` IAM on the service account.
 
 Maintenance job (one-time create; CI keeps its image fresh):
 

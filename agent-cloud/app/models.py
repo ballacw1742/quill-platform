@@ -136,6 +136,60 @@ class MemoryRow(Base):
     )
 
 
+class EventRow(Base):
+    """Durable copy of every published event (EVENTS.md). event_id is the
+    idempotency key; the bus is notification, this table is truth."""
+
+    __tablename__ = "agentcloud_events"
+    __table_args__ = (
+        sa.Index("agentcloud_events_tenant_idx", "tenant_id", "created_at"),
+    )
+
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    agent_id: Mapped[str] = mapped_column(sa.Text, nullable=False, default="")
+    session_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, nullable=True)
+    type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    payload: Mapped[dict] = mapped_column(JSONVariant, nullable=False, default=dict)
+    attempt: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class Job(Base):
+    """Sub-agent job row (EVENTS.md §jobs). status: queued|running|ok|error|timeout."""
+
+    __tablename__ = "agentcloud_jobs"
+    __table_args__ = (
+        sa.Index("agentcloud_jobs_tenant_idx", "tenant_id", "status"),
+    )
+
+    job_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    agent_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    parent_session_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, nullable=True)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, nullable=True)
+    task: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="queued")
+    payload: Mapped[dict] = mapped_column(JSONVariant, nullable=False, default=dict)
+    result: Mapped[dict | None] = mapped_column(JSONVariant, nullable=True)
+    error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+
+
 class Usage(Base):
     """Per (tenant, agent, day) token + cost meter (design doc §6 metering)."""
 
