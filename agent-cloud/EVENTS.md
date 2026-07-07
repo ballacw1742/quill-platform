@@ -1,4 +1,4 @@
-# EVENTS.md — Quill Agent Cloud event contract (A3)
+# EVENTS.md — Quill Agent Cloud event contract (A3, A4 addendum)
 
 This is the canonical contract for platform events and sub-agent wakes
 (design doc §3.1 "Pub/Sub (events, wakes, completions)" and §3.4). All code
@@ -44,9 +44,18 @@ when ordered delivery is enabled on the subscription.
 | `subagent.started` | a job transitions queued→running | `{job_id, task_preview}` (task truncated to 200 chars) |
 | `subagent.completed` | a job finishes ok | `{job_id, reply_preview, budget_exceeded: bool, cost_usd}` |
 | `subagent.failed` | a job errors or times out | `{job_id, error}` |
+| `schedule.fired` | a due schedule is claimed and its job is enqueued (A4) | `{schedule_id, name, kind: "at"\|"cron", job_id}` |
+| `schedule.failed` | a due schedule fails to fire (e.g. unknown/disabled agent, dispatch error) | `{schedule_id, name, error}` |
 
 `session_id` on subagent events is the **sub-agent's own session**; the
 parent session is in the job row (`agentcloud_jobs.parent_session_id`).
+
+`session_id` on schedule events is the schedule's optional **target
+session** (`agentcloud_schedules.session_id` — the session the fired job
+wakes on completion), or null. `schedule.fired` marks the *enqueue* of the
+job; the job's own lifecycle then emits the normal `subagent.started/
+completed/failed` events with the `job_id` from the `schedule.fired`
+payload, so consumers can join the two.
 
 ## Delivery, ordering, idempotency
 

@@ -83,6 +83,20 @@ class Settings(BaseSettings):
     CLOUDRUN_JOB_PROJECT: str = Field(default="totemic-formula-467102-s9")
     SUBAGENT_TASK_MAX_CHARS: int = Field(default=8000)
 
+    # --- Scheduler (A4) ----------------------------------------------------
+    # "loop" (in-process asyncio tick loop — dev/local + single-instance
+    # default) | "cloudscheduler" (no in-process loop; a Cloud Scheduler HTTP
+    # job POSTs /v1/internal/scheduler/tick every minute — see README).
+    SCHEDULER_BACKEND: str = Field(default="loop")
+    SCHEDULER_TICK_SECONDS: int = Field(default=30)
+    # Max schedules claimed per tick (backpressure; the rest fire next tick).
+    SCHEDULER_MAX_PER_TICK: int = Field(default=25)
+    # Shared secret for POST /v1/internal/scheduler/tick (X-Agent-Secret
+    # header — same internal-auth pattern as the Quill tool suite). Empty ⇒
+    # the endpoint always 403s (safe default; the loop backend needs no HTTP).
+    SCHEDULER_TICK_SECRET: str = Field(default="")
+    SCHEDULE_MESSAGE_MAX_CHARS: int = Field(default=8000)
+
     # --- Budgets ------------------------------------------------------------
     DEFAULT_BUDGET_MONTHLY_USD: float = Field(default=20.0)
 

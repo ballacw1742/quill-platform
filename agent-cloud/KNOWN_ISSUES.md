@@ -3,6 +3,41 @@
 Severity legend: (invisible) internal only · (visible-tolerable) noticeable,
 nothing breaks · (visible-frustrating) users hit it early · (blocking).
 
+## A4 (scheduler)
+
+1. **Tick cadence bounds firing precision.** Schedules fire on the first
+   tick at/after `next_run_at`: up to `SCHEDULER_TICK_SECONDS` (30s) late on
+   the loop backend, up to ~60s late on the Cloud Scheduler backend. Cron
+   expressions are minute-granularity anyway; do not promise second-level
+   reminders. *(visible-tolerable — inherent to tick-based scheduling.)*
+
+2. **A failed one-shot is parked, not retried.** `next_run_at` is cleared at
+   claim time (that's what makes the claim atomic), so if the fire then
+   fails (e.g. agent deleted/disabled, dispatch error) the row keeps
+   `last_status='error: …'` + a `schedule.failed` event but will not re-fire
+   on its own — PATCH `run_at` (or `enabled`) to reschedule. Cron schedules
+   self-heal: the next occurrence was already computed at claim.
+   *(visible-tolerable — the failure is visible on the row and in events.)*
+
+3. **`loop` backend requires a running instance.** With
+   `SCHEDULER_BACKEND=loop` on Cloud Run, an instance must be alive for
+   ticks to happen — with scale-to-zero and no traffic, due schedules wait
+   until the next request wakes an instance. Set min-instances=1 or switch
+   to `cloudscheduler` (README has the one-time gcloud setup; not created by
+   app code, hence unexercised live — the endpoint itself is unit-tested).
+   *(visible-frustrating if deployed scale-to-zero with loop backend — use
+   min-instances=1 or the cloudscheduler backend in prod.)*
+
+4. **Reminder delivery is the passive A3 wake.** The fired turn's reply
+   lands in the target session as a `[system wake]` message; nothing pushes
+   it to an external channel yet (web-chat/channel adapters are a later
+   Phase A slice). *(visible-tolerable — documented reminder semantics.)*
+
+5. **DST edge on cron schedules.** croniter resolves wall-clock times that
+   are skipped/repeated by DST transitions to the standard interpretation
+   (a 2:30am schedule on spring-forward day fires at the next valid time).
+   *(invisible — standard cron behavior.)*
+
 ## A3 (events + sub-agent jobs)
 
 1. **`pubsub`/`cloudrun` backends are config-gated and unit-tested against

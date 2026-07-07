@@ -190,6 +190,54 @@ class Job(Base):
     )
 
 
+class Schedule(Base):
+    """Per-tenant cron/reminder schedule (A4; design doc §2 "Cloud Scheduler
+    (cron/reminders per tenant)"). kind: 'at' (one-shot) | 'cron' (recurring).
+    next_run_at is always stored in UTC; tz math happens in app/scheduler.py.
+    """
+
+    __tablename__ = "agentcloud_schedules"
+    __table_args__ = (
+        sa.Index("agentcloud_schedules_due_idx", "enabled", "next_run_at"),
+        sa.Index("agentcloud_schedules_tenant_idx", "tenant_id", "agent_id"),
+    )
+
+    schedule_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    agent_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    kind: Mapped[str] = mapped_column(sa.Text, nullable=False)  # at | cron
+    cron_expr: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    timezone: Mapped[str] = mapped_column(sa.Text, nullable=False, default="UTC")
+    run_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    # {"message": "..."} — the agent-turn message (reminder text / task)
+    payload: Mapped[dict] = mapped_column(JSONVariant, nullable=False, default=dict)
+    # optional target session: the fired job wakes it on completion (EVENTS.md)
+    session_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, nullable=True)
+    enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
+    delete_after_run: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False
+    )
+    next_run_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    last_run_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    last_status: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    last_job_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
 class Usage(Base):
     """Per (tenant, agent, day) token + cost meter (design doc §6 metering)."""
 

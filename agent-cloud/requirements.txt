@@ -7,6 +7,8 @@ asyncpg>=0.29
 greenlet>=3.0
 pydantic>=2.6
 pydantic-settings>=2.2
+# A4: cron next-run computation for agentcloud_schedules
+croniter>=2.0
 # A3: only imported when EVENT_BUS=pubsub / JOBS_BACKEND=cloudrun (lazy imports)
 google-cloud-pubsub>=2.21
 google-cloud-run>=0.10
