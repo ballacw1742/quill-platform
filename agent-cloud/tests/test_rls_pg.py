@@ -36,6 +36,8 @@ async def pg_engine():
     async with engine.begin() as conn:
         await conn.execute(text("SELECT set_config('app.admin', 'on', true)"))
         for t in (
+            "agentcloud_events",
+            "agentcloud_jobs",
             "agentcloud_messages",
             "agentcloud_sessions",
             "agentcloud_usage",
@@ -81,6 +83,21 @@ async def _seed(engine, tenant: str) -> uuid.UUID:
             ),
             {"s": sid, "t": tenant},
         )
+        # A3 tables: one event + one job per tenant
+        await conn.execute(
+            text(
+                "INSERT INTO agentcloud_events (tenant_id, agent_id, session_id, type, payload) "
+                "VALUES (:t, 'personal', :s, 'turn.completed', '{}'::jsonb)"
+            ),
+            {"t": tenant, "s": sid},
+        )
+        await conn.execute(
+            text(
+                "INSERT INTO agentcloud_jobs (tenant_id, agent_id, task, status) "
+                "VALUES (:t, 'personal', 'secret task', 'queued')"
+            ),
+            {"t": tenant},
+        )
     return sid
 
 
@@ -92,7 +109,13 @@ async def test_rls_wrong_tenant_guc_sees_zero_rows(pg_engine):
         await conn.execute(
             text("SELECT set_config('app.tenant_id', :t, true)"), {"t": TENANT_B}
         )
-        for table in ("agentcloud_sessions", "agentcloud_messages", "agentcloud_tenants"):
+        for table in (
+            "agentcloud_sessions",
+            "agentcloud_messages",
+            "agentcloud_tenants",
+            "agentcloud_events",
+            "agentcloud_jobs",
+        ):
             n = (
                 await conn.execute(
                     text(f"SELECT count(*) FROM {table} WHERE tenant_id = :t"),
@@ -121,10 +144,23 @@ async def test_rls_correct_guc_sees_own_rows(pg_engine):
         await conn.execute(
             text("SELECT set_config('app.tenant_id', :t, true)"), {"t": TENANT_A}
         )
-        n = (
-            await conn.execute(text("SELECT count(*) FROM agentcloud_sessions"))
-        ).scalar_one()
-        assert n >= 1
+        for table in ("agentcloud_sessions", "agentcloud_events", "agentcloud_jobs"):
+            n = (
+                await conn.execute(text(f"SELECT count(*) FROM {table}"))
+            ).scalar_one()
+            assert n >= 1, f"{table}: own-tenant GUC must see own rows"
+
+
+async def test_rls_no_guc_sees_zero_a3_rows(pg_engine):
+    from sqlalchemy import text
+
+    await _seed(pg_engine, TENANT_A)
+    async with pg_engine.begin() as conn:
+        for table in ("agentcloud_events", "agentcloud_jobs"):
+            n = (
+                await conn.execute(text(f"SELECT count(*) FROM {table}"))
+            ).scalar_one()
+            assert n == 0, f"{table}: no GUC must see zero rows"
 
 
 async def test_rls_insert_wrong_tenant_rejected(pg_engine):

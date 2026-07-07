@@ -14,6 +14,8 @@ os.environ["QUILL_AGENT_SECRET"] = ""  # quill tools short-circuit, no network
 os.environ["GEMINI_API_KEY"] = ""  # embeddings short-circuit → text fallback, no network
 os.environ["EMBEDDING_PROVIDER"] = "gemini"
 os.environ["DEFAULT_BUDGET_MONTHLY_USD"] = "20"
+os.environ["EVENT_BUS"] = "inline"  # in-process bus; tests assert on .published
+os.environ["JOBS_BACKEND"] = "local"  # in-process asyncio jobs
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -29,6 +31,16 @@ async def _fresh_db():
         await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _fresh_bus():
+    """Fresh inline event bus per test (published lists don't bleed)."""
+    from app import events as events_mod
+
+    events_mod.reset_bus()
+    yield
+    events_mod.reset_bus()
 
 
 class FakeProvider:
