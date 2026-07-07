@@ -11,6 +11,8 @@ os.environ["MODEL_PROVIDER"] = "anthropic"
 os.environ["MODEL_DEFAULT"] = "claude-fable-5"
 os.environ["MODEL_CHEAP"] = "claude-haiku-4-5"
 os.environ["QUILL_AGENT_SECRET"] = ""  # quill tools short-circuit, no network
+os.environ["GEMINI_API_KEY"] = ""  # embeddings short-circuit → text fallback, no network
+os.environ["EMBEDDING_PROVIDER"] = "gemini"
 os.environ["DEFAULT_BUDGET_MONTHLY_USD"] = "20"
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))

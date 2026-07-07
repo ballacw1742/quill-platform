@@ -1,4 +1,4 @@
-# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprint A1)
+# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprints A1–A2)
 
 Multi-tenant agent orchestrator on Cloud Run. Hardened from the P0 spike
 (`SPIKE_FINDINGS.md`) per the design doc
@@ -16,6 +16,7 @@ agent-cloud/
 │   ├── models.py           # ORM for agentcloud_* tables
 │   ├── migrations.py       # additive idempotent DDL + RLS policies (own-DDL pattern)
 │   ├── budget.py           # usage metering + monthly hard cap (polite refusal)
+│   ├── memory.py           # A2: memory save/search core (pgvector + text fallback)
 │   ├── seeds.py            # per-tenant "personal" + "quill" agent definitions
 │   ├── orchestrator.py     # the chat/tool loop (stream + non-stream)
 │   ├── api.py              # FastAPI: /health, POST /v1/agents/chat (SSE opt-in)
@@ -23,9 +24,11 @@ agent-cloud/
 │   ├── providers/          # ModelProvider interface
 │   │   ├── anthropic_direct.py   # live today (ANTHROPIC_API_KEY)
 │   │   ├── vertex_anthropic.py   # config-gated; clean error while quota=0
-│   │   └── pricing.py            # $/MTok table (PRICING_JSON override)
+│   │   ├── pricing.py            # $/MTok table (PRICING_JSON override)
+│   │   └── embeddings.py         # A2: EMBEDDING_PROVIDER=gemini|vertex|none
 │   └── tools/              # registry keyed by name; allow-list enforced twice
 │       ├── builtin.py      # get_time
+│       ├── memory.py       # A2: memory_save + memory_search
 │       └── quill.py        # 6 read-only X-Agent-Secret tools
 └── tests/                  # pytest (sqlite unit; pg-gated RLS integration)
 ```
@@ -54,6 +57,29 @@ agent-cloud/
 - **Budgets:** `agentcloud_usage` upserts per (tenant, agent, day). At the
   cap the turn returns a persisted, polite refusal (`budget_exceeded: true`)
   and makes zero model calls.
+- **Memory (A2):** `agentcloud_memory` — long-term memory rows namespaced by
+  `(tenant_id, agent_id)` with `kind` (fact/preference/summary), JSONB
+  metadata, and a pgvector `embedding vector(EMBEDDING_DIM=768)` column
+  (RLS'd like every other agentcloud_* table). Embeddings are config-gated
+  like MODEL_PROVIDER: `EMBEDDING_PROVIDER=gemini` (Gemini API direct,
+  `GEMINI_API_KEY` — the live path today) | `vertex` (IAM; clean quota-hint
+  error until the Vertex quota lands) | `none`. Embedding calls happen
+  *outside* DB transactions (same no-conn-during-network discipline).
+  **Everything degrades cleanly:** no key / no pgvector ⇒ memories still
+  save (without vectors) and `memory_search` falls back to keyword (ILIKE)
+  search. `CREATE EXTENSION vector` is attempted at migration time and
+  tolerated if privileges are missing (Cloud SQL supports pgvector; the
+  extension may need one-time creation by a privileged role — see
+  KNOWN_ISSUES.md).
+- **memory_policy (per agent, agent-definitions-as-data):**
+  `off` (memory tools stripped from the effective allow-list, no recall) |
+  `tools_only` (explicit `memory_save`/`memory_search` tool calls only) |
+  `auto_recall` (tools + the orchestrator injects the top
+  `MEMORY_RECALL_TOP_K` (5) relevant memories into the system prompt at
+  turn start, capped at `MEMORY_RECALL_MAX_CHARS` (2000)). Seeds: `personal`
+  = `auto_recall` (memory on, per design §3.3); `quill` = `off`. Override:
+  `python -m app.admin set-agent --memory-policy …`. Recall runs after the
+  budget gate and is best-effort — it can never fail a turn.
 - **Model tiering:** seeds use `MODEL_DEFAULT` (claude-fable-5); tenants with
   the `smoke-` prefix seed on `MODEL_CHEAP` (claude-haiku-4-5) so test loops
   stay cheap. Per-agent overrides via `python -m app.admin set-agent`.
@@ -109,9 +135,14 @@ gcloud run jobs execute agentcloud-admin --region us-central1 --wait \
 cd agent-cloud && pip install -r requirements-dev.txt && pytest -q
 ```
 
-- Unit + app-layer isolation + budget + SSE tests run on sqlite (no network,
-  no keys — provider is faked).
-- `tests/test_rls_pg.py` needs Postgres: set `AGENTCLOUD_TEST_PG_DSN`.
+- Unit + app-layer isolation + budget + SSE + memory tests run on sqlite (no
+  network, no keys — model provider is faked; embeddings short-circuit to
+  the text-search fallback).
+- `tests/test_rls_pg.py` + `tests/test_memory_pg.py` need Postgres: set
+  `AGENTCLOUD_TEST_PG_DSN` (a **non-superuser** role — superusers bypass
+  RLS and the isolation tests will fail spuriously). test_memory_pg also
+  proves migration idempotency (runs twice) and pgvector cosine ordering
+  (skips that one test cleanly if the extension is unavailable).
   In prod the equivalent proof is `python -m app.admin rls-probe` as the
   Cloud Run job (raw SQL as the app role; wrong/missing GUC ⇒ zero rows).
 - Needs the deployed service (not covered by pytest): IAM-gated ingress,
