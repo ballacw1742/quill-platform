@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_db
+from app.routes.agent_cloud import provision_user_tenant
 from app.rate_limit import AUTH_LIMIT, limiter
 from app.enums import UserRole
 from app.models import User, WebAuthnCredential
@@ -156,6 +157,9 @@ async def register(
     db.add(user)
     await db.commit()
     await db.refresh(user)
+    # Sprint B1 (agent-cloud/TENANCY.md §2) — best-effort per-user tenant
+    # provisioning. Never raises; registration must not depend on agent-cloud.
+    await provision_user_tenant(user.id)
     return TokenOut(access_token=issue_token(user), user_id=user.id, role=user.role)
 
 
@@ -625,6 +629,9 @@ async def google_login(
         db.add(user)
         await db.commit()
         await db.refresh(user)
+        # Sprint B1 (agent-cloud/TENANCY.md §2) — first-touch user creation:
+        # best-effort per-user tenant provisioning. Never raises.
+        await provision_user_tenant(user.id)
 
     return TokenOut(access_token=issue_token(user), token_type="bearer", user_id=user.id, role=user.role)
 

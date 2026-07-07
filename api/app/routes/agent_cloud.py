@@ -1,12 +1,18 @@
-"""Agent Cloud bridge routes — Sprint A5 (agent-cloud/WEBCHAT.md).
+"""Agent Cloud bridge routes — Sprint A5 (agent-cloud/WEBCHAT.md) +
+Sprint B1 per-user tenancy (agent-cloud/TENANCY.md).
 
 Authenticated Quill-web-facing endpoints that forward to the agent-cloud
 orchestrator (quill-agent-orchestrator service). Same proxy conventions as
 the /v1/sites DataSite proxy, with two hard rules from WEBCHAT.md:
 
-  1. tenant_id is derived server-side (settings.AGENTCLOUD_TENANT_ID) —
-     never read from the client. Any client-sent tenant_id is not even a
-     schema field.
+  1. tenant_id is derived server-side — never read from the client. Any
+     client-sent tenant_id is not even a schema field. Since B1
+     (TENANCY.md §1) the derivation is per-user:
+         workspace=personal (default) → "user-{user.id}"
+         workspace=org               → settings.AGENTCLOUD_TENANT_ID,
+                                        owner/partner roles only (else 403).
+     `workspace` is a two-value enum, not a tenant id — the client still
+     cannot name an arbitrary tenant.
   2. Browser auth is the normal Quill JWT (get_current_user). No
      X-Agent-Secret ever reaches the browser; Quill API → agent-cloud is
      protected at the network/IAM layer like the DataSite proxy.
@@ -21,9 +27,11 @@ Endpoints (WEBCHAT.md §3):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
+from enum import Enum
 from typing import AsyncIterator, Optional
 
 import httpx
@@ -32,6 +40,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
+from app.enums import UserRole
 from app.security import get_current_user
 
 log = logging.getLogger("quill.agent_cloud")
@@ -43,6 +52,60 @@ router = APIRouter(prefix="/v1/agent-cloud", tags=["agent-cloud"])
 TRANSPORT_OVERRIDE: Optional[httpx.AsyncBaseTransport] = None
 
 _UNREACHABLE_DETAIL = "agent service unreachable"
+_ORG_FORBIDDEN_DETAIL = "org workspace requires owner or partner role"
+
+
+class Workspace(str, Enum):
+    """TENANCY.md §1 — server-side tenant selector. Never a raw tenant id."""
+
+    personal = "personal"
+    org = "org"
+
+
+def tenant_for_user(user_id: str) -> str:
+    """The per-user personal tenant id (TENANCY.md §1)."""
+    return f"user-{user_id}"
+
+
+def _resolve_tenant(user, workspace: Workspace) -> str:
+    """Derive the agent-cloud tenant from the authenticated user + workspace
+    selector. The only two reachable tenants are the caller's own personal
+    tenant and (owner/partner only) the shared org tenant."""
+    if workspace == Workspace.org:
+        if user.role not in (UserRole.OWNER.value, UserRole.PARTNER.value):
+            raise HTTPException(status_code=403, detail=_ORG_FORBIDDEN_DETAIL)
+        return get_settings().AGENTCLOUD_TENANT_ID
+    return tenant_for_user(user.id)
+
+
+async def provision_user_tenant(user_id: str) -> bool:
+    """Best-effort signup provisioning hook (TENANCY.md §2).
+
+    Reuses agent-cloud's idempotent provisioning read
+    (GET /v1/agents?tenant_id=…). Hard-capped by
+    AGENTCLOUD_PROVISION_TIMEOUT_SECONDS and swallows every exception —
+    registration must never fail (or hang) because agent-cloud is down.
+    Returns True on success (for tests/logging only).
+    """
+    settings = get_settings()
+    tenant_id = tenant_for_user(user_id)
+    try:
+        async def _call() -> bool:
+            async with _client(settings.AGENTCLOUD_PROVISION_TIMEOUT_SECONDS) as client:
+                resp = await client.get(
+                    "/v1/agents", params={"tenant_id": tenant_id, "limit": 1}
+                )
+                return resp.status_code < 400
+
+        ok = await asyncio.wait_for(
+            _call(), timeout=settings.AGENTCLOUD_PROVISION_TIMEOUT_SECONDS
+        )
+        if not ok:
+            log.warning("agent-cloud provisioning returned an error for %s", tenant_id)
+        return ok
+    except Exception as exc:  # noqa: BLE001 — best-effort by contract
+        log.warning("agent-cloud provisioning skipped for %s: %s", tenant_id, exc)
+        return False
 
 
 def _client(timeout: httpx.Timeout | float | None = None) -> httpx.AsyncClient:
@@ -85,12 +148,13 @@ async def _get_json(path: str, params: dict) -> dict:
 async def list_agents(
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
+    workspace: Workspace = Workspace.personal,
     user=Depends(get_current_user),
 ):
-    settings = get_settings()
+    tenant_id = _resolve_tenant(user, workspace)
     return await _get_json(
         "/v1/agents",
-        {"tenant_id": settings.AGENTCLOUD_TENANT_ID, "limit": limit, "offset": offset},
+        {"tenant_id": tenant_id, "limit": limit, "offset": offset},
     )
 
 
@@ -99,11 +163,11 @@ async def list_sessions(
     agent_id: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    workspace: Workspace = Workspace.personal,
     user=Depends(get_current_user),
 ):
-    settings = get_settings()
     params: dict = {
-        "tenant_id": settings.AGENTCLOUD_TENANT_ID,
+        "tenant_id": _resolve_tenant(user, workspace),
         "limit": limit,
         "offset": offset,
     }
@@ -115,12 +179,12 @@ async def list_sessions(
 @router.get("/sessions/{session_id}")
 async def get_session(
     session_id: uuid.UUID,
+    workspace: Workspace = Workspace.personal,
     user=Depends(get_current_user),
 ):
-    settings = get_settings()
     return await _get_json(
         f"/v1/agents/sessions/{session_id}",
-        {"tenant_id": settings.AGENTCLOUD_TENANT_ID},
+        {"tenant_id": _resolve_tenant(user, workspace)},
     )
 
 
@@ -131,12 +195,13 @@ async def get_session(
 
 class AgentChatIn(BaseModel):
     """Client-facing chat body. Deliberately has NO tenant_id field — the
-    tenant is a server-side constant (WEBCHAT.md §1)."""
+    tenant is derived server-side from the JWT (TENANCY.md §1)."""
 
     agent_id: str = Field(min_length=1, max_length=128)
     message: str = Field(min_length=1, max_length=8000)
     session_id: uuid.UUID | None = None
     stream: bool = False
+    workspace: Workspace = Workspace.personal
 
 
 async def _sse_passthrough(payload: dict) -> AsyncIterator[bytes]:
@@ -169,9 +234,8 @@ async def _sse_passthrough(payload: dict) -> AsyncIterator[bytes]:
 
 @router.post("/chat")
 async def chat(body: AgentChatIn, user=Depends(get_current_user)):
-    settings = get_settings()
     payload: dict = {
-        "tenant_id": settings.AGENTCLOUD_TENANT_ID,  # server-side, always
+        "tenant_id": _resolve_tenant(user, body.workspace),  # server-side, always
         "agent_id": body.agent_id,
         "message": body.message,
         "stream": body.stream,

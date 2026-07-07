@@ -14,29 +14,23 @@ browser (Quill web, JWT)             Quill API (bridge)            agent-cloud
                                       injected server-side          SSE or JSON back
 ```
 
-## 1. User → tenant mapping
+## 1. User → tenant mapping — **superseded by TENANCY.md (Sprint B1)**
 
-**Rule: `tenant_id` is a per-deployment server-side constant —
-`AGENTCLOUD_TENANT_ID` in the Quill API's settings (default
-`quill-<ENVIRONMENT>` is NOT used; the literal default is `quill-main`).**
+**Rule (B1, canonical statement in `TENANCY.md` §1): the tenant is derived
+server-side from the verified JWT — `tenant_id = "user-{user.id}"` by
+default (`workspace=personal`), or the shared org tenant
+`AGENTCLOUD_TENANT_ID` (default `quill-main`) via `workspace=org`, which is
+permitted only for `owner`/`partner` roles (403 otherwise).** `workspace`
+is a two-value enum, never a tenant id. The client still **never** supplies
+`tenant_id`; the bridge injects it after `get_current_user` succeeds.
+Cross-tenant reach from the browser remains structurally impossible.
 
-Why: the design doc (§3.2) defines a tenant as *"= Quill account/org"*, and
-today's Quill deployment models exactly one account — there is no org/tenant
-column anywhere in the Quill schema (`users` has `id/email/role`, nothing
-org-shaped). The faithful derivation is therefore *deployment → tenant*: every
-authenticated Quill user of this deployment shares the deployment's tenant
-workspace. The client **never** supplies `tenant_id`; the bridge injects it
-after `get_current_user` succeeds. Cross-tenant reach from the browser is
-structurally impossible — no request field maps to it.
-
-Consequences (documented, accepted for Phase A):
-
-- All users of a deployment share the same agents, sessions, and budgets.
-  With the current owner/partner/viewer user base this is the intended
-  "org workspace" semantic. Per-user workspaces are the Phase B signup
-  provisioning slice (design §7) and will re-derive this rule.
-- Smoke/dev environments set `AGENTCLOUD_TENANT_ID=smoke-…` to pick up
-  agent-cloud's cheap-model seeding convention.
+The original Phase A rule (one deployment-constant tenant for every user)
+is retired; its data lives on as the `workspace=org` tenant. Signup-time
+provisioning of the per-user tenant + the isolation attack suite are
+documented in `TENANCY.md` §2/§5. Smoke/dev environments keep
+`AGENTCLOUD_TENANT_ID=smoke-…` for the org tenant's cheap-model seeding
+convention.
 
 ## 2. Auth
 
@@ -223,5 +217,6 @@ seeding on the agents list.
 | Setting | Where | Default | Meaning |
 |---|---|---|---|
 | `AGENTCLOUD_URL` | Quill API | `http://localhost:8010` | agent-cloud base URL (Cloud Run URL in prod, Secret/env like `DATASITE_URL`). |
-| `AGENTCLOUD_TENANT_ID` | Quill API | `quill-main` | The deployment's tenant id (§1). `smoke-…` prefix ⇒ cheap-model seeds. |
+| `AGENTCLOUD_TENANT_ID` | Quill API | `quill-main` | The deployment's shared **org** tenant (§1, TENANCY.md). `smoke-…` prefix ⇒ cheap-model seeds. |
+| `AGENTCLOUD_PROVISION_TIMEOUT_SECONDS` | Quill API | `3.0` | Cap on the best-effort signup provisioning hook (TENANCY.md §2). |
 | `AGENTCLOUD_TIMEOUT_SECONDS` | Quill API | `120` | Per-request budget for non-stream calls; streams use no read timeout. |
