@@ -20,7 +20,11 @@ from fastapi.responses import StreamingResponse
 from app.routes import agent_cloud as bridge
 from tests.conftest import auth_h
 
-EXPECTED_TENANT = "quill-main"  # settings default; never client-supplied
+# Since B1 (agent-cloud/TENANCY.md §1) the default tenant is per-user:
+# "user-{user.id}". "quill-main" is reachable only via workspace=org
+# (owner/partner) — covered in test_agentcloud_tenancy.py.
+def expected_tenant(user_id: str) -> str:
+    return f"user-{user_id}"
 
 KNOWN_SESSION = "11111111-1111-1111-1111-111111111111"
 
@@ -157,15 +161,15 @@ async def test_all_routes_require_bearer(client, fake_agentcloud, method, path):
 
 
 async def test_tenant_injected_server_side(client, owner_token, fake_agentcloud):
-    _, token = owner_token
+    uid, token = owner_token
     r = await client.get("/v1/agent-cloud/agents", headers=auth_h(token))
     assert r.status_code == 200
-    assert fake_agentcloud == [("list_agents", EXPECTED_TENANT)]
+    assert fake_agentcloud == [("list_agents", expected_tenant(uid))]
 
 
 async def test_client_supplied_tenant_is_ignored(client, owner_token, fake_agentcloud):
     """A malicious tenant_id in the chat body must not reach agent-cloud."""
-    _, token = owner_token
+    uid, token = owner_token
     r = await client.post(
         "/v1/agent-cloud/chat",
         headers=auth_h(token),
@@ -173,8 +177,8 @@ async def test_client_supplied_tenant_is_ignored(client, owner_token, fake_agent
     )
     assert r.status_code == 200
     (_, forwarded_tenant, body) = fake_agentcloud[0]
-    assert forwarded_tenant == EXPECTED_TENANT
-    assert body["tenant_id"] == EXPECTED_TENANT
+    assert forwarded_tenant == expected_tenant(uid)
+    assert body["tenant_id"] == expected_tenant(uid)
 
 
 # ─── read passthrough shapes ──────────────────────────────────────────────────
@@ -190,12 +194,12 @@ async def test_list_agents_shape(client, owner_token, fake_agentcloud):
 
 
 async def test_list_sessions_forwards_agent_filter(client, owner_token, fake_agentcloud):
-    _, token = owner_token
+    uid, token = owner_token
     r = await client.get(
         "/v1/agent-cloud/sessions?agent_id=quill&limit=10", headers=auth_h(token)
     )
     assert r.status_code == 200
-    assert fake_agentcloud == [("list_sessions", EXPECTED_TENANT, "quill")]
+    assert fake_agentcloud == [("list_sessions", expected_tenant(uid), "quill")]
     item = r.json()["items"][0]
     assert set(item) == {"session_id", "agent_id", "preview", "created_at", "updated_at"}
 
@@ -271,7 +275,7 @@ def _sse_events(text: str) -> list[tuple[str, dict]]:
 
 
 async def test_chat_sse_passthrough(client, owner_token, fake_agentcloud):
-    _, token = owner_token
+    uid, token = owner_token
     text = ""
     async with client.stream(
         "POST",
@@ -290,7 +294,7 @@ async def test_chat_sse_passthrough(client, owner_token, fake_agentcloud):
     assert done["reply"] == "hello from fake agent-cloud"
     assert done["budget_exceeded"] is False
     # tenant went in server-side
-    assert fake_agentcloud[0][1] == EXPECTED_TENANT
+    assert fake_agentcloud[0][1] == expected_tenant(uid)
 
 
 async def test_chat_sse_budget_exceeded_flows_as_done(client, owner_token, fake_agentcloud):

@@ -81,6 +81,13 @@ class Settings(BaseSettings):
         default=120.0,
         description="Per-request budget for non-stream agent-cloud calls.",
     )
+    # Sprint B1 — agent-cloud/TENANCY.md §2. Hard cap on the best-effort
+    # signup-time tenant provisioning call (registration is delayed at most
+    # this long when agent-cloud is down, and never fails because of it).
+    AGENTCLOUD_PROVISION_TIMEOUT_SECONDS: float = Field(
+        default=3.0,
+        description="Timeout for the best-effort signup tenant provisioning hook.",
+    )
     # Sprint A6 — agent-cloud/APPROVALS.md §6. Shared secret for the
     # best-effort resolution notify POST to agent-cloud
     # /v1/internal/approvals/notify. Empty ⇒ notify disabled (the agent-cloud
