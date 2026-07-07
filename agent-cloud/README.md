@@ -1,4 +1,4 @@
-# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprints A1–A3)
+# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprints A1–A4)
 
 Multi-tenant agent orchestrator on Cloud Run. Hardened from the P0 spike
 (`SPIKE_FINDINGS.md`) per the design doc
@@ -18,10 +18,11 @@ agent-cloud/
 │   ├── budget.py           # usage metering + monthly hard cap (polite refusal)
 │   ├── events.py           # A3: event bus (inline|pubsub) + durable event rows
 │   ├── jobs.py             # A3: sub-agent jobs (local|cloudrun) + CLI entrypoint
+│   ├── scheduler.py        # A4: per-tenant cron/reminder schedules + tick loop
 │   ├── memory.py           # A2: memory save/search core (pgvector + text fallback)
 │   ├── seeds.py            # per-tenant "personal" + "quill" agent definitions
 │   ├── orchestrator.py     # the chat/tool loop (stream + non-stream)
-│   ├── api.py              # FastAPI: /health, /v1/agents/chat, /v1/agents/subagents
+│   ├── api.py              # FastAPI: /health, chat, subagents, schedules, tick
 │   ├── admin.py            # maintenance CLI (Cloud Run job): rls-probe, set-agent, …
 │   ├── providers/          # ModelProvider interface
 │   │   ├── anthropic_direct.py   # live today (ANTHROPIC_API_KEY)
@@ -100,6 +101,37 @@ agent-cloud/
   `result.budget_exceeded=true`). On completion the parent session (if any)
   gets exactly one `[system wake]` user-role message in the same tx that
   finalizes the job (wake semantics in EVENTS.md).
+- **Schedules (A4):** `agentcloud_schedules` (RLS'd like every other
+  `agentcloud_*` table) — per-tenant cron + one-shot reminders per the
+  design's “Cloud Scheduler (cron/reminders per tenant)” slice. A schedule
+  is `kind='cron'` (`cron_expr` evaluated with croniter in an IANA
+  `timezone`) or `kind='at'` (one-shot `run_at`); `next_run_at` is always
+  stored UTC. When due, a schedule fires **through the A3 jobs machinery**:
+  `jobs.create_job` enqueues an `agentcloud_jobs` row whose task is the
+  schedule's `payload.message`, so budget metering, refusal semantics,
+  tool allow-lists and `subagent.*` events apply unchanged; `schedule.fired`
+  / `schedule.failed` are emitted per EVENTS.md. **Claiming is
+  multi-instance-safe:** the tick selects due rows with
+  `FOR UPDATE SKIP LOCKED` and advances `next_run_at` (cron → next
+  occurrence, one-shot → NULL) inside the same locked transaction, so two
+  orchestrator instances can never double-fire. The claim scans across
+  tenants and therefore runs under the admin RLS policy (a system path,
+  like the maintenance CLI); all per-schedule writes go back through
+  tenant-scoped transactions. One-shot schedules with
+  `delete_after_run=true` are deleted after a successful fire; a failed
+  fire keeps the row with `last_status='error: …'` (a failed one-shot is
+  parked — PATCH it to reschedule). Tick delivery is config-gated
+  (`SCHEDULER_BACKEND`): `loop` = in-process asyncio task every
+  `SCHEDULER_TICK_SECONDS` (30) started on app startup — dev/local and the
+  single-instance default; `cloudscheduler` = no in-process loop, a Cloud
+  Scheduler HTTP job POSTs `/v1/internal/scheduler/tick` (see §Deploy).
+- **Reminders (A4):** a reminder is just a schedule whose `message` says
+  what to remind about, with `session_id` set to the target session. The
+  fired job runs a normal agent turn in a fresh sub-session — the
+  assistant's reply *is* the reminder — and, per the EVENTS.md wake
+  contract, completion inserts one `[system wake]` message into the target
+  session (Phase A: the wake is passive; the user/agent sees it on the next
+  turn, and proactive re-invocation is a later slice).
 - **Model tiering:** seeds use `MODEL_DEFAULT` (claude-fable-5); tenants with
   the `smoke-` prefix seed on `MODEL_CHEAP` (claude-haiku-4-5) so test loops
   stay cheap. Per-agent overrides via `python -m app.admin set-agent`.
@@ -130,6 +162,24 @@ only.
   `{job_id, status, result{reply, session_id, usage, budget_exceeded},
   error, …timestamps}`.
 
+- `POST /v1/agents/schedules` `{tenant_id, agent_id, name, kind: "at"|"cron",
+  cron_expr?, timezone? (IANA, default UTC), run_at?, message, session_id?,
+  enabled?, delete_after_run?}` → `201` full schedule record (incl.
+  `next_run_at` in UTC). 400 invalid cron/timezone/timing, 404 unknown
+  agent or target session, 403 disabled agent.
+- `GET /v1/agents/schedules?tenant_id=…&limit=&offset=` →
+  `{items, total, limit, offset}` (tenant-scoped).
+- `GET /v1/agents/schedules/{id}?tenant_id=…` → schedule record (404
+  cross-tenant, same semantics as subagents).
+- `PATCH /v1/agents/schedules/{id}?tenant_id=…` — partial update
+  (`enabled`, `message`, timing fields…); any timing change or re-enable
+  recomputes `next_run_at`.
+- `DELETE /v1/agents/schedules/{id}?tenant_id=…` → 204.
+- `POST /v1/internal/scheduler/tick` — internal (Cloud Scheduler)
+  entrypoint; requires header `X-Agent-Secret: $SCHEDULER_TICK_SECRET`
+  (403 otherwise; endpoint is disabled while the secret is unset). Returns
+  `{claimed, fired, failed}`.
+
 Errors use the standard envelope `{"detail": "..."}` (404 unknown
 agent/session incl. cross-tenant attempts, 403 disabled agent, 502 provider).
 
@@ -148,6 +198,31 @@ app code): the two Pub/Sub topics + subscription with dead-letter policy
 (EVENTS.md), and a `agentcloud-subagent` Cloud Run Job on this image with
 `--command python --args -m,app.jobs,run` + the same secrets, plus
 `run.jobs.run` IAM on the service account.
+
+Scheduler: default `SCHEDULER_BACKEND=loop` needs nothing ops-side (the
+process ticks itself every `SCHEDULER_TICK_SECONDS`; fine for a
+single-instance service, and safe — not duplicate-firing — even with
+several instances thanks to the SKIP LOCKED claim). For
+`SCHEDULER_BACKEND=cloudscheduler` (no in-process loop; Cloud Run can then
+scale to zero between ticks), create the one-time Cloud Scheduler job — app
+code never creates GCP resources:
+
+```bash
+# secret shared with the service (also set SCHEDULER_TICK_SECRET on deploy)
+gcloud secrets create AGENTCLOUD_SCHEDULER_TICK_SECRET --project totemic-formula-467102-s9
+gcloud scheduler jobs create http agentcloud-scheduler-tick \
+  --project totemic-formula-467102-s9 --location us-central1 \
+  --schedule "* * * * *" \
+  --uri https://<service-url>/v1/internal/scheduler/tick \
+  --http-method POST \
+  --headers X-Agent-Secret=<the-secret> \
+  --oidc-service-account-email openclaw-adk@totemic-formula-467102-s9.iam.gserviceaccount.com
+```
+
+The endpoint is defense-in-depth: OIDC/IAM gates ingress and the
+X-Agent-Secret header is verified in-app (same shared-secret pattern as the
+Quill tool suite). Minute-level granularity: with the Cloud Scheduler
+backend, schedules fire up to ~60s late by design.
 
 Maintenance job (one-time create; CI keeps its image fresh):
 
@@ -170,10 +245,11 @@ gcloud run jobs execute agentcloud-admin --region us-central1 --wait \
 cd agent-cloud && pip install -r requirements-dev.txt && pytest -q
 ```
 
-- Unit + app-layer isolation + budget + SSE + memory tests run on sqlite (no
-  network, no keys — model provider is faked; embeddings short-circuit to
-  the text-search fallback).
-- `tests/test_rls_pg.py` + `tests/test_memory_pg.py` need Postgres: set
+- Unit + app-layer isolation + budget + SSE + memory + scheduler tests run
+  on sqlite (no network, no keys — model provider is faked; embeddings
+  short-circuit to the text-search fallback).
+- `tests/test_rls_pg.py` + `tests/test_memory_pg.py` +
+  `tests/test_scheduler_pg.py` need Postgres: set
   `AGENTCLOUD_TEST_PG_DSN` (a **non-superuser** role — superusers bypass
   RLS and the isolation tests will fail spuriously). test_memory_pg also
   proves migration idempotency (runs twice) and pgvector cosine ordering
