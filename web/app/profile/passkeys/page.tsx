@@ -86,6 +86,28 @@ export default function ProfilePasskeysPage() {
       />
 
       <GroupedList>
+        {/* Domain-move nudge: quillpm.com is a new WebAuthn RP, so any passkey
+            registered before the move is orphaned and must be re-added. We
+            can't tell server-side which stored credentials belong to the old
+            RP (rp_id isn't stored), so we surface the banner whenever there
+            are zero ACTIVE passkeys — the state a just-migrated user lands in. */}
+        {credentials !== null && active.length === 0 && supported && (
+          <ListGroup>
+            <div
+              role="status"
+              className="px-4 py-3 text-callout text-label-secondary"
+            >
+              <span className="font-medium text-label-primary">
+                Re-register your passkey.
+              </span>{" "}
+              Quill moved to <span className="font-mono">quillpm.com</span>.
+              Passkeys added before the move no longer work and must be added
+              again. Until then, you can approve items with your account
+              password.
+            </div>
+          </ListGroup>
+        )}
+
         {!supported && (
           <ListGroup>
             <div className="px-4 py-3 text-callout text-danger">

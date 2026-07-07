@@ -40,9 +40,10 @@ export type PasskeyCredential = {
 const API_BASE =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
 
-class AuthError extends Error {
+export class AuthError extends Error {
   constructor(public status: number, msg: string) {
     super(msg);
+    this.name = "AuthError";
   }
 }
 
@@ -163,6 +164,60 @@ export async function challengePasskey(
     response: assertion,
     action_intent: actionIntent,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Password re-auth fallback (WebAuthn RP moved to quillpm.com; old passkeys
+// are orphaned). Mints the SAME action-assertion the passkey path returns,
+// with method="password"; /decide accepts it identically.
+// ---------------------------------------------------------------------------
+export async function challengePassword(
+  actionIntent: ActionIntent,
+  password: string,
+): Promise<ActionAssertion> {
+  return jpost<ActionAssertion>("/api/v1/auth/password/challenge", {
+    password,
+    action_intent: actionIntent,
+  });
+}
+
+/**
+ * Should the UI offer the password fallback for this failure?
+ *
+ * YES for WebAuthn ceremony failures (the ceremony itself broke or there is
+ * nothing to sign) and for a 412 from challenge/begin (zero usable passkeys):
+ *  - NotAllowedError  — user dismissed / no matching credential / RP mismatch
+ *  - InvalidStateError — credential in an unusable state
+ *  - AbortError / timeout — ceremony aborted or timed out
+ *  - unsupported browser — no WebAuthn at all
+ *  - AuthError status 412 — server says no registered passkeys
+ *
+ * NO for session-level 401/403 (dead session or missing role) — those fail
+ * the password path too, so offering it would just be a second dead end.
+ */
+export function shouldOfferPasswordFallback(err: unknown): boolean {
+  if (err instanceof AuthError) {
+    // Only the "no usable passkeys" precondition is fallback-eligible.
+    // 401/403 are session/authority failures that password can't fix.
+    return err.status === 412;
+  }
+  if (err instanceof Error) {
+    if (
+      err.name === "NotAllowedError" ||
+      err.name === "InvalidStateError" ||
+      err.name === "AbortError" ||
+      err.name === "NotSupportedError" ||
+      err.name === "SecurityError"
+    ) {
+      return true;
+    }
+    if (/timeout|timed out|abort|not supported|unsupported/i.test(err.message)) {
+      return true;
+    }
+  }
+  // Unknown/opaque failure (e.g. browser lacks WebAuthn so the ceremony threw
+  // a bare Error): offer the fallback rather than dead-ending the approver.
+  return !isPasskeySupported();
 }
 
 // ---------------------------------------------------------------------------
