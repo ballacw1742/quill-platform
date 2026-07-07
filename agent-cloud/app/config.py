@@ -97,6 +97,15 @@ class Settings(BaseSettings):
     SCHEDULER_TICK_SECRET: str = Field(default="")
     SCHEDULE_MESSAGE_MAX_CHARS: int = Field(default=8000)
 
+    # --- Approvals (A6, APPROVALS.md) ---------------------------------
+    # Shared secret for POST /v1/internal/approvals/notify (X-Agent-Secret
+    # header — same 403-when-unset pattern as SCHEDULER_TICK_SECRET).
+    APPROVALS_NOTIFY_SECRET: str = Field(default="")
+    # Reconcile sweep (belt #2): pending proposals older than this are
+    # polled against GET /v1/approvals/{id} on each scheduler tick.
+    APPROVALS_RECONCILE_AFTER_SECONDS: int = Field(default=120)
+    APPROVALS_RECONCILE_MAX_PER_TICK: int = Field(default=25)
+
     # --- Budgets ------------------------------------------------------------
     DEFAULT_BUDGET_MONTHLY_USD: float = Field(default=20.0)
 

@@ -218,6 +218,36 @@ CREATE INDEX IF NOT EXISTS agentcloud_schedules_tenant_idx
     ON agentcloud_schedules (tenant_id, agent_id)""",
 ]
 
+# A6: agent-proposed writes → Quill HITL approvals (APPROVALS.md). One
+# statement each (asyncpg constraint), additive + idempotent. The partial
+# unique index is the queue-time idempotency belt: one *pending* proposal
+# per (tenant, args-hash).
+DDL_A6 = [
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_proposals (
+    proposal_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id         TEXT NOT NULL,
+    agent_id          TEXT NOT NULL,
+    session_id        UUID,
+    tool_name         TEXT NOT NULL,
+    action            TEXT NOT NULL,
+    args              JSONB NOT NULL DEFAULT '{}',
+    idempotency_key   TEXT NOT NULL,
+    quill_approval_id TEXT,
+    status            TEXT NOT NULL DEFAULT 'pending',
+    result            JSONB,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    resolved_at       TIMESTAMPTZ
+)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_proposals_tenant_idx
+    ON agentcloud_proposals (tenant_id, status)""",
+    """
+CREATE UNIQUE INDEX IF NOT EXISTS agentcloud_proposals_idem_idx
+    ON agentcloud_proposals (tenant_id, idempotency_key) WHERE status = 'pending'""",
+]
+
 _RLS_TABLES = [
     "agentcloud_tenants",
     "agentcloud_agents",
@@ -228,6 +258,7 @@ _RLS_TABLES = [
     "agentcloud_events",
     "agentcloud_jobs",
     "agentcloud_schedules",
+    "agentcloud_proposals",
 ]
 
 
@@ -264,6 +295,7 @@ async def run_migrations(engine: AsyncEngine) -> None:
         *_memory_ddl(get_settings().EMBEDDING_DIM),
         *DDL_A3,
         *DDL_A4,
+        *DDL_A6,
     ]
     for table in _RLS_TABLES:
         statements.extend(_rls_ddl(table))
@@ -271,5 +303,5 @@ async def run_migrations(engine: AsyncEngine) -> None:
         for stmt in statements:
             await conn.execute(text(stmt))
     log.info(
-        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + RLS)"
+        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + proposals + RLS)"
     )

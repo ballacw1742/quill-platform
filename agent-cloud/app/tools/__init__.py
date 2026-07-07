@@ -17,11 +17,13 @@ from app.tools.base import Tool, ToolNotAllowedError, ToolNotFoundError
 from app.tools.builtin import BUILTIN_TOOLS
 from app.tools.memory import MEMORY_TOOL_NAMES, MEMORY_TOOLS
 from app.tools.quill import QUILL_TOOLS
+from app.tools.quill_writes import QUILL_WRITE_TOOL_NAMES, QUILL_WRITE_TOOLS
 
 log = logging.getLogger("agentcloud.tools")
 
 REGISTRY: dict[str, Tool] = {
-    t.name: t for t in (*BUILTIN_TOOLS, *QUILL_TOOLS, *MEMORY_TOOLS)
+    t.name: t
+    for t in (*BUILTIN_TOOLS, *QUILL_TOOLS, *MEMORY_TOOLS, *QUILL_WRITE_TOOLS)
 }
 
 
@@ -51,6 +53,7 @@ async def run_tool(name: str, args: dict[str, Any], allowlist: list[str]) -> str
 
 __all__ = [
     "MEMORY_TOOL_NAMES",
+    "QUILL_WRITE_TOOL_NAMES",
     "REGISTRY",
     "Tool",
     "ToolNotAllowedError",
