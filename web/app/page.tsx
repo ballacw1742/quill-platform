@@ -34,6 +34,7 @@ import {
   Package,
   Settings,
   Shield,
+  Sparkles,
   Terminal,
   TrendingUp,
   User,
@@ -188,6 +189,7 @@ function AvatarMenu({ session }: { session: Session | null | undefined }) {
   const items = [
     { label: "Profile", icon: User, onSelect: () => router.push("/profile") },
     { label: "Settings", icon: Settings, onSelect: () => router.push("/settings") },
+    { label: "Assistant", icon: Sparkles, onSelect: () => router.push("/assistant") },
     { label: "Dev Chat", icon: Terminal, onSelect: () => router.push("/dev-chat") },
     {
       label: "Sign out",

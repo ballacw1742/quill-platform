@@ -12,6 +12,7 @@ import {
   ScrollText,
   Search,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useApprovalsSocket } from "@/lib/websocket";
@@ -32,6 +33,7 @@ const NAV = [
   { href: "/queue", label: "Queue", icon: ClipboardCheck },
   { href: "/audit", label: "Activity", icon: ScrollText },
   { href: "/agents", label: "Agents", icon: Bot },
+  { href: "/assistant", label: "Assistant", icon: Sparkles },
   { href: "/health", label: "Health", icon: Activity },
 ];
 
