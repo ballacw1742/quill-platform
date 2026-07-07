@@ -2,7 +2,19 @@
 
 Contracts in this directory: `EVENTS.md` (events + jobs + wakes),
 `WEBCHAT.md` (A5 web-chat channel + read endpoints + api bridge),
-`APPROVALS.md` (A6 approval-gated writes through the Quill /queue).
+`APPROVALS.md` (A6 approval-gated writes through the Quill /queue),
+`TENANCY.md` (B1 per-user tenancy, signup provisioning, isolation attack
+suite).
+
+**Tenancy (B1):** every Quill user gets a personal tenant
+(`user-{user.id}`, derived server-side from the JWT by the api bridge —
+never client-supplied); owner/partner may additionally select the shared
+org tenant (`AGENTCLOUD_TENANT_ID`, default `quill-main`, all pre-B1 data)
+via the bridge's `workspace=org`. Tenants are provisioned idempotently on
+first contact (signup hook + lazy fallback). Isolation is proven by the
+attack suite: `tests/test_isolation.py` (app layer) and
+`tests/test_isolation_pg.py` (a systematic RLS sweep over every table in
+`migrations._RLS_TABLES`, pg-gated). See `TENANCY.md`.
 
 Multi-tenant agent orchestrator on Cloud Run. Hardened from the P0 spike
 (`SPIKE_FINDINGS.md`) per the design doc

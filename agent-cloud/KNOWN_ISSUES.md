@@ -3,6 +3,40 @@
 Severity legend: (invisible) internal only · (visible-tolerable) noticeable,
 nothing breaks · (visible-frustrating) users hit it early · (blocking).
 
+## B1 (per-user tenancy)
+
+1. **Existing users see an empty personal workspace after B1.** The web
+   default is `workspace=personal`; all pre-B1 sessions/memories live in
+   the org tenant (`quill-main`), one `workspace=org` toggle away for
+   owner/partner. Observer-role users cannot reach quill-main at all — any
+   content they contributed to the shared workspace is org-visible only.
+   *(visible-tolerable — documented in TENANCY.md §3; no data loss.)*
+
+2. **Budgets are per-agent inside each tenant, not per user overall.** Each
+   personal tenant seeds `personal` + `quill` agents at the default
+   `budget_monthly_usd` (20), so N users ⇒ up to N×2×$20/month of
+   worst-case spend. Per-tenant budget/meter controls are the B2 slice.
+   *(visible-tolerable for the current user count; revisit before open
+   signup — flagged for B2.)*
+
+3. **Provisioning hook is best-effort; the lazy fallback is load-bearing.**
+   If agent-cloud is down at signup, the tenant is provisioned on the
+   user's first `GET /v1/agent-cloud/agents` instead (the assistant page
+   always calls it first). Registration is delayed at most
+   `AGENTCLOUD_PROVISION_TIMEOUT_SECONDS` (3s) and never fails.
+   *(invisible.)*
+
+4. **Orphaned quill-main data has no lifecycle policy.** The org tenant's
+   history is kept indefinitely; there is no per-user export/migration of
+   shared history into personal workspaces, and nothing prunes it.
+   *(visible-tolerable — explicit non-goal for B1, TENANCY.md §7.)*
+
+5. **`workspace=org` is role-derived, not membership-derived.** Any future
+   owner/partner automatically gains org-tenant access; there is no
+   separate org-membership grant. Acceptable while roles are hand-assigned
+   (PARTNER_EMAILS allowlist / owner bootstrap). *(invisible today;
+   revisit with a real membership model.)*
+
 ## A6 (approvals integration)
 
 1. **Resolution latency is notify-or-next-sweep.** If the api’s best-effort
@@ -42,10 +76,9 @@ nothing breaks · (visible-frustrating) users hit it early · (blocking).
    text as an ordinary assistant message (the `budget_exceeded` flag is not
    persisted per-message). *(visible-tolerable.)*
 
-2. **Single shared tenant workspace — by design until Phase B.** The api
-   bridge injects one `AGENTCLOUD_TENANT_ID` for all authenticated Quill
-   users; everyone shares the same agents/sessions/memory. Per-user tenancy
-   is the Phase B identity slice. *(visible-tolerable, intentional.)*
+2. **~~Single shared tenant workspace~~ — resolved by B1.** Per-user
+   tenancy shipped (TENANCY.md); `quill-main` is now the owner/partner org
+   workspace. *(closed.)*
 
 3. **Bridge auth is network-level trust.** agent-cloud itself has no
    end-user auth on `/v1/agents*`; the JWT gate lives in the api bridge, so
