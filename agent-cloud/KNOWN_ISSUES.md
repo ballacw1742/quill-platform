@@ -3,6 +3,62 @@
 Severity legend: (invisible) internal only · (visible-tolerable) noticeable,
 nothing breaks · (visible-frustrating) users hit it early · (blocking).
 
+## A6 (approvals integration)
+
+1. **Resolution latency is notify-or-next-sweep.** If the api’s best-effort
+   notify is lost (agent-cloud down, secret unset), the proposal stays
+   `pending` until the reconcile sweep polls it — up to
+   `APPROVALS_RECONCILE_AFTER_SECONDS` (120s) + one tick after resolution.
+   *(visible-tolerable — the write itself already executed queue-side; only
+   the wake/message is delayed.)*
+
+2. **Wake delivery is the passive A3/A4 wake.** “Your write was
+   approved/declined” lands as a `[system wake]` user message in the
+   originating session; the agent only *responds* to it on the session’s
+   next turn, and nothing pushes it to an external channel. Same semantics
+   as scheduler reminders. *(visible-tolerable.)*
+
+3. **Queue-time idempotency is scoped to *pending* proposals.** After a
+   proposal resolves, an identical tool call queues a fresh approval —
+   intentional (re-running an approved action must be re-approvable), but a
+   model retrying in a loop can stack sequential approvals one at a time.
+   *(visible-tolerable — lane-2 human review is the backstop.)*
+
+4. **Executor vocabularies are mirrored, not imported.** agent-cloud’s
+   queue-time validation mirrors api enums (phases, stages, entry types); if
+   api vocabularies change, agent-cloud needs the matching update or
+   queue-time validation drifts (execute-time validation in api remains the
+   authoritative belt). *(invisible until a vocab change; caught by A6 api
+   tests.)*
+
+5. **Reconcile sweep needs `QUILL_AGENT_SECRET`.** Without it the sweep
+   short-circuits (logs, resolves nothing) — same config already required
+   by the read tools. *(invisible in any correctly configured deploy.)*
+
+## A5 (web chat) — docs debt cleared in A6
+
+1. **Persisted budget refusals render plain.** The live SSE turn renders the
+   budget-exceeded notice specially; reloading the session shows the same
+   text as an ordinary assistant message (the `budget_exceeded` flag is not
+   persisted per-message). *(visible-tolerable.)*
+
+2. **Single shared tenant workspace — by design until Phase B.** The api
+   bridge injects one `AGENTCLOUD_TENANT_ID` for all authenticated Quill
+   users; everyone shares the same agents/sessions/memory. Per-user tenancy
+   is the Phase B identity slice. *(visible-tolerable, intentional.)*
+
+3. **Bridge auth is network-level trust.** agent-cloud itself has no
+   end-user auth on `/v1/agents*`; the JWT gate lives in the api bridge, so
+   agent-cloud must not be exposed publicly except via the bridge (Cloud Run
+   ingress/IAM). *(invisible when deployed per README; blocking if exposed
+   publicly by mistake.)*
+
+4. **Tool-chip transcript nuance.** Live streams show tool start/ok/denied
+   chips from SSE `tool` events; reloaded transcripts reconstruct tool use
+   from persisted content blocks, so chip granularity (e.g. transient
+   “start” states) differs slightly between live and replayed views.
+   *(visible-tolerable.)*
+
 ## A4 (scheduler)
 
 1. **Tick cadence bounds firing precision.** Schedules fire on the first

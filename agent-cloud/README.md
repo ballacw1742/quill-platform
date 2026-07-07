@@ -1,4 +1,8 @@
-# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprints A1–A4)
+# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprints A1–A6)
+
+Contracts in this directory: `EVENTS.md` (events + jobs + wakes),
+`WEBCHAT.md` (A5 web-chat channel + read endpoints + api bridge),
+`APPROVALS.md` (A6 approval-gated writes through the Quill /queue).
 
 Multi-tenant agent orchestrator on Cloud Run. Hardened from the P0 spike
 (`SPIKE_FINDINGS.md`) per the design doc
@@ -18,7 +22,9 @@ agent-cloud/
 │   ├── budget.py           # usage metering + monthly hard cap (polite refusal)
 │   ├── events.py           # A3: event bus (inline|pubsub) + durable event rows
 │   ├── jobs.py             # A3: sub-agent jobs (local|cloudrun) + CLI entrypoint
-│   ├── scheduler.py        # A4: per-tenant cron/reminder schedules + tick loop
+│   ├── scheduler.py        # A4: per-tenant cron/reminder schedules + tick loop (+ A6 reconcile sweep)
+│   ├── approvals.py        # A6: proposal create/finalize/reconcile (APPROVALS.md)
+│   ├── directory.py        # A5: agents/sessions/transcript reads (WEBCHAT.md §3)
 │   ├── memory.py           # A2: memory save/search core (pgvector + text fallback)
 │   ├── seeds.py            # per-tenant "personal" + "quill" agent definitions
 │   ├── orchestrator.py     # the chat/tool loop (stream + non-stream)
@@ -32,7 +38,8 @@ agent-cloud/
 │   └── tools/              # registry keyed by name; allow-list enforced twice
 │       ├── builtin.py      # get_time
 │       ├── memory.py       # A2: memory_save + memory_search
-│       └── quill.py        # 6 read-only X-Agent-Secret tools
+│       ├── quill.py        # 6 read-only X-Agent-Secret tools
+│       └── quill_writes.py # A6: 5 approval-gated write tools (proposal-only)
 └── tests/                  # pytest (sqlite unit; pg-gated RLS integration)
 ```
 
@@ -178,7 +185,24 @@ only.
 - `POST /v1/internal/scheduler/tick` — internal (Cloud Scheduler)
   entrypoint; requires header `X-Agent-Secret: $SCHEDULER_TICK_SECRET`
   (403 otherwise; endpoint is disabled while the secret is unset). Returns
-  `{claimed, fired, failed}`.
+  `{claimed, fired, failed}` (+ `approvals_checked`/`approvals_resolved`
+  when the A6 reconcile sweep touched anything).
+
+- A5 read endpoints (contract + payload shapes: `WEBCHAT.md` §3):
+  `GET /v1/agents?tenant_id=…` (agent directory; provisions tenant + seeds
+  idempotently), `GET /v1/agents/sessions?tenant_id=…&agent_id?=` (sessions,
+  newest-updated first), `GET /v1/agents/sessions/{id}?tenant_id=…` (full
+  transcript). The human-facing path goes through the api bridge
+  (`/v1/agent-cloud/*`, JWT-gated, server-side tenant injection — see
+  `WEBCHAT.md` §4) and the web `/assistant` page.
+
+- A6 (contract: `APPROVALS.md`): write tools never mutate Quill directly —
+  they queue `agentcloud.*` approval items and record `agentcloud_proposals`
+  rows. `POST /v1/internal/approvals/notify` (header
+  `X-Agent-Secret: $APPROVALS_NOTIFY_SECRET`, 403/disabled while unset) is
+  the api’s best-effort resolution push; the scheduler tick’s reconcile
+  sweep is the polling fallback. Both finalize idempotently and wake the
+  originating session.
 
 Errors use the standard envelope `{"detail": "..."}` (404 unknown
 agent/session incl. cross-tenant attempts, 403 disabled agent, 502 provider).

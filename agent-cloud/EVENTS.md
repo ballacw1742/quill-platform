@@ -1,4 +1,4 @@
-# EVENTS.md — Quill Agent Cloud event contract (A3, A4 addendum)
+# EVENTS.md — Quill Agent Cloud event contract (A3, A4 + A6 addenda)
 
 This is the canonical contract for platform events and sub-agent wakes
 (design doc §3.1 "Pub/Sub (events, wakes, completions)" and §3.4). All code
@@ -46,6 +46,8 @@ when ordered delivery is enabled on the subscription.
 | `subagent.failed` | a job errors or times out | `{job_id, error}` |
 | `schedule.fired` | a due schedule is claimed and its job is enqueued (A4) | `{schedule_id, name, kind: "at"\|"cron", job_id}` |
 | `schedule.failed` | a due schedule fails to fire (e.g. unknown/disabled agent, dispatch error) | `{schedule_id, name, error}` |
+| `approval.requested` | a write tool queues a proposal in the Quill /queue (A6, APPROVALS.md) | `{proposal_id, tool, action, quill_approval_id, args_preview}` |
+| `approval.resolved` | a proposal reaches a terminal state — emitted exactly once even when the notify push and the reconcile sweep race | `{proposal_id, quill_approval_id, status: "executed"\|"declined"\|"failed"\|"expired", external_ref?, error?, source: "notify"\|"reconcile"}` |
 
 `session_id` on subagent events is the **sub-agent's own session**; the
 parent session is in the job row (`agentcloud_jobs.parent_session_id`).
