@@ -28,9 +28,24 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://quillpm.com"),
   title: "Quill",
-  description: "Operational approval queue for the Agentic PMO fleet.",
+  description: "AI-native project management. Agents that research, draft, and execute — every action approval-gated and audit-chained.",
   applicationName: "Quill",
+  openGraph: {
+    title: "Quill — AI-native project management",
+    description:
+      "Agents that research, draft, and execute — every action approval-gated and audit-chained.",
+    url: "https://quillpm.com",
+    siteName: "Quill",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Quill — AI-native project management",
+    description:
+      "Agents that research, draft, and execute — every action approval-gated and audit-chained.",
+  },
   appleWebApp: {
     capable: true,
     title: "Quill",
