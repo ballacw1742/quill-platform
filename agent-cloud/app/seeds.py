@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.tools.builtin import BUILTIN_TOOLS
 from app.tools.memory import MEMORY_TOOLS
 from app.tools.quill import QUILL_TOOLS
+from app.tools.quill_writes import QUILL_WRITE_TOOLS
 
 SMOKE_TENANT_PREFIX = "smoke-"
 
@@ -60,7 +61,9 @@ SEED_AGENTS = (
     SeedAgent(
         agent_id="quill",
         system_prompt=QUILL_SYSTEM_PROMPT,
-        tools=tuple(t.name for t in BUILTIN_TOOLS) + tuple(t.name for t in QUILL_TOOLS),
+        tools=tuple(t.name for t in BUILTIN_TOOLS)
+        + tuple(t.name for t in QUILL_TOOLS)
+        + tuple(t.name for t in QUILL_WRITE_TOOLS),
         memory_policy="off",
     ),
 )
