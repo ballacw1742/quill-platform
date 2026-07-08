@@ -358,7 +358,14 @@ export function useDecide(opts?: UseMutationOptions<ApprovalItem, Error, DecideI
           : decision === "rejected"
             ? "reject"
             : "escalate";
-      return apiFetch(`/api/v1/approvals/${id}/decide`, {
+      // The decide endpoint returns the server-shaped ApprovalOut (id,
+      // agent_confidence, source_artifacts, payload, …), NOT the UI-shaped
+      // ApprovalItem. Parsing the raw response against ApprovalItemSchema threw
+      // a ZodError *after* the server had already committed the decision — the
+      // source of the false "Couldn't save your decision" toast. Coerce with the
+      // same adapter the list/detail paths use instead of validating the wrong
+      // shape at the wire boundary.
+      const raw: any = await apiFetch(`/api/v1/approvals/${id}/decide`, {
         method: "POST",
         body: JSON.stringify({
           decision: wireDecision,
@@ -366,8 +373,8 @@ export function useDecide(opts?: UseMutationOptions<ApprovalItem, Error, DecideI
           edits: edited_payload,
           auth_assertion: passkey_assertion,
         }),
-        schema: ApprovalItemSchema,
       });
+      return coerceApiApprovalItem(raw);
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["approvals"] });
