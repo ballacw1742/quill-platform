@@ -290,8 +290,15 @@ def mint_action_assertion_jwt(
     credential_id_b64: str,
     action_intent: dict[str, Any],
     ttl_seconds: int | None = None,
+    method: str = "passkey",
 ) -> tuple[str, str]:
-    """Mint a one-shot JWT for an approval decision. Returns (token, jti)."""
+    """Mint a one-shot JWT for an approval decision. Returns (token, jti).
+
+    ``method`` records HOW the user re-authenticated ("passkey" or
+    "password"). It is an additive claim: verification never inspects it,
+    so tokens verify identically regardless of method; consumers may read
+    it for audit fidelity (approvals.decide records auth_method from it).
+    """
     ttl = ttl_seconds or _settings.ACTION_ASSERTION_TTL_SECONDS
     now = datetime.now(UTC)
     jti = secrets.token_urlsafe(16)
@@ -300,6 +307,7 @@ def mint_action_assertion_jwt(
         "role": user_role,
         "scope": ACTION_ASSERTION_SCOPE,
         "cred": credential_id_b64,
+        "method": method,
         "intent_hash": _intent_hash(action_intent),
         "intent": action_intent,  # echoed for diagnostics; verification uses hash
         "iat": int(now.timestamp()),

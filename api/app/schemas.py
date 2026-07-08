@@ -300,6 +300,18 @@ class PasskeyChallengeComplete(_Base):
     action_intent: ActionIntent
 
 
+class PasswordChallengeRequest(_Base):
+    """Password re-auth fallback for approval decisions.
+
+    Mirrors the passkey challenge contract: binds the exact ActionIntent the
+    user is about to authorize. Requires an authenticated session on top of
+    the password (two proofs from the same user).
+    """
+
+    password: str
+    action_intent: ActionIntent
+
+
 class ActionAssertionOut(_Base):
     auth_assertion: str
     expires_in: int
@@ -749,6 +761,7 @@ __all__ = [
     "PasskeyLoginComplete",
     "PasskeyChallengeBegin",
     "PasskeyChallengeComplete",
+    "PasswordChallengeRequest",
     "ActionIntent",
     "ActionAssertionOut",
     "PasskeyCredentialOut",

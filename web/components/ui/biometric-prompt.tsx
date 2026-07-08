@@ -5,20 +5,19 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { AlertTriangle, Fingerprint, KeyRound, Loader2 } from "lucide-react";
 import {
   challengePasskey,
+  challengePassword,
   isPasskeySupported,
   isUserCancelledError,
+  shouldOfferPasswordFallback,
   type ActionAssertion,
   type ActionIntent,
 } from "@/lib/auth";
-import { useLogin, useSession } from "@/lib/api";
+import { useSession } from "@/lib/api";
 import type { Session } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-const DEV_FALLBACK =
-  typeof process !== "undefined" &&
-  process.env.NEXT_PUBLIC_DEV_AUTH_FALLBACK === "1";
 
 /**
  * Full-screen biometric / passkey ceremony overlay.
@@ -64,10 +63,11 @@ export function BiometricPrompt({
   const [error, setError] = React.useState<string | null>(null);
   const [secondsLeft, setSecondsLeft] = React.useState(60);
 
-  // Password fallback state (only meaningful when DEV_AUTH_FALLBACK is on).
+  // Password fallback state. Always available (the server decides who may use
+  // it): the quillpm.com domain move orphaned old passkeys, so password
+  // re-auth is the recovery path when the ceremony fails or nothing signs.
   const [showPasswordForm, setShowPasswordForm] = React.useState(false);
   const [password, setPassword] = React.useState("");
-  const passwordLogin = useLogin();
   const { data: rawSession } = useSession();
   const session = rawSession as Session | null | undefined;
 
@@ -115,7 +115,14 @@ export function BiometricPrompt({
       await onConfirm(assertion);
       onOpenChange(false);
     } catch (err) {
-      if (isUserCancelledError(err)) {
+      // A fallback-eligible failure (ceremony broke / no usable passkey / 412)
+      // auto-switches to the password form so the approver isn't dead-ended
+      // after the quillpm.com passkey orphaning. Plain user-cancel just offers
+      // a retry (they may want to try the passkey again).
+      if (shouldOfferPasswordFallback(err) && !isUserCancelledError(err)) {
+        setShowPasswordForm(true);
+        setError("Passkey unavailable. Confirm with your password instead.");
+      } else if (isUserCancelledError(err)) {
         setError("Cancelled. Try again to confirm.");
       } else {
         // eslint-disable-next-line no-console
@@ -139,14 +146,15 @@ export function BiometricPrompt({
     void runChallenge();
   }, [open, actionIntent, supported, runChallenge, showPasswordForm]);
 
-  // Password-verify fallback path. Verifies the password against /v1/auth/login
-  // then synthesizes an opaque dev token as the auth_assertion. Server-side
-  // DEV_AUTH_FALLBACK accepts opaque tokens; production passkey-only stays
-  // intact because this branch is gated by NEXT_PUBLIC_DEV_AUTH_FALLBACK.
+  // Password re-auth fallback. Calls the real POST /v1/auth/password/challenge
+  // endpoint, which mints the SAME action-assertion JWT the passkey path
+  // returns (method="password"); /decide accepts it identically. Requires an
+  // authenticated session AND the correct password (two proofs). The server
+  // decides eligibility (401 wrong pw, 400 no password_hash, 403 wrong role),
+  // so there is no client-side dev gate anymore.
   const runPasswordChallenge = React.useCallback(async () => {
-    const email = session?.email;
-    if (!email) {
-      setError("No session. Sign in again and retry.");
+    if (!actionIntent) {
+      setError("Nothing to confirm.");
       return;
     }
     if (!password) {
@@ -156,30 +164,29 @@ export function BiometricPrompt({
     setPending(true);
     setError(null);
     try {
-      // Verify password via the existing login endpoint.
-      await passwordLogin.mutateAsync({
-        email,
-        password,
-      });
-      // Mint an opaque dev assertion the server will accept under
-      // DEV_AUTH_FALLBACK. NOT a passkey JWT — server-side, the route checks
-      // "looks like JWT" (3 dot-separated segments) first; an opaque string
-      // falls into the dev branch where any non-empty string is accepted.
-      const stamp = `pw-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-      const pseudoAssertion: ActionAssertion = {
-        auth_assertion: stamp,
-        expires_in: 60,
-      };
-      await onConfirm(pseudoAssertion);
+      const assertion = await challengePassword(actionIntent, password);
+      await onConfirm(assertion);
       onOpenChange(false);
     } catch (err) {
+      // Surface the server's message where useful (wrong password, no password
+      // set, wrong role) instead of a generic string.
+      let msg = "Couldn't verify password. Check it and try again.";
+      const anyErr = err as { status?: number; message?: string };
+      if (anyErr?.status === 400) {
+        msg =
+          "This account has no password set. Register a passkey to approve.";
+      } else if (anyErr?.status === 403) {
+        msg = "Your role can't approve this item.";
+      } else if (anyErr?.status === 429) {
+        msg = "Too many attempts. Wait a minute and try again.";
+      }
       // eslint-disable-next-line no-console
       console.error("password fallback failed", err);
-      setError("Couldn't verify password. Check it and try again.");
+      setError(msg);
     } finally {
       setPending(false);
     }
-  }, [session, password, passwordLogin, onConfirm, onOpenChange]);
+  }, [actionIntent, password, onConfirm, onOpenChange]);
 
   return (
     <AnimatePresence>
@@ -246,8 +253,9 @@ export function BiometricPrompt({
             )}
           </div>
 
-          {/* Password fallback form (shown when user taps "Use password instead") */}
-          {showPasswordForm && DEV_FALLBACK && (
+          {/* Password fallback form (shown when user taps "Use password instead"
+              or after a fallback-eligible passkey failure). */}
+          {showPasswordForm && (
             <div className="px-6 pb-2">
               <label
                 htmlFor="approval-password"
@@ -274,7 +282,7 @@ export function BiometricPrompt({
 
           {/* Bottom action stack */}
           <div className="px-4 pb-4 pt-3 space-y-2">
-            {showPasswordForm && DEV_FALLBACK ? (
+            {showPasswordForm ? (
               <>
                 <Button
                   type="button"
@@ -324,18 +332,16 @@ export function BiometricPrompt({
                     </>
                   )}
                 </Button>
-                {DEV_FALLBACK && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowPasswordForm(true);
-                      setError(null);
-                    }}
-                    className="block w-full py-3 text-center text-callout text-accent active:opacity-60 no-tap-highlight"
-                  >
-                    Use password instead
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordForm(true);
+                    setError(null);
+                  }}
+                  className="block w-full py-3 text-center text-callout text-accent active:opacity-60 no-tap-highlight"
+                >
+                  Use password instead
+                </button>
               </>
             )}
           </div>

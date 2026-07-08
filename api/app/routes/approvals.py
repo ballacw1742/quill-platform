@@ -158,7 +158,17 @@ async def decide(
             raise HTTPException(
                 status.HTTP_401_UNAUTHORIZED, "action assertion already used"
             )
-        auth_method = AuthMethod.PASSKEY
+        # Audit fidelity: the minted token records HOW the user re-authed
+        # ("passkey" or "password"). Tokens verify identically regardless of
+        # method (verify_action_assertion_jwt never inspects it); we only read
+        # it here so a password-confirmed approval is forever distinguishable
+        # from a passkey-signed one. Legacy tokens without the claim are
+        # treated as passkey.
+        auth_method = (
+            AuthMethod.PASSWORD
+            if claims.get("method") == "password"
+            else AuthMethod.PASSKEY
+        )
     elif body.auth_assertion:
         # Opaque non-JWT — only honored under the dev fallback.
         if not _settings.DEV_AUTH_FALLBACK:
