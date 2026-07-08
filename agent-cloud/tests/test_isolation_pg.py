@@ -69,6 +69,11 @@ SEED_SQL: dict[str, str] = {
         "VALUES (:t, 'personal', 'quill_project_update', 'project_update', "
         "'{}'::jsonb, 'sha256:' || :t, 'appr-b1', 'pending') ON CONFLICT DO NOTHING"
     ),
+    "agentcloud_channel_links": (
+        "INSERT INTO agentcloud_channel_links (tenant_id, agent_id, platform, "
+        "platform_chat_id, status) "
+        "VALUES (:t, 'personal', 'telegram', 'chat-' || :t, 'linked')"
+    ),
 }
 
 
@@ -115,6 +120,11 @@ FORGE_SQL: dict[str, str] = {
         "args, idempotency_key, quill_approval_id, status) "
         "VALUES (:t, 'personal', 'quill_project_update', 'project_update', "
         "'{}'::jsonb, 'sha256:forged-' || :t, 'appr-b1-forged', 'pending')"
+    ),
+    "agentcloud_channel_links": (
+        "INSERT INTO agentcloud_channel_links (tenant_id, agent_id, platform, "
+        "platform_chat_id, status) "
+        "VALUES (:t, 'personal', 'telegram', 'chat-forged-' || :t, 'linked')"
     ),
 }
 

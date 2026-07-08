@@ -25,6 +25,7 @@ async def test_sqlite_create_all_idempotent():
         tables = await conn.run_sync(lambda c: inspect(c).get_table_names())
     assert "agentcloud_rate_limits" in tables
     assert "agentcloud_tenant_secrets" in tables
+    assert "agentcloud_channel_links" in tables  # Phase D
     async with engine.connect() as conn:
         cols = await conn.run_sync(
             lambda c: [x["name"] for x in inspect(c).get_columns("agentcloud_tenants")]
@@ -59,8 +60,12 @@ async def test_pg_migrations_run_twice_idempotent():
                 )
             ).scalar_one()
             assert col == 1
-            # B2 tables present + RLS forced
-            for tbl in ("agentcloud_rate_limits", "agentcloud_tenant_secrets"):
+            # B2 + D tables present + RLS forced
+            for tbl in (
+                "agentcloud_rate_limits",
+                "agentcloud_tenant_secrets",
+                "agentcloud_channel_links",  # Phase D
+            ):
                 forced = (
                     await conn.execute(
                         text(

@@ -271,3 +271,37 @@ nothing breaks · (visible-frustrating) users hit it early · (blocking).
   health checks must use `/health` (see README). *(visible-tolerable, ops-only)*
 - Vertex Claude provider blocked on quota increase; Anthropic-direct is the
   live path. *(invisible — config cutover when quota lands)*
+
+## D (Channels)
+
+1. **Google Chat is code-complete but pending Google Workspace Marketplace
+   verification.** The adapter, webhook, token verification, pairing, and
+   synchronous reply are all implemented and unit-tested (CHANNELS.md §11),
+   but a Google Chat app must be published/verified in the Google Workspace
+   Marketplace and the webhook URL + verification token configured on
+   Google's side before real Chat traffic can reach the service. Until then
+   the platform works end-to-end in tests but not against live Google Chat.
+   *(visible-frustrating for anyone trying live Google Chat before
+   verification lands — but purely external ops; no code change needed.)*
+
+2. **Telegram requires external bot setup.** A bot must be created via
+   BotFather (to obtain `TELEGRAM_BOT_TOKEN`) and the webhook registered with
+   Telegram via `setWebhook` (pointing at `/v1/channels/telegram/webhook`,
+   with `TELEGRAM_WEBHOOK_SECRET` as the secret token). These are one-time
+   external operations outside the codebase; the adapter/webhook/pairing are
+   complete and unit-tested. Until `setWebhook` is called, inbound Telegram
+   updates never arrive. *(visible-frustrating pre-setup; external ops.)*
+
+3. **Approval outcomes are not pushed back to the channel in D.** When a
+   channel-initiated turn enqueues an approval item, the human approval/denial
+   happens in the Quill approval queue; the resolved outcome is surfaced to
+   the user on their next channel message (passive wake), not proactively
+   pushed to the Telegram/Chat thread when the approval resolves. A proactive
+   push (store the origin chat + send on resolution) is a follow-up.
+   *(visible-tolerable — the outcome is never lost, just not proactively
+   delivered.)*
+
+4. **Feature is gated dark by default.** `CHANNELS_ENABLED=false` by default;
+   every webhook + bridge channel route returns 503 until it (and the
+   per-platform secrets) are set. Intentional — no half-configured channel
+   accepts traffic. *(invisible — config discipline.)*

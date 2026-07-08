@@ -42,6 +42,8 @@ from pydantic import BaseModel, Field
 
 from app import agents as agents_mod
 from app import approvals as approvals_mod
+from app import channels as channels_mod
+from app.channels import links as channel_links_mod
 from app import db as db_mod
 from app import directory as directory_mod
 from app import jobs as jobs_mod
@@ -133,6 +135,14 @@ class AgentPatchIn(BaseModel):
     memory_policy: str | None = None
     budget_monthly_usd: float | None = None
     enabled: bool | None = None
+
+
+class ChannelPairIn(BaseModel):
+    """CHANNELS.md §12 — mint a pairing code (agent-cloud side)."""
+
+    tenant_id: str = Field(min_length=1, max_length=128)
+    agent_id: str = Field(min_length=1, max_length=128)
+    platform: str = Field(min_length=1, max_length=32)
 
 
 class UsageOut(BaseModel):
@@ -429,6 +439,103 @@ async def delete_schedule(schedule_id: uuid.UUID, tenant_id: str):
 # above the {agent_id} path-param routes so a literal (usage/sessions/
 # subagents/schedules/catalog/templates) is never shadowed by {agent_id}.
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Channels (Phase D, CHANNELS.md). Pairing endpoints are declared BEFORE the
+# /v1/agents/{agent_id} path-param routes so the literal `channels` segment is
+# never shadowed (same discipline as catalog/templates in Phase C).
+# ---------------------------------------------------------------------------
+
+
+def _channels_gate() -> None:
+    """503 when the whole feature is dark (CHANNELS_ENABLED=false)."""
+    if not get_settings().CHANNELS_ENABLED:
+        raise HTTPException(503, "channels feature is disabled")
+
+
+@app.post("/v1/agents/channels/pair", status_code=201)
+async def channels_pair(body: ChannelPairIn):
+    """Mint a single-use, expiring pairing code (CHANNELS.md §2/§12)."""
+    _channels_gate()
+    try:
+        return await channel_links_mod.create_pairing(
+            tenant_id=body.tenant_id,
+            agent_id=body.agent_id,
+            platform=body.platform,
+        )
+    except channel_links_mod.ChannelValidationError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except UnknownAgentError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except AgentDisabledError as exc:
+        raise HTTPException(403, str(exc)) from exc
+
+
+@app.get("/v1/agents/channels")
+async def channels_list(tenant_id: str, limit: int = 100, offset: int = 0):
+    """List a tenant's channel links (CHANNELS.md §12)."""
+    _channels_gate()
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    return await channel_links_mod.list_links(tenant_id, limit=limit, offset=offset)
+
+
+@app.post("/v1/agents/channels/{link_id}/revoke")
+async def channels_revoke(link_id: uuid.UUID, tenant_id: str):
+    """Revoke a channel link (CHANNELS.md §12); 404 unknown/cross-tenant."""
+    _channels_gate()
+    try:
+        return await channel_links_mod.revoke_link(tenant_id, link_id)
+    except channel_links_mod.ChannelNotFoundError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
+async def _channel_webhook(platform: str, request: Request):
+    """Shared inbound webhook body (CHANNELS.md §4). Best-effort: verify the
+    platform secret, parse, run, reply. Never 5xx on a malformed update (that
+    would make the platform retry a poison message)."""
+    if not get_settings().CHANNELS_ENABLED:
+        raise HTTPException(503, f"{platform} channel not configured")
+    adapter = channels_mod.get_adapter(platform)
+    if adapter is None or not adapter.configured():
+        log.warning("%s webhook hit but platform is unconfigured", platform)
+        raise HTTPException(503, f"{platform} channel not configured")
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 — malformed JSON is acked, not retried
+        return JSONResponse({"ok": True, "ignored": "unparseable body"})
+    headers = {k.lower(): v for k, v in request.headers.items()}
+    if not adapter.verify(headers, body):
+        raise HTTPException(403, f"{platform} webhook: signature/secret verification failed")
+    try:
+        msg = adapter.parse(body)
+    except Exception:  # noqa: BLE001 — never crash on a weird update
+        log.exception("%s webhook: parse failed", platform)
+        return JSONResponse({"ok": True, "ignored": "unhandled update"})
+    if msg is None:
+        return JSONResponse({"ok": True, "ignored": "no text message"})
+    reply = await channel_links_mod.handle_inbound(platform, msg)
+    if reply is None:
+        return JSONResponse({"ok": True})
+    if platform == "googlechat":
+        # Google Chat posts a synchronous reply from the webhook response body.
+        return JSONResponse({"text": reply})
+    # Telegram: send out-of-band via sendMessage; ack the webhook 200.
+    await adapter.send(msg.platform_chat_id, reply)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/v1/channels/telegram/webhook")
+async def telegram_webhook(request: Request):
+    """Telegram Bot API webhook (CHANNELS.md §4.1)."""
+    return await _channel_webhook("telegram", request)
+
+
+@app.post("/v1/channels/googlechat/webhook")
+async def googlechat_webhook(request: Request):
+    """Google Chat webhook (CHANNELS.md §4.2). Synchronous reply in the body."""
+    return await _channel_webhook("googlechat", request)
 
 
 @app.get("/v1/agents/catalog")

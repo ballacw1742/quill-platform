@@ -390,3 +390,67 @@ async def chat(body: AgentChatIn, user=Depends(get_current_user)):
     if resp.status_code >= 400:
         _raise_passthrough(resp)
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Channels (Phase D, CHANNELS.md §12). JWT-gated, server-side tenant. Mirrors
+# the agent-cloud pairing/list/revoke surface exactly like the agents CRUD:
+# the client never supplies tenant_id (not even a schema field); {detail}
+# envelope + 502-on-unreachable passthrough via _request_json/_get_json.
+# ---------------------------------------------------------------------------
+
+
+class ChannelPairBody(BaseModel):
+    """CHANNELS.md §12 — mint a pairing code. No tenant_id field: the tenant
+    is derived server-side from the JWT (TENANCY.md §1)."""
+
+    agent_id: str = Field(min_length=1, max_length=128)
+    platform: str = Field(min_length=1, max_length=32)
+    workspace: Workspace = Workspace.personal
+
+
+@router.post("/channels/pair", status_code=201)
+async def pair_channel(body: ChannelPairBody, user=Depends(get_current_user)):
+    """Mint a single-use pairing code for the caller's tenant + agent +
+    platform. Proxies agent-cloud POST /v1/agents/channels/pair."""
+    tenant_id = _resolve_tenant(user, body.workspace)
+    payload = {
+        "tenant_id": tenant_id,  # server-side, always
+        "agent_id": body.agent_id,
+        "platform": body.platform,
+    }
+    return await _request_json(
+        "POST", "/v1/agents/channels/pair", json_body=payload
+    )
+
+
+@router.get("/channels")
+async def list_channels(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """List the caller's tenant's channel links. Proxies GET
+    /v1/agents/channels."""
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _get_json(
+        "/v1/agents/channels",
+        {"tenant_id": tenant_id, "limit": limit, "offset": offset},
+    )
+
+
+@router.post("/channels/{link_id}/revoke")
+async def revoke_channel(
+    link_id: uuid.UUID,
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """Revoke a channel link. 404 for unknown/cross-tenant (indistinguishable).
+    Proxies POST /v1/agents/channels/{link_id}/revoke."""
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _request_json(
+        "POST",
+        f"/v1/agents/channels/{link_id}/revoke",
+        params={"tenant_id": tenant_id},
+    )

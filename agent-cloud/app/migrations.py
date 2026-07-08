@@ -278,6 +278,40 @@ CREATE TABLE IF NOT EXISTS agentcloud_tenant_secrets (
 )""",
 ]
 
+# D: external channel adapters (Telegram + Google Chat) + pairing links
+# (CHANNELS.md §3). One statement each (asyncpg constraint), additive +
+# idempotent. Two partial unique indexes are the routing/pairing belts:
+#   - one pending code resolves to at most one row,
+#   - at most one live link per (platform, chat/space).
+DDL_D = [
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_channel_links (
+    link_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id        TEXT NOT NULL,
+    agent_id         TEXT NOT NULL,
+    platform         TEXT NOT NULL,
+    platform_user_id TEXT,
+    platform_chat_id TEXT,
+    display_name     TEXT,
+    status           TEXT NOT NULL DEFAULT 'pending',
+    pairing_code     TEXT,
+    code_expires_at  TIMESTAMPTZ,
+    session_id       UUID,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    linked_at        TIMESTAMPTZ,
+    revoked_at       TIMESTAMPTZ
+)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_channel_links_tenant_idx
+    ON agentcloud_channel_links (tenant_id, status)""",
+    """
+CREATE UNIQUE INDEX IF NOT EXISTS agentcloud_channel_links_code_idx
+    ON agentcloud_channel_links (platform, pairing_code) WHERE status = 'pending'""",
+    """
+CREATE UNIQUE INDEX IF NOT EXISTS agentcloud_channel_links_route_idx
+    ON agentcloud_channel_links (platform, platform_chat_id) WHERE status = 'linked'""",
+]
+
 _RLS_TABLES = [
     "agentcloud_tenants",
     "agentcloud_agents",
@@ -291,6 +325,7 @@ _RLS_TABLES = [
     "agentcloud_proposals",
     "agentcloud_rate_limits",
     "agentcloud_tenant_secrets",
+    "agentcloud_channel_links",
 ]
 
 
@@ -329,6 +364,7 @@ async def run_migrations(engine: AsyncEngine) -> None:
         *DDL_A4,
         *DDL_A6,
         *DDL_B2,
+        *DDL_D,
     ]
     for table in _RLS_TABLES:
         statements.extend(_rls_ddl(table))
@@ -336,5 +372,5 @@ async def run_migrations(engine: AsyncEngine) -> None:
         for stmt in statements:
             await conn.execute(text(stmt))
     log.info(
-        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + proposals + rate-limits + tenant-secrets + RLS)"
+        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + proposals + rate-limits + tenant-secrets + channel-links + RLS)"
     )

@@ -96,6 +96,57 @@ export const SoftDeleteResultSchema = z.object({
   soft_deleted: z.boolean(),
 });
 
+// ─── Channels (Phase D, CHANNELS.md §12) ─────────────────────────────────
+
+/** Platforms the pairing form offers. Matches the agent-cloud PLATFORMS
+ * tuple; the API is the authoritative belt. */
+export const CHANNEL_PLATFORMS = ["telegram", "googlechat"] as const;
+export type ChannelPlatform = (typeof CHANNEL_PLATFORMS)[number];
+
+export const CHANNEL_PLATFORM_LABELS: Record<ChannelPlatform, string> = {
+  telegram: "Telegram",
+  googlechat: "Google Chat",
+};
+
+/** One channel link row (CHANNELS.md §12 list shape). */
+export const ChannelLinkSchema = z.object({
+  link_id: z.string(),
+  platform: z.string(),
+  agent_id: z.string(),
+  status: z.string(),
+  platform_chat_id: z.string().nullable(),
+  display_name: z.string().nullable(),
+  created_at: z.string(),
+  linked_at: z.string().nullable(),
+});
+export type ChannelLink = z.infer<typeof ChannelLinkSchema>;
+
+export const ChannelLinkListSchema = z.object({
+  items: z.array(ChannelLinkSchema),
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+});
+export type ChannelLinkList = z.infer<typeof ChannelLinkListSchema>;
+
+/** POST /channels/pair response — the freshly minted (pending) link + code. */
+export const ChannelPairResultSchema = z.object({
+  link_id: z.string(),
+  platform: z.string(),
+  agent_id: z.string(),
+  status: z.string(),
+  pairing_code: z.string(),
+  expires_at: z.string().nullable(),
+  instructions: z.string(),
+});
+export type ChannelPairResult = z.infer<typeof ChannelPairResultSchema>;
+
+export const ChannelRevokeResultSchema = z.object({
+  link_id: z.string(),
+  status: z.string(),
+});
+export type ChannelRevokeResult = z.infer<typeof ChannelRevokeResultSchema>;
+
 export type AgentCreatePayload = {
   agent_id: string;
   system_prompt: string;
@@ -568,6 +619,64 @@ export function useInvalidateAgentCloud() {
       void qc.invalidateQueries({ queryKey: ["agent-cloud", "transcript", sessionId] });
     }
   };
+}
+
+// ─── Channels calls + hooks (Phase D) ────────────────────────────────────
+
+/** Mint a pairing code for (agent, platform) in the caller's tenant. The
+ * bridge injects tenant_id server-side; the client only sends agent_id +
+ * platform (+ workspace when org). */
+export function pairChannel(
+  payload: { agent_id: string; platform: ChannelPlatform },
+  workspace = "personal",
+): Promise<ChannelPairResult> {
+  const body =
+    workspace && workspace !== "personal"
+      ? { ...payload, workspace }
+      : payload;
+  return sendJson(
+    "POST",
+    "/api/v1/agent-cloud/channels/pair",
+    ChannelPairResultSchema,
+    body,
+  );
+}
+
+/** Revoke a channel link. 404 (indistinguishable) for unknown/cross-tenant. */
+export function revokeChannel(
+  linkId: string,
+  workspace = "personal",
+): Promise<ChannelRevokeResult> {
+  return sendJson(
+    "POST",
+    `/api/v1/agent-cloud/channels/${encodeURIComponent(linkId)}/revoke${wsQuery(
+      workspace,
+    )}`,
+    ChannelRevokeResultSchema,
+  );
+}
+
+export function useAgentCloudChannels(
+  workspace = "personal",
+  opts?: Partial<UseQueryOptions<ChannelLinkList>>,
+) {
+  return useQuery<ChannelLinkList>({
+    queryKey: ["agent-cloud", "channels", workspace],
+    queryFn: () =>
+      getJson(
+        `/api/v1/agent-cloud/channels${wsQuery(workspace)}`,
+        ChannelLinkListSchema,
+      ),
+    staleTime: 30_000,
+    ...opts,
+  });
+}
+
+/** Invalidate the channels list after a pair/revoke. */
+export function useInvalidateChannels() {
+  const qc = useQueryClient();
+  return () =>
+    void qc.invalidateQueries({ queryKey: ["agent-cloud", "channels"] });
 }
 
 // ─── Chat send (SSE with non-stream fallback) ────────────────────────────────

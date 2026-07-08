@@ -1,4 +1,4 @@
-# EVENTS.md — Quill Agent Cloud event contract (A3, A4 + A6/B2 addenda)
+# EVENTS.md — Quill Agent Cloud event contract (A3, A4 + A6/B2/D addenda)
 
 This is the canonical contract for platform events and sub-agent wakes
 (design doc §3.1 "Pub/Sub (events, wakes, completions)" and §3.4). All code
@@ -49,6 +49,8 @@ when ordered delivery is enabled on the subscription.
 | `approval.requested` | a write tool queues a proposal in the Quill /queue (A6, APPROVALS.md) | `{proposal_id, tool, action, quill_approval_id, args_preview}` |
 | `approval.resolved` | a proposal reaches a terminal state — emitted exactly once even when the notify push and the reconcile sweep race | `{proposal_id, quill_approval_id, status: "executed"\|"declined"\|"failed"\|"expired", external_ref?, error?, source: "notify"\|"reconcile"}` |
 | `rate_limit.exceeded` | the **first** rejected request of a (tenant, bucket, window) — at most one event per tenant per bucket per minute, so an abusive client cannot flood the events table (B2, LIMITS.md §3) | `{bucket: "chat"\|"jobs", limit_per_min, retry_after_seconds}` — `agent_id`/`session_id` are empty/null (the request was rejected before agent resolution) |
+| `channel.linked` | a pairing code is redeemed and a channel link goes `linked` (D, CHANNELS.md §8) | `{link_id, platform: "telegram"\|"googlechat", platform_chat_id, display_name}` |
+| `channel.message` | an inbound channel message runs an orchestrator turn (D, CHANNELS.md §8) | `{link_id, platform, direction: "inbound", chars}` — `agent_id`/`session_id` are set from the link; message content is intentionally **not** in the event (privacy) |
 
 `session_id` on subagent events is the **sub-agent's own session**; the
 parent session is in the job row (`agentcloud_jobs.parent_session_id`).

@@ -110,6 +110,33 @@ class Settings(BaseSettings):
     # Hard cap on an agent definition's system_prompt length (§4).
     SYSTEM_PROMPT_MAX_CHARS: int = Field(default=8000)
 
+    # --- Channels (Phase D, CHANNELS.md) ---------------------------------
+    # Master feature flag. False ⇒ every channel webhook + pairing endpoint
+    # returns 503 (the whole feature is dark; safe default).
+    CHANNELS_ENABLED: bool = Field(default=False)
+    # Telegram platform bot (BotFather). Unset ⇒ telegram webhook 503.
+    TELEGRAM_BOT_TOKEN: str = Field(default="")
+    # setWebhook secret_token, echoed in X-Telegram-Bot-Api-Secret-Token and
+    # verified per request. Unset ⇒ telegram webhook 503.
+    TELEGRAM_WEBHOOK_SECRET: str = Field(default="")
+    # Google Chat: in-code bearer belt for the webhook. Unset ⇒ chat 503.
+    GOOGLECHAT_VERIFICATION_TOKEN: str = Field(default="")
+    # SA creds JSON for the async REST send path. Unset ⇒ async send off
+    # (the synchronous webhook reply still works).
+    GOOGLECHAT_SERVICE_ACCOUNT_JSON: str = Field(default="")
+    # App's GCP project number = the JWT audience for production verification
+    # (documented Google-side hardening, CHANNELS.md §11).
+    GOOGLECHAT_PROJECT_NUMBER: str = Field(default="")
+    # Pairing-code lifetime + entropy (CHANNELS.md §2).
+    CHANNELS_PAIRING_TTL_SECONDS: int = Field(default=900)
+    CHANNELS_PAIRING_CODE_BYTES: int = Field(default=4)
+    # Base URL for the web approval-queue deep link appended to bot replies
+    # when a channel turn proposes an approval-gated write (CHANNELS.md §7).
+    CHANNELS_APPROVAL_DEEPLINK_BASE: str = Field(
+        default="https://quill-app-894031978246.us-central1.run.app"
+    )
+    CHANNELS_SEND_TIMEOUT_SECONDS: float = Field(default=15.0)
+
     # --- Budgets ------------------------------------------------------------
     DEFAULT_BUDGET_MONTHLY_USD: float = Field(default=20.0)
     # B2 tenant-level caps (LIMITS.md §1). A NULL agentcloud_tenants.
