@@ -61,6 +61,21 @@ jobs:
             --update-secrets DATABASE_URL=QUILL_DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,QUILL_AGENT_SECRET=QUILL_AGENT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,APPROVALS_NOTIFY_SECRET=AGENTCLOUD_NOTIFY_SECRET:latest,SCHEDULER_TICK_SECRET=AGENTCLOUD_SCHEDULER_TICK_SECRET:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,TELEGRAM_WEBHOOK_SECRET=TELEGRAM_WEBHOOK_SECRET:latest \
             --project totemic-formula-467102-s9
 
+      - name: Grant public access (re-apply after each deploy)
+        run: |
+          # Consistent with the sibling services (quill-agents, datasite-agents):
+          # the orchestrator is network-public and enforces auth IN-APP. Its
+          # tenant routes (/v1/agents/*) require a shared X-Agent-Secret
+          # (service_auth_middleware); channel webhooks self-verify the
+          # platform token; /v1/internal/* self-gate on their own secrets.
+          # Public ingress is required so the api-bridge (no OIDC in this
+          # project's pattern) and Telegram/Chat webhooks can reach it.
+          gcloud run services add-iam-policy-binding quill-agent-orchestrator \
+            --region us-central1 \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --project totemic-formula-467102-s9
+
       - name: Update admin job image (agentcloud-admin)
         run: |
           # Maintenance CLI (rls-probe / set-agent / cleanup-smoke) runs as a

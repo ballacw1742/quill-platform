@@ -109,74 +109,16 @@ async def provision_user_tenant(user_id: str) -> bool:
         return False
 
 
-# --- Cloud Run IAM: OIDC identity token for the orchestrator -----------------
-# When the orchestrator is IAM-locked (--no-allow-unauthenticated), the bridge
-# must present a Google-signed OIDC ID token whose audience is the orchestrator
-# URL. Both services run as the same SA (openclaw-adk@), which holds
-# run.invoker on the orchestrator, so ADC can mint this token. Cached and
-# auto-refreshed. Best-effort: if minting fails (e.g. local dev with no ADC),
-# we skip the header and fall back to the X-Agent-Secret app-layer gate.
-_id_token_cache: dict[str, tuple[str, float]] = {}
-
-
-def _mint_id_token_metadata(audience: str) -> str | None:
-    """Fetch an OIDC ID token from the GCE/Cloud Run metadata server for the
-    given audience. This is the reliable path on Cloud Run — the metadata
-    server signs a token whose `aud` is the target service URL, which Cloud
-    Run IAM verifies. (`id_token.fetch_id_token` with metadata-server ADC can
-    return a token IAM rejects, so we prefer the metadata endpoint directly.)
-    """
-    import urllib.request
-
-    url = (
-        "http://metadata.google.internal/computeMetadata/v1/instance/"
-        f"service-accounts/default/identity?audience={audience}&format=full"
-    )
-    req = urllib.request.Request(url, headers={"Metadata-Flavor": "Google"})
-    with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
-        return resp.read().decode("utf-8").strip()
-
-
-def _orchestrator_id_token(audience: str) -> str | None:
-    import time
-
-    cached = _id_token_cache.get(audience)
-    if cached and cached[1] - time.time() > 120:  # 2-min freshness margin
-        return cached[0]
-    # Primary: metadata server (reliable on Cloud Run).
-    try:
-        tok = _mint_id_token_metadata(audience)
-        if tok:
-            _id_token_cache[audience] = (tok, time.time() + 45 * 60)
-            return tok
-    except Exception as exc:  # noqa: BLE001 — not on GCE / metadata unreachable
-        log.warning("metadata-server OIDC mint failed, trying ADC: %s", exc)
-    # Fallback: ADC fetch_id_token (works with SA-key ADC, e.g. local).
-    try:
-        import google.auth.transport.requests as ga_transport
-        from google.oauth2 import id_token as ga_id_token
-
-        req = ga_transport.Request()
-        tok = ga_id_token.fetch_id_token(req, audience)
-        _id_token_cache[audience] = (tok, time.time() + 45 * 60)
-        return tok
-    except Exception as exc:  # noqa: BLE001 — dev/no-ADC or transient
-        log.warning("orchestrator OIDC token mint failed (falling back): %s", exc)
-        return None
-
-
 def _client(timeout: httpx.Timeout | float | None = None) -> httpx.AsyncClient:
     settings = get_settings()
+    # SEC: like every sibling Cloud Run service in this project (quill-agents,
+    # datasite-agents), the orchestrator is network-public and enforces auth
+    # IN-APP rather than via Cloud Run IAM. Its tenant routes now require a
+    # shared X-Agent-Secret (the real boundary that closed the
+    # unauthenticated-cross-tenant hole). The bridge — the only legitimate
+    # caller — attaches it on every forwarded request. Empty in dev/tests
+    # (the orchestrator's gate is likewise disabled when the secret is unset).
     headers: dict[str, str] = {}
-    # SEC layer 1 (network/IAM): present an OIDC ID token so an IAM-locked
-    # orchestrator accepts the call. Skipped when a test transport override is
-    # in place (fake app, no real network) or minting is unavailable.
-    if TRANSPORT_OVERRIDE is None and settings.AGENTCLOUD_URL.startswith("https://"):
-        tok = _orchestrator_id_token(settings.AGENTCLOUD_URL)
-        if tok:
-            headers["Authorization"] = f"Bearer {tok}"
-    # SEC layer 2 (app): shared X-Agent-Secret gate (defense-in-depth even if
-    # IAM is the primary boundary). Empty in dev/tests.
     if settings.AGENTCLOUD_SERVICE_SECRET:
         headers["X-Agent-Secret"] = settings.AGENTCLOUD_SERVICE_SECRET
     return httpx.AsyncClient(
