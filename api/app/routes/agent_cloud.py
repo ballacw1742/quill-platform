@@ -119,19 +119,45 @@ async def provision_user_tenant(user_id: str) -> bool:
 _id_token_cache: dict[str, tuple[str, float]] = {}
 
 
+def _mint_id_token_metadata(audience: str) -> str | None:
+    """Fetch an OIDC ID token from the GCE/Cloud Run metadata server for the
+    given audience. This is the reliable path on Cloud Run — the metadata
+    server signs a token whose `aud` is the target service URL, which Cloud
+    Run IAM verifies. (`id_token.fetch_id_token` with metadata-server ADC can
+    return a token IAM rejects, so we prefer the metadata endpoint directly.)
+    """
+    import urllib.request
+
+    url = (
+        "http://metadata.google.internal/computeMetadata/v1/instance/"
+        f"service-accounts/default/identity?audience={audience}&format=full"
+    )
+    req = urllib.request.Request(url, headers={"Metadata-Flavor": "Google"})
+    with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+        return resp.read().decode("utf-8").strip()
+
+
 def _orchestrator_id_token(audience: str) -> str | None:
     import time
 
     cached = _id_token_cache.get(audience)
     if cached and cached[1] - time.time() > 120:  # 2-min freshness margin
         return cached[0]
+    # Primary: metadata server (reliable on Cloud Run).
+    try:
+        tok = _mint_id_token_metadata(audience)
+        if tok:
+            _id_token_cache[audience] = (tok, time.time() + 45 * 60)
+            return tok
+    except Exception as exc:  # noqa: BLE001 — not on GCE / metadata unreachable
+        log.warning("metadata-server OIDC mint failed, trying ADC: %s", exc)
+    # Fallback: ADC fetch_id_token (works with SA-key ADC, e.g. local).
     try:
         import google.auth.transport.requests as ga_transport
         from google.oauth2 import id_token as ga_id_token
 
         req = ga_transport.Request()
         tok = ga_id_token.fetch_id_token(req, audience)
-        # ID tokens are ~1h; cache with a conservative TTL.
         _id_token_cache[audience] = (tok, time.time() + 45 * 60)
         return tok
     except Exception as exc:  # noqa: BLE001 — dev/no-ADC or transient
