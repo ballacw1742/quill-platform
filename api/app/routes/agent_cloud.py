@@ -36,7 +36,7 @@ from enum import Enum
 from typing import AsyncIterator, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -454,3 +454,42 @@ async def revoke_channel(
         f"/v1/agents/channels/{link_id}/revoke",
         params={"tenant_id": tenant_id},
     )
+
+
+# ---------------------------------------------------------------------------
+# Public channel webhook proxy (Phase D live-enablement).
+#
+# Telegram / Google Chat call these UNAUTHENTICATED (no Quill JWT). The api
+# service is public; the orchestrator is IAM-locked. We forward the raw body
+# and the platform's own auth header to the orchestrator's webhook, which does
+# the real secret-token verification. No get_current_user dependency here on
+# purpose — the platform secret token is the auth.
+# ---------------------------------------------------------------------------
+@router.post("/channels/{platform}/webhook")
+async def public_channel_webhook(platform: str, request: Request):
+    if platform not in ("telegram", "googlechat"):
+        raise HTTPException(status_code=404, detail="unknown channel platform")
+    raw = await request.body()
+    # Preserve the platform verification header(s) verbatim.
+    fwd_headers = {"content-type": request.headers.get("content-type", "application/json")}
+    tg_secret = request.headers.get("x-telegram-bot-api-secret-token")
+    if tg_secret is not None:
+        fwd_headers["x-telegram-bot-api-secret-token"] = tg_secret
+    gc_auth = request.headers.get("authorization")
+    if gc_auth is not None:
+        fwd_headers["authorization"] = gc_auth
+    try:
+        async with _client(timeout=30.0) as client:
+            resp = await client.post(
+                f"/v1/channels/{platform}/webhook",
+                content=raw,
+                headers=fwd_headers,
+            )
+    except httpx.HTTPError:
+        # Never make the platform retry a poison delivery; ack.
+        return JSONResponse({"ok": True, "ignored": "upstream unreachable"})
+    # Pass the orchestrator's response through (Google Chat needs the body).
+    try:
+        return JSONResponse(resp.json(), status_code=resp.status_code)
+    except Exception:  # noqa: BLE001
+        return JSONResponse({"ok": True}, status_code=resp.status_code)
