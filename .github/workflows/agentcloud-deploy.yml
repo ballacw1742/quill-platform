@@ -57,8 +57,8 @@ jobs:
             --memory 512Mi \
             --service-account openclaw-adk@totemic-formula-467102-s9.iam.gserviceaccount.com \
             --add-cloudsql-instances totemic-formula-467102-s9:us-central1:quill-datasite-db \
-            --update-env-vars QUILL_API_URL=https://quill-agents-894031978246.us-central1.run.app,MODEL_PROVIDER=anthropic,MODEL_DEFAULT=claude-fable-5,MODEL_CHEAP=claude-haiku-4-5,EMBEDDING_PROVIDER=gemini \
-            --update-secrets DATABASE_URL=QUILL_DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,QUILL_AGENT_SECRET=QUILL_AGENT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest \
+            --update-env-vars QUILL_API_URL=https://quill-agents-894031978246.us-central1.run.app,MODEL_PROVIDER=anthropic,MODEL_DEFAULT=claude-fable-5,MODEL_CHEAP=claude-haiku-4-5,EMBEDDING_PROVIDER=gemini,EVENT_BUS=pubsub,JOBS_BACKEND=cloudrun,CLOUDRUN_JOB_NAME=agentcloud-subagent,SCHEDULER_BACKEND=cloudscheduler,SECRETS_BACKEND=kms,SECRETS_KMS_KEY=projects/totemic-formula-467102-s9/locations/us-central1/keyRings/agentcloud/cryptoKeys/tenant-secrets,CHANNELS_ENABLED=true \
+            --update-secrets DATABASE_URL=QUILL_DATABASE_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,QUILL_AGENT_SECRET=QUILL_AGENT_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,APPROVALS_NOTIFY_SECRET=AGENTCLOUD_NOTIFY_SECRET:latest,SCHEDULER_TICK_SECRET=AGENTCLOUD_SCHEDULER_TICK_SECRET:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,TELEGRAM_WEBHOOK_SECRET=TELEGRAM_WEBHOOK_SECRET:latest \
             --project totemic-formula-467102-s9
 
       - name: Update admin job image (agentcloud-admin)

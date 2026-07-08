@@ -38,6 +38,7 @@ jobs:
             --region us-central1 \
             --no-allow-unauthenticated \
             --update-env-vars DATASITE_URL=https://datasite-agents-894031978246.us-central1.run.app \
+            --update-secrets AGENTCLOUD_SERVICE_SECRET=QUILL_AGENT_SECRET:latest \
             --project totemic-formula-467102-s9
 
       - name: Run database migrations
