@@ -63,6 +63,7 @@ class _ExplodingTransport(httpx.AsyncBaseTransport):
 
 ALL_GET_ROUTES = [
     "/v1/agent-cloud/agents",
+    "/v1/agent-cloud/usage",
     "/v1/agent-cloud/sessions",
     f"/v1/agent-cloud/sessions/{KNOWN_SESSION}",
 ]

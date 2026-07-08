@@ -19,6 +19,7 @@ the /v1/sites DataSite proxy, with two hard rules from WEBCHAT.md:
 
 Endpoints (WEBCHAT.md §3):
   GET  /v1/agent-cloud/agents            — tenant agent directory
+  GET  /v1/agent-cloud/usage             — current-month usage/meters (B2)
   GET  /v1/agent-cloud/sessions          — session list (optional agent_id)
   GET  /v1/agent-cloud/sessions/{id}     — full transcript
   POST /v1/agent-cloud/chat              — chat turn; stream=true ⇒ SSE
@@ -156,6 +157,21 @@ async def list_agents(
         "/v1/agents",
         {"tenant_id": tenant_id, "limit": limit, "offset": offset},
     )
+
+
+@router.get("/usage")
+async def get_usage(
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """Current-month usage/meters for the caller's tenant (LIMITS.md §2).
+
+    Same tenant-derivation + proxy semantics as every other bridge read:
+    tenant is server-side from the JWT (workspace=org → owner/partner only),
+    502 on unreachable, {detail} envelope passthrough.
+    """
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _get_json("/v1/agents/usage", {"tenant_id": tenant_id})
 
 
 @router.get("/sessions")

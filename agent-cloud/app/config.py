@@ -108,6 +108,25 @@ class Settings(BaseSettings):
 
     # --- Budgets ------------------------------------------------------------
     DEFAULT_BUDGET_MONTHLY_USD: float = Field(default=20.0)
+    # B2 tenant-level caps (LIMITS.md §1). A NULL agentcloud_tenants.
+    # budget_monthly_usd defers to these: user-* personal tenants get
+    # TENANT_BUDGET_DEFAULT_USD, everything else (org/smoke) gets
+    # ORG_TENANT_BUDGET_USD.
+    TENANT_BUDGET_DEFAULT_USD: float = Field(default=10.0)
+    ORG_TENANT_BUDGET_USD: float = Field(default=100.0)
+
+    # --- Rate limits (B2, LIMITS.md §3) ----------------------------------
+    # Per-tenant fixed-window (1 min) counters in Postgres; 0 disables.
+    RATE_LIMIT_PER_MIN: int = Field(default=30)  # chat turns
+    RATE_LIMIT_JOBS_PER_MIN: int = Field(default=10)  # subagents + schedule creates
+
+    # --- Per-tenant secrets (B2, SECRETS.md) ------------------------------
+    # "plaintext-dev" (default — dev/tests, value stored raw, loudly named)
+    # | "kms" (envelope encryption: AES-256-GCM DEK wrapped by Cloud KMS).
+    SECRETS_BACKEND: str = Field(default="plaintext-dev")
+    # Full KMS key resource name (SECRETS.md §5); required for kms backend.
+    SECRETS_KMS_KEY: str = Field(default="")
+    SECRETS_KMS_TIMEOUT_SECONDS: float = Field(default=10.0)
 
     # --- Ops ------------------------------------------------------------
     LOG_LEVEL: str = Field(default="INFO")

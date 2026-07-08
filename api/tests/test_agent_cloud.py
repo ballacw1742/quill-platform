@@ -60,6 +60,35 @@ def make_fake_agentcloud(calls: list) -> FastAPI:
             "offset": offset,
         }
 
+    @fake.get("/v1/agents/usage")
+    async def usage(tenant_id: str):
+        calls.append(("usage", tenant_id))
+        return {
+            "month": "2026-07",
+            "tenant": {
+                "budget_monthly_usd": 10.0,
+                "budget_source": "default",
+                "spend_usd": 1.234567,
+                "remaining_usd": 8.765433,
+                "input_tokens": 12345,
+                "output_tokens": 6789,
+                "requests": 42,
+                "exhausted": False,
+            },
+            "agents": [
+                {
+                    "agent_id": "personal",
+                    "budget_monthly_usd": 20.0,
+                    "spend_usd": 1.2,
+                    "remaining_usd": 18.8,
+                    "input_tokens": 12000,
+                    "output_tokens": 6000,
+                    "requests": 40,
+                    "exhausted": False,
+                }
+            ],
+        }
+
     @fake.get("/v1/agents/sessions")
     async def list_sessions(
         tenant_id: str, agent_id: str | None = None, limit: int = 50, offset: int = 0
@@ -145,6 +174,7 @@ def fake_agentcloud(monkeypatch):
     "method,path",
     [
         ("get", "/v1/agent-cloud/agents"),
+        ("get", "/v1/agent-cloud/usage"),
         ("get", "/v1/agent-cloud/sessions"),
         ("get", f"/v1/agent-cloud/sessions/{KNOWN_SESSION}"),
         ("post", "/v1/agent-cloud/chat"),
@@ -182,6 +212,17 @@ async def test_client_supplied_tenant_is_ignored(client, owner_token, fake_agent
 
 
 # ─── read passthrough shapes ──────────────────────────────────────────────────
+
+
+async def test_usage_passthrough_and_tenant(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.get("/v1/agent-cloud/usage", headers=auth_h(token))
+    assert r.status_code == 200
+    assert fake_agentcloud == [("usage", expected_tenant(uid))]
+    body = r.json()
+    assert body["month"] == "2026-07"
+    assert body["tenant"]["remaining_usd"] == 8.765433
+    assert body["agents"][0]["agent_id"] == "personal"
 
 
 async def test_list_agents_shape(client, owner_token, fake_agentcloud):

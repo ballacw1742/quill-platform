@@ -43,6 +43,7 @@ EVENT_TYPES = (
     "schedule.failed",
     "approval.requested",
     "approval.resolved",
+    "rate_limit.exceeded",  # B2 (LIMITS.md §3)
 )
 
 

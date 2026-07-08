@@ -248,6 +248,36 @@ CREATE UNIQUE INDEX IF NOT EXISTS agentcloud_proposals_idem_idx
     ON agentcloud_proposals (tenant_id, idempotency_key) WHERE status = 'pending'""",
 ]
 
+# B2: tenant budgets + rate limits + per-tenant secrets (LIMITS.md,
+# SECRETS.md). One statement each (asyncpg constraint), additive +
+# idempotent.
+DDL_B2 = [
+    """
+ALTER TABLE agentcloud_tenants
+    ADD COLUMN IF NOT EXISTS budget_monthly_usd NUMERIC(10,2)""",
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_rate_limits (
+    tenant_id    TEXT NOT NULL,
+    bucket       TEXT NOT NULL,
+    window_start TIMESTAMPTZ NOT NULL,
+    count        INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (tenant_id, bucket, window_start)
+)""",
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_tenant_secrets (
+    tenant_id   TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    backend     TEXT NOT NULL,
+    kms_key_ref TEXT,
+    dek_wrapped BYTEA,
+    nonce       BYTEA,
+    ciphertext  BYTEA NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    rotated_at  TIMESTAMPTZ,
+    PRIMARY KEY (tenant_id, name)
+)""",
+]
+
 _RLS_TABLES = [
     "agentcloud_tenants",
     "agentcloud_agents",
@@ -259,6 +289,8 @@ _RLS_TABLES = [
     "agentcloud_jobs",
     "agentcloud_schedules",
     "agentcloud_proposals",
+    "agentcloud_rate_limits",
+    "agentcloud_tenant_secrets",
 ]
 
 
@@ -296,6 +328,7 @@ async def run_migrations(engine: AsyncEngine) -> None:
         *DDL_A3,
         *DDL_A4,
         *DDL_A6,
+        *DDL_B2,
     ]
     for table in _RLS_TABLES:
         statements.extend(_rls_ddl(table))
@@ -303,5 +336,5 @@ async def run_migrations(engine: AsyncEngine) -> None:
         for stmt in statements:
             await conn.execute(text(stmt))
     log.info(
-        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + proposals + RLS)"
+        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + proposals + rate-limits + tenant-secrets + RLS)"
     )
