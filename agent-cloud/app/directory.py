@@ -16,9 +16,10 @@ from typing import Any
 
 import sqlalchemy as sa
 
+from app import budget as budget_mod
 from app.config import get_settings
 from app.db import tenant_session
-from app.models import AgentDef, Message, Session, Tenant
+from app.models import AgentDef, Message, Session, Tenant, Usage
 from app.orchestrator import _insert_ignore
 from app.seeds import SEED_AGENTS, seed_model_for_tenant
 
@@ -179,6 +180,106 @@ async def list_sessions(
             "limit": limit,
             "offset": offset,
         }
+
+
+def _round6(x: float) -> float:
+    return round(float(x), 6)
+
+
+async def get_usage(tenant_id: str) -> dict:
+    """LIMITS.md §2 — current-month usage/meters for a tenant.
+
+    Idempotently provisions the tenant + seed agents (same path as
+    list_agents) so a fresh tenant gets a well-formed zero-usage report,
+    then returns per-agent meters (every defined agent, ordered by
+    agent_id, zero-usage agents included) plus tenant totals + remaining.
+    Deleted-agent usage still counts toward the tenant totals.
+    """
+    month = budget_mod.month_start().strftime("%Y-%m")
+    since = budget_mod.month_start()
+    async with tenant_session(tenant_id) as db:
+        await _provision_tenant(db, tenant_id)
+
+        # per-agent usage aggregate for the month (may include deleted agents)
+        usage_rows = (
+            await db.execute(
+                sa.select(
+                    Usage.agent_id,
+                    sa.func.coalesce(sa.func.sum(Usage.input_tokens), 0),
+                    sa.func.coalesce(sa.func.sum(Usage.output_tokens), 0),
+                    sa.func.coalesce(sa.func.sum(Usage.cost_usd), 0),
+                    sa.func.coalesce(sa.func.sum(Usage.requests), 0),
+                )
+                .where(Usage.tenant_id == tenant_id, Usage.day >= since)
+                .group_by(Usage.agent_id)
+            )
+        ).all()
+        usage_by_agent = {
+            r[0]: {
+                "input_tokens": int(r[1]),
+                "output_tokens": int(r[2]),
+                "cost_usd": float(r[3]),
+                "requests": int(r[4]),
+            }
+            for r in usage_rows
+        }
+
+        # every currently-defined agent (ordered), zero-usage included
+        agent_defs = (
+            (
+                await db.execute(
+                    sa.select(AgentDef)
+                    .where(AgentDef.tenant_id == tenant_id)
+                    .order_by(AgentDef.agent_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        tenant_budget, budget_source = await budget_mod.resolve_tenant_budget(
+            db, tenant_id
+        )
+        tenant_spend = await budget_mod.tenant_month_spend_usd(db, tenant_id)
+
+    agents_out = []
+    for a in agent_defs:
+        u = usage_by_agent.get(
+            a.agent_id,
+            {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "requests": 0},
+        )
+        agent_budget = float(a.budget_monthly_usd)
+        spend = u["cost_usd"]
+        agents_out.append(
+            {
+                "agent_id": a.agent_id,
+                "budget_monthly_usd": _round6(agent_budget),
+                "spend_usd": _round6(spend),
+                "remaining_usd": _round6(max(0.0, agent_budget - spend)),
+                "input_tokens": u["input_tokens"],
+                "output_tokens": u["output_tokens"],
+                "requests": u["requests"],
+                "exhausted": spend >= agent_budget,
+            }
+        )
+
+    tenant_in = sum(u["input_tokens"] for u in usage_by_agent.values())
+    tenant_out = sum(u["output_tokens"] for u in usage_by_agent.values())
+    tenant_reqs = sum(u["requests"] for u in usage_by_agent.values())
+    return {
+        "month": month,
+        "tenant": {
+            "budget_monthly_usd": _round6(tenant_budget),
+            "budget_source": budget_source,
+            "spend_usd": _round6(tenant_spend),
+            "remaining_usd": _round6(max(0.0, tenant_budget - tenant_spend)),
+            "input_tokens": tenant_in,
+            "output_tokens": tenant_out,
+            "requests": tenant_reqs,
+            "exhausted": tenant_spend >= tenant_budget,
+        },
+        "agents": agents_out,
+    }
 
 
 async def get_transcript(tenant_id: str, session_id: uuid.UUID) -> dict:

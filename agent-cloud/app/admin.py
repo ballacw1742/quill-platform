@@ -15,6 +15,10 @@ Never exposed over HTTP. Subcommands:
   list-memory --tenant T [--agent A] [--limit N]
       Show a tenant's stored memories (id, agent, kind, content, embedded?).
 
+  set-tenant-budget --tenant T --budget USD|default
+      Set the tenant-level monthly cap (LIMITS.md §1). --budget default
+      clears the override back to NULL (config default applies).
+
   seed-tenant --tenant T
       Provision a tenant + its two seed agents without a chat call.
 
@@ -167,6 +171,41 @@ async def set_agent(
         _out({"updated": res.rowcount, "tenant": tenant, "agent": agent, "values": values})
 
 
+async def set_tenant_budget(tenant: str, budget: str) -> None:
+    """Set (or clear) agentcloud_tenants.budget_monthly_usd (LIMITS.md §1).
+
+    --budget default (or empty) clears the override back to NULL, so the
+    config default applies again. Provisions the tenant row if missing so
+    the override sticks before the tenant ever chats.
+    """
+    clear = budget.strip().lower() in ("default", "none", "null", "")
+    value: float | None = None if clear else float(budget)
+    async with tenant_session(tenant) as s:
+        # ensure the row exists (idempotent) then set the override
+        await s.execute(
+            text(
+                "INSERT INTO agentcloud_tenants (tenant_id) VALUES (:tenant) "
+                "ON CONFLICT (tenant_id) DO NOTHING"
+            ),
+            {"tenant": tenant},
+        )
+        res = await s.execute(
+            text(
+                "UPDATE agentcloud_tenants SET budget_monthly_usd = :budget "
+                "WHERE tenant_id = :tenant"
+            ),
+            {"budget": value, "tenant": tenant},
+        )
+    _out(
+        {
+            "updated": res.rowcount,
+            "tenant": tenant,
+            "budget_monthly_usd": value,
+            "source": "default" if clear else "override",
+        }
+    )
+
+
 async def seed_tenant(tenant: str) -> None:
     # Reuse the orchestrator provisioning path with a throwaway prepare.
     from app.orchestrator import UnknownAgentError, _prepare  # noqa: PLC0415
@@ -282,6 +321,10 @@ async def amain(argv: list[str]) -> None:
     p.add_argument("--enabled")
     p.add_argument("--memory-policy", dest="memory_policy")
 
+    p = sub.add_parser("set-tenant-budget")
+    p.add_argument("--tenant", required=True)
+    p.add_argument("--budget", required=True)
+
     p = sub.add_parser("seed-tenant")
     p.add_argument("--tenant", required=True)
 
@@ -311,6 +354,8 @@ async def amain(argv: list[str]) -> None:
         )
     elif args.cmd == "list-memory":
         await list_memory(args.tenant, args.agent, args.limit)
+    elif args.cmd == "set-tenant-budget":
+        await set_tenant_budget(args.tenant, args.budget)
     elif args.cmd == "seed-tenant":
         await seed_tenant(args.tenant)
     elif args.cmd == "cleanup-smoke":

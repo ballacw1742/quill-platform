@@ -44,6 +44,7 @@ from app import approvals as approvals_mod
 from app import db as db_mod
 from app import directory as directory_mod
 from app import jobs as jobs_mod
+from app import ratelimit as ratelimit_mod
 from app import scheduler as scheduler_mod
 from app.config import get_settings
 from app.logging_setup import request_id_var, setup_logging
@@ -186,8 +187,23 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
+def _rate_limit_response(exc: ratelimit_mod.RateLimitExceeded) -> HTTPException:
+    """429 with Retry-After (LIMITS.md §3 rejection shape)."""
+    return HTTPException(
+        status_code=429,
+        detail=exc.detail,
+        headers={"Retry-After": str(exc.decision.retry_after_seconds)},
+    )
+
+
 @app.post("/v1/agents/chat")
 async def chat(body: ChatIn):
+    # Per-tenant rate limit checked BEFORE the stream starts, so an over-limit
+    # chat is a plain HTTP 429, never an SSE error event (LIMITS.md §3).
+    try:
+        await ratelimit_mod.enforce(body.tenant_id, "chat")
+    except ratelimit_mod.RateLimitExceeded as exc:
+        raise _rate_limit_response(exc) from exc
     if body.stream:
         async def gen():
             try:
@@ -245,6 +261,14 @@ async def chat(body: ChatIn):
     )
 
 
+@app.get("/v1/agents/usage")
+async def get_usage(tenant_id: str):
+    """Current-month usage/meters for a tenant (LIMITS.md §2). Provisions the
+    tenant + seed agents idempotently first, so a fresh tenant returns a
+    well-formed zero-usage report."""
+    return await directory_mod.get_usage(tenant_id)
+
+
 @app.get("/v1/agents")
 async def list_agents(tenant_id: str, limit: int = 100, offset: int = 0):
     """Tenant agent directory (WEBCHAT.md §3.1). Idempotently provisions the
@@ -280,6 +304,10 @@ async def get_session_transcript(session_id: uuid.UUID, tenant_id: str):
 async def create_subagent(body: SubagentIn) -> SubagentOut:
     """Create + dispatch a sub-agent job (JOBS_BACKEND local|cloudrun)."""
     try:
+        await ratelimit_mod.enforce(body.tenant_id, "jobs")
+    except ratelimit_mod.RateLimitExceeded as exc:
+        raise _rate_limit_response(exc) from exc
+    try:
         created = await jobs_mod.create_job(
             tenant_id=body.tenant_id,
             agent_id=body.agent_id,
@@ -305,6 +333,10 @@ async def get_subagent(job_id: uuid.UUID, tenant_id: str):
 @app.post("/v1/agents/schedules", status_code=201)
 async def create_schedule(body: ScheduleIn):
     """Create a per-tenant schedule (kind='at' one-shot | 'cron' recurring)."""
+    try:
+        await ratelimit_mod.enforce(body.tenant_id, "jobs")
+    except ratelimit_mod.RateLimitExceeded as exc:
+        raise _rate_limit_response(exc) from exc
     try:
         return await scheduler_mod.create_schedule(
             tenant_id=body.tenant_id,

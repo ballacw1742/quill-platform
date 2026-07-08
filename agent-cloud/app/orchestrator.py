@@ -90,6 +90,10 @@ class _TurnContext:
     allowlist: list[str]
     budget_monthly_usd: float
     month_spend_usd: float
+    # B2 (LIMITS.md §1): tenant-level cap across all agents.
+    tenant_budget_monthly_usd: float = 0.0
+    tenant_month_spend_usd: float = 0.0
+    tenant_budget_source: str = "default"
     memory_policy: str = "off"
     history: list[dict[str, Any]] = field(default_factory=list)
 
@@ -171,6 +175,10 @@ async def _prepare(
         history = [{"role": r.role, "content": r.content} for r in rows]
 
         spend = await budget_mod.month_spend_usd(db, tenant_id, agent_id)
+        tenant_spend = await budget_mod.tenant_month_spend_usd(db, tenant_id)
+        tenant_budget, tenant_budget_source = await budget_mod.resolve_tenant_budget(
+            db, tenant_id
+        )
 
         memory_policy = agent.memory_policy or "off"
         allowlist = list(agent.tools or [])
@@ -186,6 +194,9 @@ async def _prepare(
             allowlist=allowlist,
             budget_monthly_usd=float(agent.budget_monthly_usd),
             month_spend_usd=spend,
+            tenant_budget_monthly_usd=tenant_budget,
+            tenant_month_spend_usd=tenant_spend,
+            tenant_budget_source=tenant_budget_source,
             memory_policy=memory_policy,
             history=history,
         )
@@ -255,15 +266,34 @@ async def stream_turn(
     session_id_var.set(str(ctx.session_id))
     yield {"type": "session", "session_id": str(ctx.session_id)}
 
-    # --- hard monthly budget cap -> polite refusal, never silent ----------
-    if ctx.month_spend_usd >= ctx.budget_monthly_usd:
-        refusal = budget_mod.refusal_message(ctx.month_spend_usd, ctx.budget_monthly_usd)
+    # --- hard monthly budget caps -> polite refusal, never silent ---------
+    # Two caps gate the turn (LIMITS.md §1): the agent cap (A1, checked
+    # first) and the tenant cap (B2, the sum across all the tenant's agents).
+    # Precedence: agent wins when both are exhausted — the refusal names the
+    # agent budget so it stays consistent with pre-B2 behavior.
+    agent_exhausted = ctx.month_spend_usd >= ctx.budget_monthly_usd
+    tenant_exhausted = ctx.tenant_month_spend_usd >= ctx.tenant_budget_monthly_usd
+    if agent_exhausted or tenant_exhausted:
+        scope = "agent" if agent_exhausted else "tenant"
+        if scope == "agent":
+            refusal = budget_mod.refusal_message(
+                ctx.month_spend_usd, ctx.budget_monthly_usd, scope="agent"
+            )
+        else:
+            refusal = budget_mod.refusal_message(
+                ctx.tenant_month_spend_usd,
+                ctx.tenant_budget_monthly_usd,
+                scope="tenant",
+            )
         log.warning(
             "budget cap hit — refusing turn",
             extra={
                 "extra_fields": {
+                    "scope": scope,
                     "month_spend_usd": ctx.month_spend_usd,
                     "budget_monthly_usd": ctx.budget_monthly_usd,
+                    "tenant_month_spend_usd": ctx.tenant_month_spend_usd,
+                    "tenant_budget_monthly_usd": ctx.tenant_budget_monthly_usd,
                 }
             },
         )
@@ -274,8 +304,13 @@ async def stream_turn(
                 session_id=ctx.session_id,
                 type="budget.exceeded",
                 payload={
+                    # agent-level pair stays first (pre-B2 consumers keep
+                    # working); scope names which cap actually tripped.
+                    "scope": scope,
                     "month_spend_usd": round(ctx.month_spend_usd, 6),
                     "budget_monthly_usd": ctx.budget_monthly_usd,
+                    "tenant_month_spend_usd": round(ctx.tenant_month_spend_usd, 6),
+                    "tenant_budget_monthly_usd": ctx.tenant_budget_monthly_usd,
                 },
             ),
             events_mod.make_event(
