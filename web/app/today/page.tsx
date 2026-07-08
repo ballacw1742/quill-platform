@@ -15,6 +15,7 @@ import {
   Building2,
   Zap,
   MapPin,
+  Workflow,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -51,6 +52,7 @@ import {
 /* ── Quick links definition ───────────────────────────────────────────────── */
 
 const QUICK_LINKS = [
+  { href: "/lifecycle", label: "Lifecycle", icon: Workflow },
   { href: "/sites", label: "Sites", icon: MapPin },
   { href: "/projects", label: "Projects", icon: FolderKanban },
   { href: "/operations", label: "Operations", icon: Building2 },

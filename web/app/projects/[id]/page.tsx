@@ -53,7 +53,9 @@ import {
   useCreateCampus,
   useDeployTemplateCatalog,
   useDeployCampusFromTemplate,
+  useApprovals,
 } from "@/lib/api";
+import { LifecycleTracker } from "@/components/lifecycle/LifecycleTracker";
 import type {
   QuillProject,
   ProjectMilestone,
@@ -140,42 +142,6 @@ function Card({ children, className }: { children: React.ReactNode; className?: 
   return (
     <div className={cn("rounded-2xl bg-chrome/80 border border-separator/40 p-5 mb-4", className)}>
       {children}
-    </div>
-  );
-}
-
-// ── Phase Stepper ─────────────────────────────────────────────────────────────
-
-function PhaseStepper({ phase }: { phase: string }) {
-  const currentIdx = phaseIndex(phase);
-  return (
-    <div className="space-y-1">
-      {PHASES.map((p, i) => {
-        const done = i < currentIdx;
-        const active = i === currentIdx;
-        const future = i > currentIdx;
-        return (
-          <div key={p.key} className="flex items-center gap-3">
-            <div className={cn(
-              "w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 text-caption-1 font-bold",
-              done && "border-accent bg-accent text-white",
-              active && "border-accent bg-accent/10 text-accent",
-              future && "border-separator/40 bg-transparent text-label-quaternary",
-            )}>
-              {done ? "✓" : i + 1}
-            </div>
-            <span className={cn(
-              "text-callout",
-              done && "text-label-secondary",
-              active && "text-label-primary font-semibold",
-              future && "text-label-quaternary",
-            )}>
-              {p.label}
-            </span>
-            {active && <span className="ml-auto text-caption-1 font-semibold text-accent">Current</span>}
-          </div>
-        );
-      })}
     </div>
   );
 }
@@ -664,6 +630,12 @@ function OverviewTab({
   const router = useRouter();
   const currentPhaseIdx = phaseIndex(project.phase);
   const isLastPhase = currentPhaseIdx === PHASES.length - 1;
+  // Open approvals power the per-stage "waiting on me" badges in the tracker.
+  const { data: allApprovals } = useApprovals();
+  const openApprovals = React.useMemo(
+    () => (allApprovals ?? []).filter((a) => a.status === "pending"),
+    [allApprovals],
+  );
 
   return (
     <>
@@ -716,10 +688,15 @@ function OverviewTab({
         )}
       </Card>
 
-      {/* Phase tracker */}
+      {/* Lifecycle tracker — deliverables, agents, and open approvals per stage */}
       <Card>
-        <p className="text-callout font-semibold text-label-primary mb-4">Phase Tracker</p>
-        <PhaseStepper phase={project.phase} />
+        <p className="text-callout font-semibold text-label-primary mb-4">Project Lifecycle</p>
+        <LifecycleTracker
+          phase={project.phase}
+          status={project.status}
+          projectId={project.id}
+          approvals={openApprovals}
+        />
         {!isLastPhase && (
           <button
             type="button"
