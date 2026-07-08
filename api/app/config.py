@@ -96,6 +96,15 @@ class Settings(BaseSettings):
         default="",
         description="Shared secret for agent-cloud approvals resolution notify.",
     )
+    # SEC: the orchestrator's tenant routes (/v1/agents/*) are gated behind a
+    # shared X-Agent-Secret because the service is network-public. The bridge
+    # is the ONLY legitimate caller, so it attaches this on every forwarded
+    # request. Set to the same value as the orchestrator's
+    # SERVICE_AUTH_SECRET / QUILL_AGENT_SECRET. Empty in dev/tests (gate off).
+    AGENTCLOUD_SERVICE_SECRET: str = Field(
+        default="",
+        description="X-Agent-Secret sent to the orchestrator's tenant routes.",
+    )
 
     # Documents service (Phase D.1)
     DOCUMENTS_BLOB_PATH: str = Field(

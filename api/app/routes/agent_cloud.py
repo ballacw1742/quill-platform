@@ -109,12 +109,55 @@ async def provision_user_tenant(user_id: str) -> bool:
         return False
 
 
+# --- Cloud Run IAM: OIDC identity token for the orchestrator -----------------
+# When the orchestrator is IAM-locked (--no-allow-unauthenticated), the bridge
+# must present a Google-signed OIDC ID token whose audience is the orchestrator
+# URL. Both services run as the same SA (openclaw-adk@), which holds
+# run.invoker on the orchestrator, so ADC can mint this token. Cached and
+# auto-refreshed. Best-effort: if minting fails (e.g. local dev with no ADC),
+# we skip the header and fall back to the X-Agent-Secret app-layer gate.
+_id_token_cache: dict[str, tuple[str, float]] = {}
+
+
+def _orchestrator_id_token(audience: str) -> str | None:
+    import time
+
+    cached = _id_token_cache.get(audience)
+    if cached and cached[1] - time.time() > 120:  # 2-min freshness margin
+        return cached[0]
+    try:
+        import google.auth.transport.requests as ga_transport
+        from google.oauth2 import id_token as ga_id_token
+
+        req = ga_transport.Request()
+        tok = ga_id_token.fetch_id_token(req, audience)
+        # ID tokens are ~1h; cache with a conservative TTL.
+        _id_token_cache[audience] = (tok, time.time() + 45 * 60)
+        return tok
+    except Exception as exc:  # noqa: BLE001 — dev/no-ADC or transient
+        log.warning("orchestrator OIDC token mint failed (falling back): %s", exc)
+        return None
+
+
 def _client(timeout: httpx.Timeout | float | None = None) -> httpx.AsyncClient:
     settings = get_settings()
+    headers: dict[str, str] = {}
+    # SEC layer 1 (network/IAM): present an OIDC ID token so an IAM-locked
+    # orchestrator accepts the call. Skipped when a test transport override is
+    # in place (fake app, no real network) or minting is unavailable.
+    if TRANSPORT_OVERRIDE is None and settings.AGENTCLOUD_URL.startswith("https://"):
+        tok = _orchestrator_id_token(settings.AGENTCLOUD_URL)
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+    # SEC layer 2 (app): shared X-Agent-Secret gate (defense-in-depth even if
+    # IAM is the primary boundary). Empty in dev/tests.
+    if settings.AGENTCLOUD_SERVICE_SECRET:
+        headers["X-Agent-Secret"] = settings.AGENTCLOUD_SERVICE_SECRET
     return httpx.AsyncClient(
         base_url=settings.AGENTCLOUD_URL,
         timeout=timeout if timeout is not None else settings.AGENTCLOUD_TIMEOUT_SECONDS,
         transport=TRANSPORT_OVERRIDE,
+        headers=headers or None,
     )
 
 

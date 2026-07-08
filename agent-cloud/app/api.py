@@ -29,6 +29,7 @@ Routes:
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import uuid
@@ -192,6 +193,66 @@ async def request_id_middleware(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Request-Id"] = rid
     return response
+
+
+# Paths reachable by the public internet WITHOUT the service secret:
+#   - health probes
+#   - channel webhooks (self-protected by the platform's own secret token,
+#     verified inside the webhook handler)
+#   - /v1/internal/* (each route self-gates on its own dedicated secret)
+# Everything else under /v1/ is a tenant route that trusts a caller-supplied
+# tenant_id and MUST only be reached by the trusted api-bridge.
+_PUBLIC_PREFIXES = (
+    "/health",
+    "/healthz",
+    "/v1/internal/",
+)
+
+
+def _is_public_path(path: str) -> bool:
+    if path in ("/health", "/healthz"):
+        return True
+    if path.startswith("/v1/internal/"):
+        return True
+    # Channel webhooks: /v1/channels/{platform}/webhook (platform-token auth).
+    if path.startswith("/v1/channels/") and path.endswith("/webhook"):
+        return True
+    return False
+
+
+@app.middleware("http")
+async def service_auth_middleware(request: Request, call_next):
+    """Gate the orchestrator's tenant routes behind a shared X-Agent-Secret.
+
+    The service is network-public (ingress=all + allUsers, like the sibling
+    Cloud Run services), so the /v1/agents/* routes — which trust a
+    caller-supplied tenant_id and have no per-user auth — are protected here
+    with a secret only the api-bridge holds. Public paths (health, channel
+    webhooks, /v1/internal/*) are exempt (see _is_public_path).
+    """
+    path = request.url.path
+    method = request.method
+    # CORS preflight and public paths bypass the gate.
+    if method == "OPTIONS" or _is_public_path(path):
+        return await call_next(request)
+
+    settings = get_settings()
+    secret = settings.service_auth_secret
+    if not secret:
+        # Dev/test posture: no secret configured. Allow, but shout so a
+        # promoted env never silently runs unauthenticated.
+        log.warning(
+            "SERVICE_AUTH_SECRET/QUILL_AGENT_SECRET unset — orchestrator tenant "
+            "routes are UNAUTHENTICATED. Set the secret before exposing prod."
+        )
+        return await call_next(request)
+
+    provided = request.headers.get("X-Agent-Secret", "")
+    if not hmac.compare_digest(provided, secret):
+        return JSONResponse(
+            {"detail": "missing or invalid X-Agent-Secret"}, status_code=403
+        )
+    return await call_next(request)
 
 
 def _health_payload_status() -> tuple[dict, int]:

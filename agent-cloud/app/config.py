@@ -64,6 +64,23 @@ class Settings(BaseSettings):
     QUILL_AGENT_SECRET: str = Field(default="")
     QUILL_TOOL_TIMEOUT_SECONDS: float = Field(default=30.0)
 
+    # --- Service-to-service auth (SEC: orchestrator public-route gate) -------
+    # The orchestrator's tenant routes (/v1/agents/*) trust a caller-supplied
+    # tenant_id and have no per-user auth of their own — they are meant to be
+    # reached ONLY by the trusted api-bridge (which derives tenant_id
+    # server-side). Because the Cloud Run service is network-public
+    # (ingress=all + allUsers, matching the sibling services), we gate those
+    # routes with a shared secret the bridge must send as X-Agent-Secret.
+    # Falls back to QUILL_AGENT_SECRET so no new secret must be provisioned.
+    # When BOTH are empty the gate is disabled (dev/tests) with a loud warning.
+    SERVICE_AUTH_SECRET: str = Field(default="")
+
+    @property
+    def service_auth_secret(self) -> str:
+        """Effective service-to-service secret (SERVICE_AUTH_SECRET or the
+        existing QUILL_AGENT_SECRET as a fallback)."""
+        return self.SERVICE_AUTH_SECRET or self.QUILL_AGENT_SECRET
+
     # --- Events (A3) ---------------------------------------------------
     # "inline" (in-process dispatch — local/dev/tests) | "pubsub"
     # (google-cloud-pubsub publisher; see EVENTS.md for the contract,
