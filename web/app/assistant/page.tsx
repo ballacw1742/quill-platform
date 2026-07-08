@@ -25,6 +25,7 @@ import {
   type ToolChip,
 } from "@/components/assistant/AssistantMessage";
 import { AssistantInput } from "@/components/assistant/AssistantInput";
+import { Onboarding } from "@/components/assistant/Onboarding";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
   Sheet,
@@ -206,6 +207,14 @@ export default function AssistantPage() {
   }
 
   const showEmpty = items.length === 0 && !live && !transcript.isLoading;
+  // True first-run: no picked session AND the tenant has no conversations at
+  // all yet → show the rich onboarding card set. Once they have history, the
+  // empty new-chat screen falls back to the light one-line hint.
+  const firstRun =
+    showEmpty &&
+    !sessionId &&
+    sessions.isSuccess &&
+    (sessions.data?.items.length ?? 0) === 0;
 
   return (
     <MobileShell>
@@ -276,7 +285,8 @@ export default function AssistantPage() {
           {transcript.isLoading && sessionId && (
             <SystemRow text="Loading conversation…" />
           )}
-          {showEmpty && (
+          {firstRun && <Onboarding personal={agentId !== "quill"} />}
+          {showEmpty && !firstRun && (
             <div className="flex flex-col items-center gap-3 px-8 pt-16 text-center">
               <Sparkles className="h-8 w-8 text-label-tertiary" aria-hidden="true" />
               <p className="text-body text-label-secondary">
