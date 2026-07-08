@@ -3,6 +3,48 @@
 Severity legend: (invisible) internal only · (visible-tolerable) noticeable,
 nothing breaks · (visible-frustrating) users hit it early · (blocking).
 
+## Consolidated status (Phases A–E)
+
+**No `(blocking)` issues in a correctly-deployed platform.** The platform is
+functional today on default backends. The items below are either documented
+tradeoffs, deferred non-goals, or **staged external ops** — the latter are
+all consolidated with exact steps in `CUTOVER.md`. Highest-severity items to
+be aware of at go-live:
+
+| Item | Severity | Where | Action |
+|---|---|---|---|
+| `plaintext-dev` secrets stored unencrypted | blocking **if selected in prod** | B2 #4 | Use `SECRETS_BACKEND=kms` (CUTOVER.md §6) |
+| agent-cloud exposed publicly (no end-user auth) | blocking **if mis-exposed** | A5 #3 | Cloud Run ingress/IAM; reach only via the bridge |
+| Scheduler `loop` backend + scale-to-zero | visible-frustrating | A4 #3 | `min-instances=1` or `cloudscheduler` (CUTOVER.md §5) |
+| Google Chat pending Marketplace verification | visible-frustrating | D #1 | CUTOVER.md §8 (external, Google side) |
+| Telegram pending BotFather + `setWebhook` | visible-frustrating | D #2 | CUTOVER.md §7 (external, Telegram side) |
+| Proactive push for briefs/reminders not shipped | visible-frustrating | A3 #3 / A4 #4 / D #3 | MIGRATION.md §3.1 gap; passive wake works |
+
+Everything else below is `(invisible)` or `(visible-tolerable)`. The "flip
+after one-time ops" items (Pub/Sub, Cloud Run Jobs, Cloud Scheduler, KMS,
+pgvector, embeddings) are unexercised-live **by design** — app code never
+creates GCP resources — and each degrades cleanly until activated.
+
+## E (Cutover staging)
+
+1. **Onboarding is a Google Doc + in-app cards, not an interactive tour.**
+   The first-run empty-state shows deep-linked cards (what's an agent / the 3
+   templates / pair a channel / approvals) and the full guide is a Google Doc
+   on white.1284's Drive (mirrored from `ONBOARDING.md`). There is no guided
+   click-through walkthrough. *(visible-tolerable — the surfaces it links to
+   are the real ones.)*
+
+2. **Usage meters are current-month only and read-only.** `/assistant/usage`
+   surfaces `GET /v1/agent-cloud/usage` (B2), which is the current UTC month
+   with no history/trend (inherits B2 #5). No in-UI budget editing — that's
+   the admin CLI (`set-tenant-budget`). *(visible-tolerable — matches the B2
+   contract.)*
+
+3. **Dogfood seed is not run against prod in this sprint.**
+   `scripts/dogfood_seed.py` is tested dry-run + on sqlite; provisioning
+   tenant #1 against live prod is a deliberate parent step (CUTOVER.md §12),
+   not part of Phase E. *(invisible — by design; the recipe is one command.)*
+
 ## C (Agent Builder)
 
 1. **Test console requires a saved agent.** An unsaved draft cannot be tried
