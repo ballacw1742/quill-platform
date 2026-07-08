@@ -284,6 +284,54 @@ gcloud kms keys add-iam-policy-binding tenant-secrets \
 #   SECRETS_KMS_KEY=projects/totemic-formula-467102-s9/locations/us-central1/keyRings/agentcloud/cryptoKeys/tenant-secrets
 ```
 
+## C — Agent Builder (`AGENT_BUILDER.md`)
+
+Phase C productizes “agents are data” (design §3.3): users create/edit/tune
+their own agents over the `agentcloud_agents` row through the web app. Contract:
+`AGENT_BUILDER.md` (read it before touching builder code).
+
+**agent-cloud CRUD** (`app/agents.py`, tenant-scoped + RLS'd like every read,
+`{detail}` envelope, 404-not-403 cross-tenant):
+- `POST /v1/agents` (create) — 201 detail; 400 validation, 409 duplicate slug.
+- `GET /v1/agents/{agent_id}` — detail (superset of the A5 list dict: adds
+  `system_prompt`, `tools`, `is_seed`).
+- `PATCH /v1/agents/{agent_id}` — partial update (prompt/model/tools/
+  memory_policy/budget/enabled); 400 validation, 403 seed-protected, 404.
+- `DELETE /v1/agents/{agent_id}` — **soft-delete** (`enabled=false`); sessions/
+  memory/usage/history are never hard-deleted; 403 for seeds.
+- `GET /v1/agents/catalog` — tool palette grouped from the REGISTRY (source of
+  truth) with human labels + `approval_gated`/`memory_tool` flags + allowed
+  models + memory policies.
+- `GET /v1/agents/templates` — 3 static clone-to-create starters
+  (Research Assistant / Ops Analyst / Project Copilot).
+
+**Server-side validation** (authoritative; the form only mirrors it): `agent_id`
+slug rule + per-tenant uniqueness; `system_prompt` ≤ `SYSTEM_PROMPT_MAX_CHARS`
+(8000); `tools` ⊆ the registry catalog; `model` ∈ the pricing-table alias set
+(`claude-fable-5`/`-sonnet-4-6`/`-haiku-4-5`); `budget_monthly_usd` > 0 and ≤
+the tenant cap (LIMITS.md §1); `memory_policy` enum. **Seed protection**
+(`personal`/`quill`): can be tuned (prompt/tools/model/memory/budget) but never
+deleted, disabled, or renamed (`is_seed` derives from `SEED_AGENTS`, so a future
+seed is auto-protected). Route order note: the `{agent_id}` path routes are
+registered *after* the literal `/v1/agents/{usage,sessions,subagents,schedules,
+catalog,templates}` routes so a literal is never shadowed.
+
+**Events:** `agent.updated` (`{action: created|updated|deleted, fields:[...]}`),
+written durably in the same tenant tx and published best-effort (EVENTS.md /
+AGENT_BUILDER.md §9). Never fails the CRUD call.
+
+**api bridge** (`/v1/agent-cloud/agents` + `/catalog` + `/templates`,
+`AGENT_BUILDER.md §8`): JWT-gated, server-side tenant (`workspace=personal|org`,
+org → owner/partner), identical `{detail}`/502 semantics as the A5 read bridge;
+client-sent `tenant_id` is never a schema field.
+
+**Web UI:** `/assistant/builder` (top-level `/agents` is the pre-existing ADK
+Agent Registry — not reused). Agent list (seeds badged) + create-from-template;
+editor form (slug/prompt/model/memory/budget/enabled); grouped tool palette with
+write tools clearly marked and an approval-queue notice when any is enabled
+(APPROVALS.md tie-in); a test console that reuses the chat SSE against the saved
+agent. The `/assistant` chat page links to it.
+
 ## Deploy
 
 CI: `.github/workflows/agentcloud-deploy.yml` (paths `agent-cloud/**`) —

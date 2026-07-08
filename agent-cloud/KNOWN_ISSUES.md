@@ -3,6 +3,43 @@
 Severity legend: (invisible) internal only · (visible-tolerable) noticeable,
 nothing breaks · (visible-frustrating) users hit it early · (blocking).
 
+## C (Agent Builder)
+
+1. **Test console requires a saved agent.** An unsaved draft cannot be tried
+   in the console — the console hits the chat SSE against the *saved* row, so
+   you save (create/patch) first, then test. The UI states "Save to test."
+   *(visible-tolerable.)*
+
+2. **Delete is a soft-delete (disable), not a hard delete.** `DELETE` sets
+   `enabled=false`; the agent's sessions/memory/usage/history are kept (by
+   design, AGENT_BUILDER.md §2 — history must not be orphaned). A user
+   expecting the row to vanish will still see it in the list badged
+   "disabled" (re-enable via the toggle). *(visible-tolerable.)*
+
+3. **Slugs are immutable; no rename.** To "rename" an agent you create a new
+   one and disable the old. This avoids orphaning sessions/memory/usage keyed
+   on `agent_id`. Documented in the form. *(visible-tolerable.)*
+
+4. **Agent budget can be set up to the whole tenant cap.** Two agents can
+   each be given a budget equal to the tenant cap; the tenant-total cap
+   (LIMITS.md §1) is still the real ceiling, so combined spend is capped
+   correctly, but the per-agent field does not subtract already-allocated
+   budgets. This matches the B2 model (agent cap AND tenant cap both gate);
+   it is not a blowup. *(invisible — the tenant cap is the backstop.)*
+
+5. **The tenant budget cap shown in the builder form ($10 personal / $100
+   org) is the config default, not a live read of an explicit
+   per-tenant override.** If an operator set a custom tenant budget via
+   `set-tenant-budget`, the form's displayed cap may differ from the true
+   cap; the server still validates against the real cap (400 on over-cap),
+   so no invalid budget can be saved — only the client-side hint is
+   approximate. *(visible-tolerable.)*
+
+6. **`agent.updated` events are emitted but have no in-tree consumer yet.**
+   They are written durably to `agentcloud_events` (replayable) and published
+   best-effort like every other event; a consumer (e.g. a live builder
+   refresh) is a later slice. *(invisible.)*
+
 ## B2 (budgets, rate limits, per-tenant secrets)
 
 1. **Persisted tenant-budget refusals render plain** (same shape as the
