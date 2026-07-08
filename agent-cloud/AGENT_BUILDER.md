@@ -319,11 +319,15 @@ session event). This is additive — no existing consumer depends on it.
 
 ## 10. Web UI route
 
-**Route chosen: `/agents`** (a top-level Agent Builder page), with the
-existing `/assistant` unchanged (it stays the chat surface). Rationale:
-the builder is a management surface, not a chat, and a sibling top-level route
-keeps the assistant page focused. The builder links to `/assistant` for full
-chat; the assistant page gains no hard dependency on the builder.
+**Route chosen: `/assistant/builder`.** The top-level `/agents` route is
+already taken by the ADK **Agent Registry** (Sprint DC.4, a read-only card grid
+of the 9 platform agents) — reusing it would clobber an unrelated feature. The
+Agent Builder is the management surface for the *agent-cloud* agents that back
+`/assistant`, so it lives directly under that surface at `/assistant/builder`.
+The existing `/assistant` chat page is unchanged; it gains a small "Build
+agents" link to the builder, and the builder's back arrow returns to
+`/assistant`. (The chosen slug is documented here per the brief's "pick,
+document" instruction.)
 
 Layout:
 - **Agent list** (left/top): the tenant's agents (`useAgentCloudAgents`),
