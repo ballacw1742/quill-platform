@@ -200,6 +200,16 @@ only.
   `{claimed, fired, failed}` (+ `approvals_checked`/`approvals_resolved`
   when the A6 reconcile sweep touched anything).
 
+- `GET /v1/agents/usage?tenant_id=…` (B2, contract: `LIMITS.md` §2) →
+  current-month usage/meters: `{month, tenant{budget_monthly_usd,
+  budget_source: default|override, spend_usd, remaining_usd, input_tokens,
+  output_tokens, requests, exhausted}, agents:[{agent_id, budget_monthly_usd,
+  spend_usd, remaining_usd, input_tokens, output_tokens, requests,
+  exhausted}]}`. Every defined agent appears (zero-usage included, ordered by
+  `agent_id`); tenant totals include usage from agents deleted mid-month.
+  Provisions the tenant + seeds idempotently first. Exposed to the browser
+  via the api bridge `GET /v1/agent-cloud/usage?workspace=personal|org`.
+
 - A5 read endpoints (contract + payload shapes: `WEBCHAT.md` §3):
   `GET /v1/agents?tenant_id=…` (agent directory; provisions tenant + seeds
   idempotently), `GET /v1/agents/sessions?tenant_id=…&agent_id?=` (sessions,
@@ -217,7 +227,62 @@ only.
   originating session.
 
 Errors use the standard envelope `{"detail": "..."}` (404 unknown
-agent/session incl. cross-tenant attempts, 403 disabled agent, 502 provider).
+agent/session incl. cross-tenant attempts, 403 disabled agent, 502 provider,
+429 rate-limited with `Retry-After`).
+
+## B2 — budgets, rate limits, per-tenant secrets (`LIMITS.md`, `SECRETS.md`)
+
+**Tenant budgets** (`LIMITS.md` §1). Two monthly caps gate every turn
+(chat, sub-agent job, scheduled fire): the per-agent cap
+(`agentcloud_agents.budget_monthly_usd`) and the tenant-total cap
+(`agentcloud_tenants.budget_monthly_usd`, summed across all the tenant's
+agents). A NULL tenant value defers to config: `user-*` personal tenants get
+`TENANT_BUDGET_DEFAULT_USD` ($10), everything else gets
+`ORG_TENANT_BUDGET_USD` ($100). Exceeding either → a polite refusal (never a
+model call, never an HTTP error); the agent cap wins precedence when both are
+exhausted, and the refusal text names the workspace when the tenant cap is
+the one that tripped. This fixes the KNOWN_ISSUES B1 per-user blowup
+(N users × 2 seed agents × $20/mo). Set/clear an explicit override:
+`python -m app.admin set-tenant-budget --tenant … --budget 25`
+(`--budget default` clears back to NULL).
+
+**Rate limits** (`LIMITS.md` §3). Per-tenant fixed-window (1 min) counters in
+the shared Postgres (`agentcloud_rate_limits`): `chat` bucket
+(`POST /v1/agents/chat`, `RATE_LIMIT_PER_MIN`, default 30) and `jobs` bucket
+(`POST /v1/agents/subagents` + `POST /v1/agents/schedules`,
+`RATE_LIMIT_JOBS_PER_MIN`, default 10). `0` disables a bucket. Over-limit →
+`429 {detail}` + `Retry-After`; on the SSE path the check runs before the
+stream so it is a plain 429, never an SSE error. Multi-instance-safe with no
+Redis (same shared-Postgres discipline as the SKIP LOCKED scheduler claim);
+the documented tradeoff is that a fixed window allows ≤2× burst across a
+boundary — acceptable for an abuse limit. `rate_limit.exceeded` is evented at
+most once per (tenant, bucket, minute) so an abusive client cannot flood the
+events table.
+
+**Per-tenant secrets** (`SECRETS.md`). `agentcloud_tenant_secrets` (RLS'd)
++ a config-gated provider (`SECRETS_BACKEND`): `plaintext-dev` (default;
+dev/tests, value stored raw) or `kms` (AES-256-GCM envelope: fresh DEK per
+value, AAD binds ciphertext to tenant+name, DEK wrapped by Cloud KMS; the KEK
+never touches the DB). All access goes through `app/secrets.py`
+(`set/get/delete/list_secrets`; list never returns values). No HTTP surface
+in B2 — the first consumer (per-tenant channel adapters) arrives in Phase C.
+One-time KMS setup (app code never creates GCP resources):
+
+```bash
+gcloud kms keyrings create agentcloud \
+  --project totemic-formula-467102-s9 --location us-central1
+gcloud kms keys create tenant-secrets \
+  --project totemic-formula-467102-s9 --location us-central1 \
+  --keyring agentcloud --purpose encryption \
+  --rotation-period 90d --next-rotation-time +90d
+gcloud kms keys add-iam-policy-binding tenant-secrets \
+  --project totemic-formula-467102-s9 --location us-central1 --keyring agentcloud \
+  --member serviceAccount:openclaw-adk@totemic-formula-467102-s9.iam.gserviceaccount.com \
+  --role roles/cloudkms.cryptoKeyEncrypterDecrypter
+# then on deploy:
+#   SECRETS_BACKEND=kms
+#   SECRETS_KMS_KEY=projects/totemic-formula-467102-s9/locations/us-central1/keyRings/agentcloud/cryptoKeys/tenant-secrets
+```
 
 ## Deploy
 

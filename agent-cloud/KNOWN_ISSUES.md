@@ -3,6 +3,43 @@
 Severity legend: (invisible) internal only · (visible-tolerable) noticeable,
 nothing breaks · (visible-frustrating) users hit it early · (blocking).
 
+## B2 (budgets, rate limits, per-tenant secrets)
+
+1. **Persisted tenant-budget refusals render plain** (same shape as the
+   per-agent case, A5 #1). The live SSE turn shows the workspace-budget
+   refusal specially; a reloaded session shows it as an ordinary assistant
+   message (`budget_exceeded` is not persisted per-message).
+   *(visible-tolerable.)*
+
+2. **Fixed-window rate limits allow a ≤2× burst across a minute boundary.**
+   A client can send up to the limit in the last second of minute N and
+   again in the first second of N+1. This is the documented tradeoff
+   (LIMITS.md §3) for the simplest multi-instance-safe mechanism with no
+   Redis; acceptable for an abuse-control limit. *(visible-tolerable.)*
+
+3. **`kms` secrets backend is unit-tested against a mocked KMS, not
+   exercised live.** The default is `plaintext-dev`; flipping to `kms`
+   needs the one-time key-ring/key/IAM setup (README §B2, SECRETS.md §6) —
+   app code never creates GCP resources. The envelope math (AES-256-GCM +
+   wrap/unwrap round-trip, AAD binding, tamper detection) is proven with a
+   mocked client. *(invisible — flip config after the one-time ops setup.)*
+
+4. **`plaintext-dev` secrets are stored unencrypted by design.** The name
+   is deliberately alarming: a DB dump discloses these values. Never select
+   it in a promoted environment; there is no automatic re-encryption sweep
+   when flipping to `kms` (existing plaintext-dev rows stay readable via
+   their recorded `backend`, but are not upgraded — SECRETS.md §7).
+   *(invisible in dev/tests; blocking if selected in prod — use `kms`.)*
+
+5. **No usage-history endpoint — current month only.** `GET /v1/agents/usage`
+   reports the current UTC calendar month; `agentcloud_usage` rows are
+   per-day, so a history/trend endpoint is additive later (LIMITS.md §4).
+   *(invisible — explicit B2 non-goal.)*
+
+6. **No secret-version history.** Overwriting a secret is destructive;
+   `rotated_at` only records that it happened. Point-in-time recovery of a
+   prior value is a later slice (SECRETS.md §7). *(invisible — non-goal.)*
+
 ## B1 (per-user tenancy)
 
 1. **Existing users see an empty personal workspace after B1.** The web
@@ -12,12 +49,12 @@ nothing breaks · (visible-frustrating) users hit it early · (blocking).
    content they contributed to the shared workspace is org-visible only.
    *(visible-tolerable — documented in TENANCY.md §3; no data loss.)*
 
-2. **Budgets are per-agent inside each tenant, not per user overall.** Each
-   personal tenant seeds `personal` + `quill` agents at the default
-   `budget_monthly_usd` (20), so N users ⇒ up to N×2×$20/month of
-   worst-case spend. Per-tenant budget/meter controls are the B2 slice.
-   *(visible-tolerable for the current user count; revisit before open
-   signup — flagged for B2.)*
+2. **~~Budgets are per-agent inside each tenant, not per user overall.~~ —
+   FIXED by B2.** The tenant-total cap (`agentcloud_tenants.
+   budget_monthly_usd`, NULL → `TENANT_BUDGET_DEFAULT_USD` $10 for `user-*`
+   tenants) now bounds each personal tenant regardless of how many agents
+   it defines, so the N×2×$20/mo worst case is gone. See LIMITS.md §1 /
+   README §B2. *(closed.)*
 
 3. **Provisioning hook is best-effort; the lazy fallback is load-bearing.**
    If agent-cloud is down at signup, the tenant is provisioned on the
