@@ -280,6 +280,49 @@ class Proposal(Base):
     )
 
 
+class ChannelLink(Base):
+    """External channel identity ↔ (tenant, agent) binding (Phase D,
+    CHANNELS.md §3). A pairing code is minted by an authenticated web user
+    (status='pending'); redeeming it from the bot binds the platform identity
+    (status='linked'). status: pending | linked | revoked.
+
+    Routing (inbound webhook) is a lookup on (platform, platform_chat_id,
+    status='linked'). session_id is the per-link conversation session, set
+    lazily on the first inbound message so a channel conversation has
+    continuity across turns.
+    """
+
+    __tablename__ = "agentcloud_channel_links"
+    __table_args__ = (
+        sa.Index("agentcloud_channel_links_tenant_idx", "tenant_id", "status"),
+    )
+
+    link_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    agent_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    platform: Mapped[str] = mapped_column(sa.Text, nullable=False)  # telegram | googlechat
+    platform_user_id: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    platform_chat_id: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    display_name: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, default="pending")
+    pairing_code: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    code_expires_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    session_id: Mapped[uuid.UUID | None] = mapped_column(sa.Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    linked_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+
+
 class Usage(Base):
     """Per (tenant, agent, day) token + cost meter (design doc §6 metering)."""
 
