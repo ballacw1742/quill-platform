@@ -13,7 +13,7 @@
  */
 
 import * as React from "react";
-import { History, Link2, Plus, Sparkles, Wrench } from "lucide-react";
+import { BarChart3, History, Link2, Plus, Sparkles, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { BackButton, MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -215,6 +215,13 @@ export default function AssistantPage() {
           left={<BackButton href="/" label="Home" />}
           right={
             <div className="flex items-center gap-1">
+              <a
+                href="/assistant/usage"
+                aria-label="Usage and budget"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-accent active:opacity-60 no-tap-highlight"
+              >
+                <BarChart3 className="h-5 w-5" />
+              </a>
               <a
                 href="/assistant/channels"
                 aria-label="Link channels"

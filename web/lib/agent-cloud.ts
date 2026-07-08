@@ -96,6 +96,69 @@ export const SoftDeleteResultSchema = z.object({
   soft_deleted: z.boolean(),
 });
 
+// ─── Usage / meters (Phase B2, LIMITS.md §2) ─────────────────────────────
+
+/** One agent's month-to-date meter row (LIMITS.md §2). */
+export const UsageAgentSchema = z.object({
+  agent_id: z.string(),
+  budget_monthly_usd: z.number(),
+  spend_usd: z.number(),
+  remaining_usd: z.number(),
+  input_tokens: z.number(),
+  output_tokens: z.number(),
+  requests: z.number(),
+  exhausted: z.boolean(),
+});
+export type UsageAgent = z.infer<typeof UsageAgentSchema>;
+
+/** Tenant-total meter (LIMITS.md §2). budget_source: "default" | "override". */
+export const UsageTenantSchema = z.object({
+  budget_monthly_usd: z.number(),
+  budget_source: z.string(),
+  spend_usd: z.number(),
+  remaining_usd: z.number(),
+  input_tokens: z.number(),
+  output_tokens: z.number(),
+  requests: z.number(),
+  exhausted: z.boolean(),
+});
+export type UsageTenant = z.infer<typeof UsageTenantSchema>;
+
+/** GET /v1/agent-cloud/usage response (current UTC calendar month). */
+export const UsageReportSchema = z.object({
+  month: z.string(),
+  tenant: UsageTenantSchema,
+  agents: z.array(UsageAgentSchema),
+});
+export type UsageReport = z.infer<typeof UsageReportSchema>;
+
+/** Fraction of budget spent, clamped to [0,1]. Zero budget → 0 (avoid /0).
+ * Pure for tests — the meter bar width derives from this. */
+export function spendFraction(spend: number, budget: number): number {
+  if (!(budget > 0)) return 0;
+  const f = spend / budget;
+  return f < 0 ? 0 : f > 1 ? 1 : f;
+}
+
+/** Display USD with 2 decimals for whole-dollar-ish values, more precision
+ * for sub-cent spend so small dogfood usage isn't shown as "$0.00". Pure. */
+export function fmtUsd(n: number): string {
+  if (n === 0) return "$0.00";
+  const abs = Math.abs(n);
+  const decimals = abs < 0.01 ? 4 : 2;
+  return `$${n.toFixed(decimals)}`;
+}
+
+/** Rate-limit posture label from the report (honest, read-only). LIMITS.md
+ * §3 limits are config-side; the UI states the posture, not a live counter. */
+export function budgetPostureLabel(t: UsageTenant): string {
+  if (t.exhausted) return "Budget exhausted — turns are refused until next month";
+  const f = spendFraction(t.spend_usd, t.budget_monthly_usd);
+  if (f >= 0.9) return "Near budget cap";
+  if (f >= 0.5) return "Over half of monthly budget used";
+  return "Healthy";
+}
+
 // ─── Channels (Phase D, CHANNELS.md §12) ─────────────────────────────────
 
 /** Platforms the pairing form offers. Matches the agent-cloud PLATFORMS
@@ -654,6 +717,27 @@ export function revokeChannel(
     )}`,
     ChannelRevokeResultSchema,
   );
+}
+
+// ─── Usage / meters hook (Phase B2 → surfaced in Phase E) ────────────────
+
+export function fetchUsage(workspace = "personal"): Promise<UsageReport> {
+  return getJson(
+    `/api/v1/agent-cloud/usage${wsQuery(workspace)}`,
+    UsageReportSchema,
+  );
+}
+
+export function useAgentCloudUsage(
+  workspace = "personal",
+  opts?: Partial<UseQueryOptions<UsageReport>>,
+) {
+  return useQuery<UsageReport>({
+    queryKey: ["agent-cloud", "usage", workspace],
+    queryFn: () => fetchUsage(workspace),
+    staleTime: 30_000,
+    ...opts,
+  });
 }
 
 export function useAgentCloudChannels(
