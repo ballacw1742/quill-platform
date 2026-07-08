@@ -13,7 +13,7 @@
  */
 
 import * as React from "react";
-import { History, Link2, Plus, Sparkles, Wrench } from "lucide-react";
+import { BarChart3, History, Link2, Plus, Sparkles, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { BackButton, MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -25,6 +25,7 @@ import {
   type ToolChip,
 } from "@/components/assistant/AssistantMessage";
 import { AssistantInput } from "@/components/assistant/AssistantInput";
+import { Onboarding } from "@/components/assistant/Onboarding";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import {
   Sheet,
@@ -206,6 +207,14 @@ export default function AssistantPage() {
   }
 
   const showEmpty = items.length === 0 && !live && !transcript.isLoading;
+  // True first-run: no picked session AND the tenant has no conversations at
+  // all yet → show the rich onboarding card set. Once they have history, the
+  // empty new-chat screen falls back to the light one-line hint.
+  const firstRun =
+    showEmpty &&
+    !sessionId &&
+    sessions.isSuccess &&
+    (sessions.data?.items.length ?? 0) === 0;
 
   return (
     <MobileShell>
@@ -215,6 +224,13 @@ export default function AssistantPage() {
           left={<BackButton href="/" label="Home" />}
           right={
             <div className="flex items-center gap-1">
+              <a
+                href="/assistant/usage"
+                aria-label="Usage and budget"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-accent active:opacity-60 no-tap-highlight"
+              >
+                <BarChart3 className="h-5 w-5" />
+              </a>
               <a
                 href="/assistant/channels"
                 aria-label="Link channels"
@@ -269,7 +285,8 @@ export default function AssistantPage() {
           {transcript.isLoading && sessionId && (
             <SystemRow text="Loading conversation…" />
           )}
-          {showEmpty && (
+          {firstRun && <Onboarding personal={agentId !== "quill"} />}
+          {showEmpty && !firstRun && (
             <div className="flex flex-col items-center gap-3 px-8 pt-16 text-center">
               <Sparkles className="h-8 w-8 text-label-tertiary" aria-hidden="true" />
               <p className="text-body text-label-secondary">

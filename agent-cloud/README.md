@@ -1,6 +1,23 @@
-# quill-agent-orchestrator — Quill Agent Cloud platform core (Phase A, Sprints A1–A6)
+# quill-agent-orchestrator — Quill Agent Cloud platform core (Phases A–E)
 
-Contracts in this directory: `EVENTS.md` (events + jobs + wakes),
+> **Status: Phases A–E complete.** Platform core (A), multi-tenancy hardening
+> (B), Agent Builder (C), Channels (D), and Cutover staging (E) are all
+> merged. The platform runs today on safe default backends (web chat, Agent
+> Builder, budgets/meters, approvals). Production backends
+> (pubsub/cloudrun/cloudscheduler/kms) and live channels (Telegram/Google
+> Chat) are **staged, not activated** — each is a one-time external op + a
+> config flip, documented in `CUTOVER.md`. **Nothing flips OpenClaw off
+> automatically; the go-live decision is Charles's** (CUTOVER.md §13). New in
+> Phase E: `CUTOVER.md` (go-live runbook), `MIGRATION.md` (OpenClaw→platform
+> parity + staged rollout), `ONBOARDING.md` (getting-started + operator
+> guide, mirrored to a Google Doc), the `/assistant/usage` meters UI, the
+> first-run onboarding empty-state, and `scripts/dogfood_seed.py` (tenant #1
+> provisioning recipe).
+
+Contracts in this directory: `CUTOVER.md` (E: go-live runbook + external-ops
+checklist + per-service env/secret matrix), `MIGRATION.md` (E: OpenClaw
+parity + staged rollout), `ONBOARDING.md` (E: onboarding + operator guide),
+`EVENTS.md` (events + jobs + wakes),
 `WEBCHAT.md` (A5 web-chat channel + read endpoints + api bridge),
 `APPROVALS.md` (A6 approval-gated writes through the Quill /queue),
 `TENANCY.md` (B1 per-user tenancy, signup provisioning, isolation attack
@@ -396,6 +413,48 @@ platform instructions) → list linked channels with status badges → revoke.
 Thin form over the bridge; `/assistant` links to it. See `KNOWN_ISSUES.md` for
 what is code-complete-pending-external (Google Chat Marketplace verification,
 Telegram `setWebhook`).
+
+## E — Cutover staging (`CUTOVER.md`, `MIGRATION.md`, `ONBOARDING.md`)
+
+Phase E ties A–D together for onboarding + go-live, without flipping anything
+live (design §7 Phase E: "Axe → tenant #1, docs, onboarding UX, pricing
+meters"). It is mostly docs + light UI + a runbook — no new backend contracts.
+
+- **`CUTOVER.md`** — the go-live runbook. Consolidates every
+  "code-complete pending external ops" item across A–D into one ordered
+  checklist: for each (GEMINI_API_KEY/Vertex, pgvector, Pub/Sub topics +
+  dead-letter, Cloud Run Jobs, Cloud Scheduler, KMS keyring, Telegram
+  BotFather/`setWebhook`, Google Chat Marketplace verification, the
+  `CHANNELS_ENABLED` gate) the **exact gcloud/console steps, why it's
+  external** (app code never creates GCP resources — a deliberate boundary),
+  and **the flag/env that activates it**. Includes the full per-service
+  env/secret matrix (service / subagent job / admin job / api bridge) and the
+  `/health`-not-`/healthz` reminder. Everything is staged + reversible; §13 is
+  the explicit "the retire-OpenClaw switch is yours to pull" note.
+- **`MIGRATION.md`** — OpenClaw → Agent Cloud parity map (memory, scheduling,
+  sub-agents, approvals, channels, tenancy, budgets — equivalent vs. gap),
+  honest gaps flagged with severity (proactive push, tool breadth, machine
+  exec [intentional], file workspace), and the staged rollout
+  (deploy → dogfood → limited → full-cutover), each stage reversible.
+- **`ONBOARDING.md`** — Part 1 in-app getting-started (what's an agent, the 3
+  templates, pairing a channel, how approvals work, budgets) + Part 2
+  operator/cutover summary. **Mirrored to a Google Doc** on the
+  white.1284@gmail.com Drive per Charles's deliverable-docs rule (created via
+  the `gog` CLI). The web first-run empty-state
+  (`web/components/assistant/Onboarding.tsx`) renders Part 1 as deep-linked
+  cards.
+- **Usage meters UI** — `/assistant/usage` renders the B2
+  `GET /v1/agent-cloud/usage` data (LIMITS.md §2): tenant + per-agent
+  month-to-date spend, remaining budget, posture, token/request counts.
+  Read-only; linked from the `/assistant` top bar. Pure meter math + schema
+  are unit-tested (`web/lib/__tests__/agent-usage.test.ts`).
+- **Dogfood recipe** — `scripts/dogfood_seed.py`: one command to provision
+  Charles as tenant #1 (`user-charles`) with the two seeds + a real working
+  `dogfood` agent (created through the authoritative Agent Builder CRUD core)
+  + an optional tenant budget override. Idempotent; `--dry-run` writes
+  nothing and reports `activates_go_live: false`. Tested on sqlite
+  (`tests/test_dogfood_seed.py`). **Not run against prod in this sprint** —
+  the parent runs it consciously (CUTOVER.md §12).
 
 ## Deploy
 
