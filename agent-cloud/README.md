@@ -332,6 +332,71 @@ write tools clearly marked and an approval-queue notice when any is enabled
 (APPROVALS.md tie-in); a test console that reuses the chat SSE against the saved
 agent. The `/assistant` chat page links to it.
 
+## D — Channels (`CHANNELS.md`)
+
+Phase D makes agents reachable from **Telegram** and **Google Chat** via a
+short-lived **pairing code** flow. Contract: `CHANNELS.md` (read it before
+touching channel code). State lives in `agentcloud_channel_links` (pairing
+state + platform identity), created via migration with the same RLS discipline
+as every other tenant table (`tenant_id` at the app layer *and* under
+`tenant_session()`; the one cross-tenant scan — resolving an inbound platform
+identity to its tenant — runs under the admin RLS policy, exactly like the
+scheduler claim).
+
+**Pairing flow** (`app/channels/links.py`):
+1. Web → api bridge → agent-cloud `POST /v1/agents/channels/pair`
+   `{tenant_id, agent_id, platform}` mints a single-use, high-entropy,
+   expiring `pairing_code` (TTL `CHANNELS_PAIRING_TTL_SECONDS`, default 900s).
+2. The user sends the code to the bot. The webhook redeems it: the pending row
+   is looked up by `(platform, pairing_code)` under the admin scan, then bound
+   (`status='linked'`, platform identity recorded, code cleared) in a
+   tenant-scoped tx. An invalid/expired/used code gets a uniform reply (no
+   enumeration oracle).
+
+**agent-cloud endpoints** (tenant_id as body/query param, `{detail}` envelope,
+404-not-403 cross-tenant; the literal `/v1/agents/channels*` routes are
+declared *before* `/v1/agents/{agent_id}` so `channels` is never shadowed):
+- `POST /v1/agents/channels/pair` — 201 `{link_id, platform, agent_id,
+  pairing_code, expires_at, instructions}`; 400 bad platform, 403 disabled
+  agent, 404 unknown agent.
+- `GET /v1/agents/channels` — `{items, total, limit, offset}` (raw code never
+  returned after creation).
+- `POST /v1/agents/channels/{link_id}/revoke` — `{link_id, status:"revoked"}`;
+  404 unknown/cross-tenant.
+
+**Inbound webhooks** (`app/api.py`, `app/channels/{telegram,googlechat}.py`):
+- `POST /v1/channels/telegram/webhook` — verifies the Telegram secret header,
+  parses the update, runs the bound agent's turn, replies out-of-band via
+  `sendMessage` (acks 200).
+- `POST /v1/channels/googlechat/webhook` — verifies the Google Chat token,
+  replies synchronously in the response body.
+Both are best-effort: a malformed update is **acked** (2xx), never 5xx, so the
+platform doesn't retry a poison message.
+
+**Feature gates** (`app/config.py`): `CHANNELS_ENABLED` (master; every webhook
++ bridge route returns 503 when false), plus per-platform secrets
+(`TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET`,
+`GOOGLECHAT_VERIFICATION_TOKEN` / service account). An adapter reports
+`configured()` false → its webhook 503s.
+
+**Events:** `channel.linked` / `channel.revoked` (EVENTS.md addendum), written
+durably in the same tenant tx and published best-effort.
+
+**api bridge** (`/v1/agent-cloud/channels/*`, `CHANNELS.md §12`): JWT-gated,
+server-side tenant (`workspace=personal|org`, org → owner/partner), identical
+`{detail}`/502 semantics as the C bridge; client-sent `tenant_id` is never a
+schema field.
+- `POST /v1/agent-cloud/channels/pair` `{agent_id, platform, workspace?}`
+- `GET /v1/agent-cloud/channels?workspace=…`
+- `POST /v1/agent-cloud/channels/{link_id}/revoke`
+
+**Web UI:** `/assistant/channels` — pick a platform (Telegram | Google Chat) +
+one of the tenant's agents → generate a pairing code (shown with copy + per-
+platform instructions) → list linked channels with status badges → revoke.
+Thin form over the bridge; `/assistant` links to it. See `KNOWN_ISSUES.md` for
+what is code-complete-pending-external (Google Chat Marketplace verification,
+Telegram `setWebhook`).
+
 ## Deploy
 
 CI: `.github/workflows/agentcloud-deploy.yml` (paths `agent-cloud/**`) —
