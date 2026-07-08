@@ -27,6 +27,7 @@ def expected_tenant(user_id: str) -> str:
     return f"user-{user_id}"
 
 KNOWN_SESSION = "11111111-1111-1111-1111-111111111111"
+KNOWN_LINK = "22222222-2222-2222-2222-222222222222"
 
 
 def make_fake_agentcloud(calls: list) -> FastAPI:
@@ -174,6 +175,56 @@ def make_fake_agentcloud(calls: list) -> FastAPI:
     async def templates():
         calls.append(("templates",))
         return {"templates": [{"template_id": "research-assistant"}]}
+
+    # --- Channels (Phase D, CHANNELS.md §12) -------------------------------
+    # Literal /v1/agents/channels* MUST be registered BEFORE the
+    # /v1/agents/{agent_id} path-param route (same discipline as the real
+    # app) or `channels` gets captured as an agent_id.
+
+    @fake.post("/v1/agents/channels/pair", status_code=201)
+    async def channels_pair(body: dict):
+        calls.append(("channels_pair", body.get("tenant_id"), body))
+        if body.get("platform") not in ("telegram", "googlechat"):
+            raise HTTPException(400, "platform must be one of telegram, googlechat")
+        if body.get("agent_id") == "ghost":
+            raise HTTPException(404, "agent 'ghost' is not defined for this tenant")
+        return {
+            "link_id": KNOWN_LINK,
+            "platform": body["platform"],
+            "agent_id": body["agent_id"],
+            "status": "pending",
+            "pairing_code": "ABCD2345EFGH",
+            "expires_at": "2026-07-07T12:15:00+00:00",
+            "instructions": "send the code to the bot",
+        }
+
+    @fake.get("/v1/agents/channels")
+    async def channels_list(tenant_id: str, limit: int = 100, offset: int = 0):
+        calls.append(("channels_list", tenant_id, limit, offset))
+        return {
+            "items": [
+                {
+                    "link_id": KNOWN_LINK,
+                    "platform": "telegram",
+                    "agent_id": "personal",
+                    "status": "linked",
+                    "platform_chat_id": "555",
+                    "display_name": "Charles",
+                    "created_at": "2026-07-07T12:00:00+00:00",
+                    "linked_at": "2026-07-07T12:05:00+00:00",
+                }
+            ],
+            "total": 1,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    @fake.post("/v1/agents/channels/{link_id}/revoke")
+    async def channels_revoke(link_id: uuid.UUID, tenant_id: str):
+        calls.append(("channels_revoke", tenant_id, str(link_id)))
+        if str(link_id) != KNOWN_LINK:
+            raise HTTPException(404, "channel link not found for this tenant")
+        return {"link_id": str(link_id), "status": "revoked"}
 
     @fake.get("/v1/agents/{agent_id}")
     async def get_agent(agent_id: str, tenant_id: str):
@@ -595,6 +646,143 @@ async def test_crud_unreachable_502(client, owner_token, monkeypatch):
         "/v1/agent-cloud/agents",
         headers=auth_h(token),
         json={"agent_id": "research", "system_prompt": "p"},
+    )
+    assert r.status_code == 502
+    assert r.json() == {"detail": "agent service unreachable"}
+
+
+# ─── channels (Phase D, CHANNELS.md §12) ───────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "method,path,json_body",
+    [
+        ("post", "/v1/agent-cloud/channels/pair",
+         {"agent_id": "personal", "platform": "telegram"}),
+        ("get", "/v1/agent-cloud/channels", None),
+        ("post", f"/v1/agent-cloud/channels/{KNOWN_LINK}/revoke", None),
+    ],
+)
+async def test_channel_routes_require_bearer(
+    client, fake_agentcloud, method, path, json_body
+):
+    kwargs = {"json": json_body} if json_body is not None else {}
+    r = await getattr(client, method)(path, **kwargs)
+    assert r.status_code == 401
+    assert fake_agentcloud == []  # never reached agent-cloud
+
+
+async def test_channel_pair_injects_tenant_server_side(
+    client, owner_token, fake_agentcloud
+):
+    uid, token = owner_token
+    r = await client.post(
+        "/v1/agent-cloud/channels/pair",
+        headers=auth_h(token),
+        json={"agent_id": "personal", "platform": "telegram"},
+    )
+    assert r.status_code == 201
+    (_, forwarded_tenant, body) = fake_agentcloud[0]
+    assert forwarded_tenant == expected_tenant(uid)
+    assert body["tenant_id"] == expected_tenant(uid)
+    assert body["platform"] == "telegram"
+    out = r.json()
+    assert out["pairing_code"] == "ABCD2345EFGH"
+    assert out["status"] == "pending"
+    assert "instructions" in out
+
+
+async def test_channel_pair_client_tenant_is_ignored(
+    client, owner_token, fake_agentcloud
+):
+    """A malicious tenant_id in the pair body must not reach agent-cloud."""
+    uid, token = owner_token
+    r = await client.post(
+        "/v1/agent-cloud/channels/pair",
+        headers=auth_h(token),
+        json={
+            "agent_id": "personal",
+            "platform": "telegram",
+            "tenant_id": "victim-tenant",
+        },
+    )
+    assert r.status_code == 201
+    (_, forwarded_tenant, body) = fake_agentcloud[0]
+    assert forwarded_tenant == expected_tenant(uid)
+    assert body["tenant_id"] == expected_tenant(uid)
+
+
+async def test_channel_pair_bad_platform_400_passthrough(
+    client, owner_token, fake_agentcloud
+):
+    _, token = owner_token
+    r = await client.post(
+        "/v1/agent-cloud/channels/pair",
+        headers=auth_h(token),
+        json={"agent_id": "personal", "platform": "sms"},
+    )
+    assert r.status_code == 400
+    assert "platform must be one of" in r.json()["detail"]
+
+
+async def test_channel_pair_unknown_agent_404_passthrough(
+    client, owner_token, fake_agentcloud
+):
+    _, token = owner_token
+    r = await client.post(
+        "/v1/agent-cloud/channels/pair",
+        headers=auth_h(token),
+        json={"agent_id": "ghost", "platform": "telegram"},
+    )
+    assert r.status_code == 404
+    assert r.json() == {"detail": "agent 'ghost' is not defined for this tenant"}
+
+
+async def test_channel_list_tenant_scoped_and_shape(
+    client, owner_token, fake_agentcloud
+):
+    uid, token = owner_token
+    r = await client.get("/v1/agent-cloud/channels", headers=auth_h(token))
+    assert r.status_code == 200
+    assert fake_agentcloud == [("channels_list", expected_tenant(uid), 100, 0)]
+    item = r.json()["items"][0]
+    assert set(item) == {
+        "link_id", "platform", "agent_id", "status",
+        "platform_chat_id", "display_name", "created_at", "linked_at",
+    }
+    assert item["status"] == "linked"
+
+
+async def test_channel_revoke_tenant_scoped(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.post(
+        f"/v1/agent-cloud/channels/{KNOWN_LINK}/revoke", headers=auth_h(token)
+    )
+    assert r.status_code == 200
+    assert fake_agentcloud == [
+        ("channels_revoke", expected_tenant(uid), KNOWN_LINK)
+    ]
+    assert r.json() == {"link_id": KNOWN_LINK, "status": "revoked"}
+
+
+async def test_channel_revoke_cross_tenant_404(client, owner_token, fake_agentcloud):
+    """An unknown/cross-tenant link id is a 404 (indistinguishable)."""
+    _, token = owner_token
+    other = uuid.uuid4()
+    r = await client.post(
+        f"/v1/agent-cloud/channels/{other}/revoke", headers=auth_h(token)
+    )
+    assert r.status_code == 404
+    assert r.json() == {"detail": "channel link not found for this tenant"}
+
+
+async def test_channel_pair_unreachable_502(client, owner_token, monkeypatch):
+    _, token = owner_token
+    monkeypatch.setattr(bridge, "TRANSPORT_OVERRIDE", _ExplodingTransport())
+    r = await client.post(
+        "/v1/agent-cloud/channels/pair",
+        headers=auth_h(token),
+        json={"agent_id": "personal", "platform": "telegram"},
     )
     assert r.status_code == 502
     assert r.json() == {"detail": "agent service unreachable"}
