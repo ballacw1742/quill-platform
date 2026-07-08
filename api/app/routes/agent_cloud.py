@@ -140,6 +140,22 @@ async def _get_json(path: str, params: dict) -> dict:
     return resp.json()
 
 
+async def _request_json(
+    method: str, path: str, *, params: dict | None = None, json_body: dict | None = None
+) -> dict:
+    """Generic proxy for the CRUD verbs (POST/PATCH/DELETE) with identical
+    error/502 semantics to _get_json (AGENT_BUILDER.md §8)."""
+    try:
+        async with _client() as client:
+            resp = await client.request(method, path, params=params, json=json_body)
+    except httpx.HTTPError as exc:
+        log.error("agent-cloud unreachable: %s %s (%s)", method, path, exc)
+        raise HTTPException(status_code=502, detail=_UNREACHABLE_DETAIL) from exc
+    if resp.status_code >= 400:
+        _raise_passthrough(resp)
+    return resp.json()
+
+
 # ---------------------------------------------------------------------------
 # Reads (WEBCHAT.md §3.1–3.3)
 # ---------------------------------------------------------------------------
@@ -201,6 +217,105 @@ async def get_session(
     return await _get_json(
         f"/v1/agents/sessions/{session_id}",
         {"tenant_id": _resolve_tenant(user, workspace)},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Agent Builder CRUD (Phase C, AGENT_BUILDER.md §8). JWT-gated, server-side
+# tenant. agent_id is the agent's own id (path/body), never the tenant.
+# Client-sent tenant_id is not a schema field anywhere.
+# ---------------------------------------------------------------------------
+
+
+class AgentCreateBody(BaseModel):
+    """AGENT_BUILDER.md §2.1. No tenant_id field — derived server-side."""
+
+    agent_id: str = Field(min_length=1, max_length=128)
+    system_prompt: str = Field(min_length=1, max_length=20000)
+    model: str | None = None
+    tools: list[str] | None = None
+    memory_policy: str | None = None
+    budget_monthly_usd: float | None = None
+    enabled: bool = True
+    workspace: Workspace = Workspace.personal
+
+
+class AgentPatchBody(BaseModel):
+    """AGENT_BUILDER.md §2.2 — partial update; absent fields unchanged."""
+
+    system_prompt: str | None = Field(default=None, min_length=1, max_length=20000)
+    model: str | None = None
+    tools: list[str] | None = None
+    memory_policy: str | None = None
+    budget_monthly_usd: float | None = None
+    enabled: bool | None = None
+    workspace: Workspace = Workspace.personal
+
+
+@router.get("/catalog")
+async def get_catalog(
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """Tool-palette catalog + models + memory policies (AGENT_BUILDER.md §5).
+    Static upstream; JWT still required (no anonymous access)."""
+    _resolve_tenant(user, workspace)  # 403 for observer on workspace=org
+    return await _get_json("/v1/agents/catalog", {})
+
+
+@router.get("/templates")
+async def get_templates(
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """Clone-to-create starter templates (AGENT_BUILDER.md §6)."""
+    _resolve_tenant(user, workspace)
+    return await _get_json("/v1/agents/templates", {})
+
+
+@router.get("/agents/{agent_id}")
+async def get_agent(
+    agent_id: str,
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _get_json(
+        f"/v1/agents/{agent_id}", {"tenant_id": tenant_id}
+    )
+
+
+@router.post("/agents", status_code=201)
+async def create_agent(body: AgentCreateBody, user=Depends(get_current_user)):
+    tenant_id = _resolve_tenant(user, body.workspace)
+    payload = body.model_dump(exclude_unset=True, exclude={"workspace"})
+    payload["tenant_id"] = tenant_id  # server-side, always
+    return await _request_json("POST", "/v1/agents", json_body=payload)
+
+
+@router.patch("/agents/{agent_id}")
+async def patch_agent(
+    agent_id: str, body: AgentPatchBody, user=Depends(get_current_user)
+):
+    tenant_id = _resolve_tenant(user, body.workspace)
+    payload = body.model_dump(exclude_unset=True, exclude={"workspace"})
+    return await _request_json(
+        "PATCH",
+        f"/v1/agents/{agent_id}",
+        params={"tenant_id": tenant_id},
+        json_body=payload,
+    )
+
+
+@router.delete("/agents/{agent_id}")
+async def delete_agent(
+    agent_id: str,
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _request_json(
+        "DELETE", f"/v1/agents/{agent_id}", params={"tenant_id": tenant_id}
     )
 
 

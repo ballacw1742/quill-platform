@@ -156,6 +156,87 @@ def make_fake_agentcloud(calls: list) -> FastAPI:
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
+    # --- Agent Builder CRUD (Phase C, AGENT_BUILDER.md) --------------------
+
+    @fake.get("/v1/agents/catalog")
+    async def catalog():
+        calls.append(("catalog",))
+        return {
+            "groups": [
+                {"group": "builtin", "label": "Built-in", "tools": []},
+                {"group": "write", "label": "Quill writes", "tools": []},
+            ],
+            "models": ["claude-fable-5"],
+            "memory_policies": ["off", "tools_only", "auto_recall"],
+        }
+
+    @fake.get("/v1/agents/templates")
+    async def templates():
+        calls.append(("templates",))
+        return {"templates": [{"template_id": "research-assistant"}]}
+
+    @fake.get("/v1/agents/{agent_id}")
+    async def get_agent(agent_id: str, tenant_id: str):
+        calls.append(("get_agent", tenant_id, agent_id))
+        if agent_id == "ghost":
+            raise HTTPException(404, "agent not found for this tenant")
+        return {
+            "agent_id": agent_id,
+            "system_prompt": "p",
+            "model": "claude-fable-5",
+            "tools": ["get_time"],
+            "memory_policy": "off",
+            "budget_monthly_usd": 5.0,
+            "enabled": True,
+            "is_seed": agent_id in ("personal", "quill"),
+            "created_at": "2026-07-07T12:00:00+00:00",
+        }
+
+    @fake.post("/v1/agents", status_code=201)
+    async def create_agent(body: dict):
+        calls.append(("create_agent", body.get("tenant_id"), body))
+        if body.get("agent_id") == "dupe":
+            raise HTTPException(409, "already exists")
+        if body.get("agent_id") == "BAD":
+            raise HTTPException(400, "agent_id must be a slug")
+        return {
+            "agent_id": body["agent_id"],
+            "system_prompt": body["system_prompt"],
+            "model": body.get("model", "claude-fable-5"),
+            "tools": body.get("tools", []),
+            "memory_policy": body.get("memory_policy", "off"),
+            "budget_monthly_usd": body.get("budget_monthly_usd", 20.0),
+            "enabled": body.get("enabled", True),
+            "is_seed": False,
+            "created_at": "2026-07-07T12:00:00+00:00",
+        }
+
+    @fake.patch("/v1/agents/{agent_id}")
+    async def patch_agent(agent_id: str, tenant_id: str, body: dict):
+        calls.append(("patch_agent", tenant_id, agent_id, body))
+        if agent_id == "personal" and body.get("enabled") is False:
+            raise HTTPException(403, "seed agent 'personal' cannot be disabled")
+        if body.get("model") == "bad":
+            raise HTTPException(400, "model 'bad' is not allowed")
+        return {
+            "agent_id": agent_id,
+            "system_prompt": body.get("system_prompt", "p"),
+            "model": body.get("model", "claude-fable-5"),
+            "tools": body.get("tools", ["get_time"]),
+            "memory_policy": body.get("memory_policy", "off"),
+            "budget_monthly_usd": body.get("budget_monthly_usd", 5.0),
+            "enabled": body.get("enabled", True),
+            "is_seed": agent_id in ("personal", "quill"),
+            "created_at": "2026-07-07T12:00:00+00:00",
+        }
+
+    @fake.delete("/v1/agents/{agent_id}")
+    async def delete_agent(agent_id: str, tenant_id: str):
+        calls.append(("delete_agent", tenant_id, agent_id))
+        if agent_id in ("personal", "quill"):
+            raise HTTPException(403, f"seed agent '{agent_id}' cannot be deleted")
+        return {"agent_id": agent_id, "enabled": False, "soft_deleted": True}
+
     return fake
 
 
@@ -401,3 +482,119 @@ async def test_unreachable_agent_cloud_sse_error_event(client, owner_token, monk
             text += chunk
     events = _sse_events(text)
     assert events == [("error", {"detail": "agent service unreachable", "status": 502})]
+
+
+# ─── Agent Builder CRUD bridge (Phase C, AGENT_BUILDER.md §8) ─────────────────
+
+
+async def test_crud_routes_require_bearer(client, fake_agentcloud):
+    for method, path, body in [
+        ("get", "/v1/agent-cloud/catalog", None),
+        ("get", "/v1/agent-cloud/templates", None),
+        ("get", "/v1/agent-cloud/agents/research", None),
+        ("post", "/v1/agent-cloud/agents", {"agent_id": "x", "system_prompt": "p"}),
+        ("patch", "/v1/agent-cloud/agents/research", {"system_prompt": "p"}),
+        ("delete", "/v1/agent-cloud/agents/research", None),
+    ]:
+        kwargs = {"json": body} if body is not None else {}
+        r = await getattr(client, method)(path, **kwargs)
+        assert r.status_code == 401, path
+    assert fake_agentcloud == []
+
+
+async def test_catalog_and_templates_passthrough(client, owner_token, fake_agentcloud):
+    _, token = owner_token
+    c = await client.get("/v1/agent-cloud/catalog", headers=auth_h(token))
+    assert c.status_code == 200
+    assert "groups" in c.json()
+    t = await client.get("/v1/agent-cloud/templates", headers=auth_h(token))
+    assert t.status_code == 200
+    assert t.json()["templates"][0]["template_id"] == "research-assistant"
+
+
+async def test_create_injects_tenant_server_side(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.post(
+        "/v1/agent-cloud/agents",
+        headers=auth_h(token),
+        json={"agent_id": "research", "system_prompt": "p", "tenant_id": "HIJACK"},
+    )
+    assert r.status_code == 201
+    # tenant is the derived per-user one, never the client-sent "HIJACK"
+    call = [c for c in fake_agentcloud if c[0] == "create_agent"][0]
+    assert call[1] == expected_tenant(uid)
+    assert call[2].get("tenant_id") == expected_tenant(uid)
+    assert "HIJACK" not in str(call)
+
+
+async def test_get_agent_tenant_scoped(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.get("/v1/agent-cloud/agents/research", headers=auth_h(token))
+    assert r.status_code == 200
+    assert ("get_agent", expected_tenant(uid), "research") in fake_agentcloud
+
+
+async def test_get_agent_404_passthrough(client, owner_token, fake_agentcloud):
+    _, token = owner_token
+    r = await client.get("/v1/agent-cloud/agents/ghost", headers=auth_h(token))
+    assert r.status_code == 404
+    assert r.json()["detail"] == "agent not found for this tenant"
+
+
+async def test_patch_injects_tenant(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.patch(
+        "/v1/agent-cloud/agents/research",
+        headers=auth_h(token),
+        json={"system_prompt": "updated"},
+    )
+    assert r.status_code == 200
+    call = [c for c in fake_agentcloud if c[0] == "patch_agent"][0]
+    assert call[1] == expected_tenant(uid)
+
+
+async def test_patch_validation_400_passthrough(client, owner_token, fake_agentcloud):
+    _, token = owner_token
+    r = await client.patch(
+        "/v1/agent-cloud/agents/research",
+        headers=auth_h(token),
+        json={"model": "bad"},
+    )
+    assert r.status_code == 400
+
+
+async def test_delete_soft_deletes(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.delete("/v1/agent-cloud/agents/research", headers=auth_h(token))
+    assert r.status_code == 200
+    assert r.json()["soft_deleted"] is True
+    assert ("delete_agent", expected_tenant(uid), "research") in fake_agentcloud
+
+
+async def test_delete_seed_403_passthrough(client, owner_token, fake_agentcloud):
+    _, token = owner_token
+    r = await client.delete("/v1/agent-cloud/agents/personal", headers=auth_h(token))
+    assert r.status_code == 403
+    assert "cannot be deleted" in r.json()["detail"]
+
+
+async def test_create_409_passthrough(client, owner_token, fake_agentcloud):
+    _, token = owner_token
+    r = await client.post(
+        "/v1/agent-cloud/agents",
+        headers=auth_h(token),
+        json={"agent_id": "dupe", "system_prompt": "p"},
+    )
+    assert r.status_code == 409
+
+
+async def test_crud_unreachable_502(client, owner_token, monkeypatch):
+    _, token = owner_token
+    monkeypatch.setattr(bridge, "TRANSPORT_OVERRIDE", _ExplodingTransport())
+    r = await client.post(
+        "/v1/agent-cloud/agents",
+        headers=auth_h(token),
+        json={"agent_id": "research", "system_prompt": "p"},
+    )
+    assert r.status_code == 502
+    assert r.json() == {"detail": "agent service unreachable"}

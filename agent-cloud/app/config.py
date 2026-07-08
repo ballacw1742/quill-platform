@@ -106,6 +106,10 @@ class Settings(BaseSettings):
     APPROVALS_RECONCILE_AFTER_SECONDS: int = Field(default=120)
     APPROVALS_RECONCILE_MAX_PER_TICK: int = Field(default=25)
 
+    # --- Agent Builder (Phase C, AGENT_BUILDER.md) -----------------------
+    # Hard cap on an agent definition's system_prompt length (§4).
+    SYSTEM_PROMPT_MAX_CHARS: int = Field(default=8000)
+
     # --- Budgets ------------------------------------------------------------
     DEFAULT_BUDGET_MONTHLY_USD: float = Field(default=20.0)
     # B2 tenant-level caps (LIMITS.md §1). A NULL agentcloud_tenants.

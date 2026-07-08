@@ -13,7 +13,7 @@
  */
 
 import * as React from "react";
-import { History, Plus, Sparkles } from "lucide-react";
+import { History, Plus, Sparkles, Wrench } from "lucide-react";
 import { toast } from "sonner";
 
 import { BackButton, MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -215,6 +215,13 @@ export default function AssistantPage() {
           left={<BackButton href="/" label="Home" />}
           right={
             <div className="flex items-center gap-1">
+              <a
+                href="/assistant/builder"
+                aria-label="Build agents"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-accent active:opacity-60 no-tap-highlight"
+              >
+                <Wrench className="h-5 w-5" />
+              </a>
               <button
                 type="button"
                 aria-label="New chat"

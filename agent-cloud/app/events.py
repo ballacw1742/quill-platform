@@ -44,6 +44,7 @@ EVENT_TYPES = (
     "approval.requested",
     "approval.resolved",
     "rate_limit.exceeded",  # B2 (LIMITS.md §3)
+    "agent.updated",  # Phase C (AGENT_BUILDER.md §9)
 )
 
 

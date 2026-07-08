@@ -35,6 +35,109 @@ export const AgentCloudAgentListSchema = z.object({
 });
 export type AgentCloudAgentList = z.infer<typeof AgentCloudAgentListSchema>;
 
+// ─── Agent Builder (Phase C, AGENT_BUILDER.md) ───────────────────────────────
+
+/** Detail shape (§1): superset of the list dict — adds system_prompt, tools,
+ * is_seed. Returned by GET/POST/PATCH agents/{id}. */
+export const AgentDetailSchema = z.object({
+  agent_id: z.string(),
+  system_prompt: z.string(),
+  model: z.string(),
+  tools: z.array(z.string()),
+  memory_policy: z.string(),
+  budget_monthly_usd: z.number(),
+  enabled: z.boolean(),
+  is_seed: z.boolean(),
+  created_at: z.string(),
+});
+export type AgentDetail = z.infer<typeof AgentDetailSchema>;
+
+export const CatalogToolSchema = z.object({
+  name: z.string(),
+  label: z.string(),
+  description: z.string(),
+  approval_gated: z.boolean(),
+  memory_tool: z.boolean(),
+});
+export type CatalogTool = z.infer<typeof CatalogToolSchema>;
+
+export const CatalogGroupSchema = z.object({
+  group: z.string(),
+  label: z.string(),
+  tools: z.array(CatalogToolSchema),
+});
+export type CatalogGroup = z.infer<typeof CatalogGroupSchema>;
+
+export const CatalogSchema = z.object({
+  groups: z.array(CatalogGroupSchema),
+  models: z.array(z.string()),
+  memory_policies: z.array(z.string()),
+});
+export type Catalog = z.infer<typeof CatalogSchema>;
+
+export const TemplateSchema = z.object({
+  template_id: z.string(),
+  name: z.string(),
+  summary: z.string(),
+  system_prompt: z.string(),
+  model: z.string(),
+  tools: z.array(z.string()),
+  memory_policy: z.string(),
+  budget_monthly_usd: z.number(),
+});
+export type Template = z.infer<typeof TemplateSchema>;
+
+export const TemplateListSchema = z.object({ templates: z.array(TemplateSchema) });
+export type TemplateList = z.infer<typeof TemplateListSchema>;
+
+export const SoftDeleteResultSchema = z.object({
+  agent_id: z.string(),
+  enabled: z.boolean(),
+  soft_deleted: z.boolean(),
+});
+
+export type AgentCreatePayload = {
+  agent_id: string;
+  system_prompt: string;
+  model?: string;
+  tools?: string[];
+  memory_policy?: string;
+  budget_monthly_usd?: number;
+  enabled?: boolean;
+};
+
+export type AgentPatchPayload = Partial<{
+  system_prompt: string;
+  model: string;
+  tools: string[];
+  memory_policy: string;
+  budget_monthly_usd: number;
+  enabled: boolean;
+}>;
+
+/** Pure client-side mirror of the server §4 slug rule — for form UX only; the
+ * API is always the authoritative belt. */
+export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+export function validateAgentDraft(
+  draft: { agent_id: string; system_prompt: string; budget_monthly_usd: number },
+  opts: { tenantCap: number; isEdit: boolean; promptCap?: number },
+): string | null {
+  const promptCap = opts.promptCap ?? 8000;
+  if (!opts.isEdit && !SLUG_RE.test(draft.agent_id)) {
+    return "Slug must be lowercase letters/digits and internal hyphens (1–63 chars).";
+  }
+  if (!draft.system_prompt.trim()) return "System prompt is required.";
+  if (draft.system_prompt.length > promptCap) {
+    return `System prompt exceeds the ${promptCap}-character limit.`;
+  }
+  if (!(draft.budget_monthly_usd > 0)) return "Budget must be greater than 0.";
+  if (draft.budget_monthly_usd > opts.tenantCap) {
+    return `Budget exceeds the workspace cap ($${opts.tenantCap}).`;
+  }
+  return null;
+}
+
 export const AgentCloudSessionSchema = z.object({
   session_id: z.string(),
   agent_id: z.string(),
@@ -291,14 +394,111 @@ async function getJson<T>(path: string, schema: z.ZodType<T>): Promise<T> {
   return schema.parse(await res.json());
 }
 
+async function sendJson<T>(
+  method: "POST" | "PATCH" | "DELETE",
+  path: string,
+  schema: z.ZodType<T>,
+  body?: unknown,
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    credentials: "include",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      detail = (await res.json()).detail ?? detail;
+    } catch {
+      /* keep statusText */
+    }
+    throw new AgentCloudError(res.status, detail);
+  }
+  return schema.parse(await res.json());
+}
+
+// ─── Agent Builder CRUD calls (Phase C) ──────────────────────────────────
+
+function wsQuery(workspace: string): string {
+  return workspace && workspace !== "personal"
+    ? `?workspace=${encodeURIComponent(workspace)}`
+    : "";
+}
+
+export function fetchCatalog(workspace = "personal"): Promise<Catalog> {
+  return getJson(`/api/v1/agent-cloud/catalog${wsQuery(workspace)}`, CatalogSchema);
+}
+
+export function fetchTemplates(workspace = "personal"): Promise<TemplateList> {
+  return getJson(
+    `/api/v1/agent-cloud/templates${wsQuery(workspace)}`,
+    TemplateListSchema,
+  );
+}
+
+export function fetchAgentDetail(
+  agentId: string,
+  workspace = "personal",
+): Promise<AgentDetail> {
+  return getJson(
+    `/api/v1/agent-cloud/agents/${encodeURIComponent(agentId)}${wsQuery(workspace)}`,
+    AgentDetailSchema,
+  );
+}
+
+export function createAgent(
+  payload: AgentCreatePayload,
+  workspace = "personal",
+): Promise<AgentDetail> {
+  const body =
+    workspace && workspace !== "personal" ? { ...payload, workspace } : payload;
+  return sendJson("POST", "/api/v1/agent-cloud/agents", AgentDetailSchema, body);
+}
+
+export function patchAgent(
+  agentId: string,
+  payload: AgentPatchPayload,
+  workspace = "personal",
+): Promise<AgentDetail> {
+  const body =
+    workspace && workspace !== "personal" ? { ...payload, workspace } : payload;
+  return sendJson(
+    "PATCH",
+    `/api/v1/agent-cloud/agents/${encodeURIComponent(agentId)}`,
+    AgentDetailSchema,
+    body,
+  );
+}
+
+export function deleteAgent(agentId: string, workspace = "personal") {
+  return sendJson(
+    "DELETE",
+    `/api/v1/agent-cloud/agents/${encodeURIComponent(agentId)}${wsQuery(workspace)}`,
+    SoftDeleteResultSchema,
+  );
+}
+
 // ─── Query hooks ─────────────────────────────────────────────────────────────
 
 export function useAgentCloudAgents(
-  opts?: Partial<UseQueryOptions<AgentCloudAgentList>>,
+  optsOrWorkspace?: string | Partial<UseQueryOptions<AgentCloudAgentList>>,
+  maybeOpts?: Partial<UseQueryOptions<AgentCloudAgentList>>,
 ) {
+  // Backward compatible: called as useAgentCloudAgents(opts?) by the
+  // assistant page (personal), or useAgentCloudAgents(workspace, opts?) by
+  // the builder page (workspace-aware).
+  const workspace =
+    typeof optsOrWorkspace === "string" ? optsOrWorkspace : "personal";
+  const opts =
+    typeof optsOrWorkspace === "string" ? maybeOpts : optsOrWorkspace;
   return useQuery<AgentCloudAgentList>({
-    queryKey: ["agent-cloud", "agents"],
-    queryFn: () => getJson("/api/v1/agent-cloud/agents", AgentCloudAgentListSchema),
+    queryKey: ["agent-cloud", "agents", workspace],
+    queryFn: () =>
+      getJson(
+        `/api/v1/agent-cloud/agents${wsQuery(workspace)}`,
+        AgentCloudAgentListSchema,
+      ),
     staleTime: 60_000,
     ...opts,
   });
@@ -335,6 +535,30 @@ export function useAgentCloudTranscript(
   });
 }
 
+export function useAgentCloudCatalog(
+  workspace = "personal",
+  opts?: Partial<UseQueryOptions<Catalog>>,
+) {
+  return useQuery<Catalog>({
+    queryKey: ["agent-cloud", "catalog", workspace],
+    queryFn: () => fetchCatalog(workspace),
+    staleTime: 5 * 60_000,
+    ...opts,
+  });
+}
+
+export function useAgentCloudTemplates(
+  workspace = "personal",
+  opts?: Partial<UseQueryOptions<TemplateList>>,
+) {
+  return useQuery<TemplateList>({
+    queryKey: ["agent-cloud", "templates", workspace],
+    queryFn: () => fetchTemplates(workspace),
+    staleTime: 5 * 60_000,
+    ...opts,
+  });
+}
+
 /** Invalidate agent-cloud queries after a completed turn. */
 export function useInvalidateAgentCloud() {
   const qc = useQueryClient();
@@ -363,13 +587,21 @@ export type SendHandlers = {
  * arrive as an `error` event (matching the bridge contract).
  */
 export async function sendAgentChat(
-  args: { agentId: string; message: string; sessionId?: string | null },
+  args: {
+    agentId: string;
+    message: string;
+    sessionId?: string | null;
+    workspace?: string;
+  },
   handlers: SendHandlers,
 ): Promise<void> {
   const body = JSON.stringify({
     agent_id: args.agentId,
     message: args.message,
     ...(args.sessionId ? { session_id: args.sessionId } : {}),
+    ...(args.workspace && args.workspace !== "personal"
+      ? { workspace: args.workspace }
+      : {}),
     stream: true,
   });
 
@@ -411,7 +643,12 @@ export async function sendAgentChat(
 }
 
 export async function nonStreamFallback(
-  args: { agentId: string; message: string; sessionId?: string | null },
+  args: {
+    agentId: string;
+    message: string;
+    sessionId?: string | null;
+    workspace?: string;
+  },
   handlers: SendHandlers,
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/v1/agent-cloud/chat`, {
@@ -422,6 +659,9 @@ export async function nonStreamFallback(
       agent_id: args.agentId,
       message: args.message,
       ...(args.sessionId ? { session_id: args.sessionId } : {}),
+      ...(args.workspace && args.workspace !== "personal"
+        ? { workspace: args.workspace }
+        : {}),
       stream: false,
     }),
     signal: handlers.signal,
