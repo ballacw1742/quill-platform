@@ -28,6 +28,11 @@ class Tenant(Base):
     __tablename__ = "agentcloud_tenants"
 
     tenant_id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    # B2 (LIMITS.md §1): NULL = config default (TENANT_BUDGET_DEFAULT_USD for
+    # user-* tenants, ORG_TENANT_BUDGET_USD otherwise); non-NULL = override.
+    budget_monthly_usd: Mapped[float | None] = mapped_column(
+        sa.Numeric(10, 2), nullable=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
     )
@@ -289,4 +294,41 @@ class Usage(Base):
     requests: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class RateLimit(Base):
+    """Per (tenant, bucket, minute-window) fixed-window request counter
+    (B2, LIMITS.md §3). Multi-instance-safe because the counter lives in
+    the shared Postgres; one upsert-increment per request."""
+
+    __tablename__ = "agentcloud_rate_limits"
+
+    tenant_id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    bucket: Mapped[str] = mapped_column(sa.Text, primary_key=True)  # chat | jobs
+    window_start: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), primary_key=True
+    )
+    count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+
+
+class TenantSecret(Base):
+    """Per-tenant secret row — envelope-encrypted per SECRETS.md (B2).
+    All access goes through app/secrets.py; values never leave that module
+    except on the sanctioned get_secret() read path."""
+
+    __tablename__ = "agentcloud_tenant_secrets"
+
+    tenant_id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    name: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    backend: Mapped[str] = mapped_column(sa.Text, nullable=False)  # plaintext-dev | kms
+    kms_key_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    dek_wrapped: Mapped[bytes | None] = mapped_column(sa.LargeBinary, nullable=True)
+    nonce: Mapped[bytes | None] = mapped_column(sa.LargeBinary, nullable=True)
+    ciphertext: Mapped[bytes] = mapped_column(sa.LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    rotated_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
     )

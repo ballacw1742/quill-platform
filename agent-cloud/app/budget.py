@@ -1,8 +1,13 @@
-"""Budget metering: per (tenant, agent, day) usage rows + hard monthly cap.
+"""Budget metering: per (tenant, agent, day) usage rows + hard monthly caps.
 
-The cap comes from the agent definition (budget_monthly_usd). Exceeding it
-produces a *polite refusal* on the chat path — never a silent failure
-(design doc §6 metering; the $20-cap pattern, platformized).
+Two caps gate every turn (LIMITS.md §1):
+  - the agent cap (agentcloud_agents.budget_monthly_usd — the original A1
+    gate), and
+  - the tenant cap (B2): agentcloud_tenants.budget_monthly_usd, where NULL
+    defers to config (TENANT_BUDGET_DEFAULT_USD for user-* personal
+    tenants, ORG_TENANT_BUDGET_USD otherwise).
+Exceeding either produces a *polite refusal* on the chat path — never a
+silent failure (design doc §6 metering; the $20-cap pattern, platformized).
 """
 
 from __future__ import annotations
