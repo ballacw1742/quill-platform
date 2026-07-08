@@ -40,6 +40,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
+from app import agents as agents_mod
 from app import approvals as approvals_mod
 from app import db as db_mod
 from app import directory as directory_mod
@@ -108,6 +109,30 @@ class SchedulePatch(BaseModel):
     message: str | None = Field(default=None, min_length=1, max_length=8000)
     enabled: bool | None = None
     delete_after_run: bool | None = None
+
+
+class AgentCreateIn(BaseModel):
+    """AGENT_BUILDER.md §2.1 — create body (agent CRUD)."""
+
+    tenant_id: str = Field(min_length=1, max_length=128)
+    agent_id: str = Field(min_length=1, max_length=128)
+    system_prompt: str = Field(min_length=1, max_length=20000)
+    model: str | None = None
+    tools: list[str] | None = None
+    memory_policy: str | None = None
+    budget_monthly_usd: float | None = None
+    enabled: bool = True
+
+
+class AgentPatchIn(BaseModel):
+    """AGENT_BUILDER.md §2.2 — partial update (absent fields unchanged)."""
+
+    system_prompt: str | None = Field(default=None, min_length=1, max_length=20000)
+    model: str | None = None
+    tools: list[str] | None = None
+    memory_policy: str | None = None
+    budget_monthly_usd: float | None = None
+    enabled: bool | None = None
 
 
 class UsageOut(BaseModel):
@@ -396,6 +421,89 @@ async def delete_schedule(schedule_id: uuid.UUID, tenant_id: str):
         await scheduler_mod.delete_schedule(tenant_id, schedule_id)
     except scheduler_mod.ScheduleNotFoundError as exc:
         raise HTTPException(404, str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Agent Builder CRUD (Phase C, AGENT_BUILDER.md §2). NOTE ROUTE ORDER: the
+# static /v1/agents/{catalog,templates} + the CRUD literal routes are declared
+# above the {agent_id} path-param routes so a literal (usage/sessions/
+# subagents/schedules/catalog/templates) is never shadowed by {agent_id}.
+# ---------------------------------------------------------------------------
+
+
+@app.get("/v1/agents/catalog")
+async def agents_catalog():
+    """Tool-palette catalog + allowed models + memory policies
+    (AGENT_BUILDER.md §5). Static; tenant-independent."""
+    return agents_mod.tool_catalog()
+
+
+@app.get("/v1/agents/templates")
+async def agents_templates():
+    """Clone-to-create starter templates (AGENT_BUILDER.md §6). Static."""
+    return agents_mod.templates()
+
+
+def _agent_crud_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, agents_mod.SeedProtectedError):
+        return HTTPException(403, str(exc))
+    if isinstance(exc, agents_mod.AgentConflictError):
+        return HTTPException(409, str(exc))
+    if isinstance(exc, agents_mod.AgentValidationError):
+        return HTTPException(400, str(exc))
+    if isinstance(exc, agents_mod.AgentNotFoundError):
+        return HTTPException(404, str(exc))
+    raise exc  # pragma: no cover
+
+
+@app.post("/v1/agents", status_code=201)
+async def create_agent(body: AgentCreateIn):
+    """Create an agent definition (AGENT_BUILDER.md §2.1)."""
+    data = body.model_dump(exclude_unset=True)
+    tenant_id = data.pop("tenant_id")
+    try:
+        return await agents_mod.create_agent(tenant_id, data)
+    except (
+        agents_mod.AgentValidationError,
+        agents_mod.AgentConflictError,
+    ) as exc:
+        raise _agent_crud_error(exc) from exc
+
+
+@app.get("/v1/agents/{agent_id}")
+async def get_agent(agent_id: str, tenant_id: str):
+    """Agent-definition detail (AGENT_BUILDER.md §2); 404 unknown/cross-tenant."""
+    try:
+        return await agents_mod.get_agent(tenant_id, agent_id)
+    except agents_mod.AgentNotFoundError as exc:
+        raise _agent_crud_error(exc) from exc
+
+
+@app.patch("/v1/agents/{agent_id}")
+async def patch_agent(agent_id: str, tenant_id: str, body: AgentPatchIn):
+    """Partial update (AGENT_BUILDER.md §2.2). Seed-protected fields → 403."""
+    patch = body.model_dump(exclude_unset=True)
+    try:
+        return await agents_mod.update_agent(tenant_id, agent_id, patch)
+    except (
+        agents_mod.AgentValidationError,
+        agents_mod.SeedProtectedError,
+        agents_mod.AgentNotFoundError,
+    ) as exc:
+        raise _agent_crud_error(exc) from exc
+
+
+@app.delete("/v1/agents/{agent_id}")
+async def delete_agent(agent_id: str, tenant_id: str):
+    """Soft-delete (disable) an agent (AGENT_BUILDER.md §2). Seeds → 403.
+    History is never hard-deleted."""
+    try:
+        return await agents_mod.delete_agent(tenant_id, agent_id)
+    except (
+        agents_mod.SeedProtectedError,
+        agents_mod.AgentNotFoundError,
+    ) as exc:
+        raise _agent_crud_error(exc) from exc
 
 
 class ApprovalNotifyIn(BaseModel):
