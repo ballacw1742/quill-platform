@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CheckCircle, XCircle, Loader2, Paperclip } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Paperclip, MinusCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ProjectRequest } from "@/lib/schemas";
 
@@ -81,6 +81,17 @@ function StatusBadge({ status, intent, outputModule, outputId }: {
       <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-caption-2 text-red-600 dark:text-red-400">
         <XCircle className="h-3 w-3" />
         Failed
+      </span>
+    );
+  }
+
+  // Modular Framework Phase 2: the owning module is turned off, so the request
+  // was skipped rather than dispatched. Neutral badge — not an error.
+  if (status === "skipped") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-label-tertiary/10 px-2 py-0.5 text-caption-2 text-label-secondary">
+        <MinusCircle className="h-3 w-3" />
+        Skipped — module off
       </span>
     );
   }

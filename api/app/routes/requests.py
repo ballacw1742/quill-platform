@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_db
 from app.models_requests import RequestRecord
+from app.routes.modules import is_module_enabled
 from app.rate_limit import DISPATCH_LIMIT, GET_LIMIT, limiter
 from app.security import get_current_user, require_agent_secret
 
@@ -50,6 +51,40 @@ _settings = get_settings()
 
 # ADK agents service URL — all intents route here via POST /invoke
 ADK_URL: str = os.environ.get("ADK_AGENTS_URL", _settings.INTERNAL_API_URL)
+
+# Maps intent → the home-screen module that owns it (Modular Framework Phase 2,
+# MODULAR_FRAMEWORK_DESIGN.md §3.3). If the owning module is DISABLED for the
+# caller's workspace, the request is skipped instead of dispatched — the
+# time/cost saver. Intents with no entry here are never gated (always run).
+INTENT_TO_MODULE: dict[str, str] = {
+    "estimate": "estimates",
+    "schedule": "projects",
+    "rfi": "projects",
+    "contract": "contracts",
+    "site_evaluation": "sites",
+    "site_research": "sites",
+    "site_scoring": "sites",
+    "site_status": "sites",
+    "facility_ops": "operations",
+    "campus": "operations",
+    "incident": "operations",
+    "uptime": "operations",
+    "pue": "operations",
+    "sales": "sales",
+    "pipeline": "sales",
+    "customer_success": "customers",
+    "supply_chain": "supply-chain",
+    "equipment": "supply-chain",
+    "vendor": "supply-chain",
+    "procurement": "supply-chain",
+    "lead_time": "supply-chain",
+    "delivery": "supply-chain",
+    "finance": "finance",
+    "compliance": "compliance",
+    "intelligence": "intelligence",
+    # "general" intentionally omitted — the coordinator/general path is never
+    # gated so a catch-all request always gets a response.
+}
 
 # Maps intent → ADK agent name for POST /invoke
 INTENT_TO_ADK_AGENT: dict[str, str] = {
@@ -829,17 +864,49 @@ async def submit_request(
         intent = classify_intent(message, file_names)
     filenames_str = ",".join(file_names) if file_names else None
 
+    # ── Modular Framework Phase 2 gate (MODULAR_FRAMEWORK_DESIGN.md §3.3) ──
+    # If the module that owns this intent is DISABLED for the caller's personal
+    # workspace, skip the agent dispatch entirely — record it as "skipped" and
+    # return immediately (the time/cost saver). FAIL-OPEN: is_module_enabled
+    # returns True on any ambiguity, so we never silently drop work.
+    owning_module = INTENT_TO_MODULE.get(intent)
+    module_skipped = False
+    if owning_module is not None:
+        try:
+            enabled = await is_module_enabled(db, f"personal:{user.id}", owning_module)
+            module_skipped = not enabled
+        except Exception:  # noqa: BLE001 — fail-open, never block on config error
+            log.warning("module_gate.check_failed intent=%s module=%s — running anyway",
+                        intent, owning_module)
+            module_skipped = False
+
     record = RequestRecord(
         user_id=str(user.id),
         message=message,
         intent=intent,
-        status="processing",
+        status="skipped" if module_skipped else "processing",
         drive_url=drive_url or None,
         filenames=filenames_str,
     )
+    if module_skipped:
+        record.response = (
+            f"The {_intent_label(intent)} module is turned off for your workspace, "
+            f"so this request was skipped. Enable it in Settings › Modules to process "
+            f"requests like this."
+        )
     db.add(record)
     await db.commit()
     await db.refresh(record)
+
+    if module_skipped:
+        log.info("request skipped (module disabled) user=%s intent=%s module=%s id=%s",
+                 user.id, intent, owning_module, record.id)
+        return RequestSubmitResponse(
+            request_id=record.id,
+            intent=intent,
+            status="skipped",
+            message=f"The {_intent_label(intent)} module is off — request skipped.",
+        )
 
     log.info(
         "request submitted user=%s intent=%s id=%s files=%d",
