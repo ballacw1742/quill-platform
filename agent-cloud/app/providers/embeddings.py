@@ -9,6 +9,9 @@ Same config-gated selection pattern as MODEL_PROVIDER (app/providers):
       without any quota filing.
   EMBEDDING_PROVIDER=vertex  — IAM-auth'd Vertex text embeddings; config-
       gated, clean named error if credentials/quota are missing.
+  EMBEDDING_PROVIDER=local   — on-prem embeddings via ollama /api/embed
+      (§9.5). LOCAL_EMBEDDING_MODEL selects the served model; its output
+      dimensionality must equal EMBEDDING_DIM.
   EMBEDDING_PROVIDER=none    — embeddings off; memory degrades to text
       search (memory_search ILIKE fallback).
 
@@ -191,18 +194,80 @@ class VertexEmbeddingProvider(EmbeddingProvider):
         return _check_dims(vectors, s.EMBEDDING_DIM, "vertex embeddings")
 
 
+class LocalEmbeddingProvider(EmbeddingProvider):
+    """Local ollama embeddings (/api/embed, no auth). §9.5 on-prem path.
+
+    ollama's native /api/embed accepts a batch via `input: [...]` and returns
+    `{"embeddings": [[...], ...]}`. Dimensionality is fixed by the served
+    model, so we assert it against EMBEDDING_DIM (a mismatch is a config
+    error: point LOCAL_EMBEDDING_MODEL at a model whose dim == EMBEDDING_DIM).
+    """
+
+    name = "local"
+
+    def __init__(self, client: httpx.AsyncClient | None = None):
+        self._client = client  # injectable for tests
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        s = get_settings()
+        base = s.OLLAMA_HOST.rstrip("/")
+        model = s.LOCAL_EMBEDDING_MODEL
+        body = {"model": model, "input": texts}
+
+        async def _call() -> list[list[float]]:
+            if self._client is not None:
+                r = await self._client.post(f"{base}/api/embed", json=body)
+                r.raise_for_status()
+                data = r.json()
+            else:
+                async with httpx.AsyncClient(
+                    timeout=s.EMBEDDING_TIMEOUT_SECONDS
+                ) as client:
+                    r = await client.post(f"{base}/api/embed", json=body)
+                    r.raise_for_status()
+                    data = r.json()
+            return list(data["embeddings"])
+
+        try:
+            vectors = await with_retries(
+                _call,
+                attempts=s.MODEL_RETRY_ATTEMPTS,
+                base_delay=s.MODEL_RETRY_BASE_DELAY,
+                is_retryable=_is_retryable_http,
+                what=f"local.embed({model})",
+            )
+        except httpx.HTTPStatusError as exc:
+            raise EmbeddingUnavailableError(
+                f"local ollama embeddings API error {exc.response.status_code}: "
+                f"{exc.response.text[:300]}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise EmbeddingUnavailableError(
+                f"local ollama embeddings request failed (is ollama running at "
+                f"{s.OLLAMA_HOST}?): {exc}"
+            ) from exc
+        except (KeyError, ValueError) as exc:
+            raise EmbeddingUnavailableError(
+                f"local ollama embeddings response malformed: {exc}"
+            ) from exc
+        return _check_dims(vectors, s.EMBEDDING_DIM, "local ollama embeddings")
+
+
 def get_embedding_provider(name: str | None = None) -> EmbeddingProvider:
     provider = (name or get_settings().EMBEDDING_PROVIDER).strip().lower()
     if provider == "gemini":
         return GeminiEmbeddingProvider()
     if provider == "vertex":
         return VertexEmbeddingProvider()
+    if provider == "local":
+        return LocalEmbeddingProvider()
     if provider in ("none", ""):
         raise EmbeddingUnavailableError(
             "EMBEDDING_PROVIDER=none — embeddings disabled by config"
         )
     raise EmbeddingUnavailableError(
-        f"unknown EMBEDDING_PROVIDER '{provider}' (expected 'gemini', 'vertex', or 'none')"
+        f"unknown EMBEDDING_PROVIDER '{provider}' "
+        "(expected 'gemini', 'vertex', 'local', or 'none')"
     )
 
 
@@ -211,5 +276,6 @@ __all__ = [
     "EmbeddingUnavailableError",
     "GeminiEmbeddingProvider",
     "VertexEmbeddingProvider",
+    "LocalEmbeddingProvider",
     "get_embedding_provider",
 ]

@@ -23,7 +23,8 @@ class Settings(BaseSettings):
 
     # --- Model provider ----------------------------------------------------
     # "anthropic" (direct API, live today) | "vertex" (config-gated; Vertex
-    # Claude quota increase pending — see SPIKE_FINDINGS.md).
+    # Claude quota increase pending — see SPIKE_FINDINGS.md) | "local"
+    # (on-prem inference via ollama; §9.5 near-zero token cost, GAP §4.3).
     MODEL_PROVIDER: str = Field(default="anthropic")
     MODEL_DEFAULT: str = Field(default="claude-fable-5")
     MODEL_CHEAP: str = Field(default="claude-haiku-4-5")
@@ -37,10 +38,22 @@ class Settings(BaseSettings):
     VERTEX_PROJECT: str = Field(default="totemic-formula-467102-s9")
     VERTEX_REGION: str = Field(default="global")
 
+    # Local inference (MODEL_PROVIDER=local / EMBEDDING_PROVIDER=local).
+    # LOCAL_ENGINE selects the adapter behind the local provider; only
+    # "ollama" is implemented today (vLLM/llama.cpp can be added behind the
+    # same LocalEngine abstraction). OLLAMA_HOST is the native-API base URL.
+    LOCAL_ENGINE: str = Field(default="ollama")
+    OLLAMA_HOST: str = Field(default="http://localhost:11434")
+    LOCAL_INFERENCE_TIMEOUT_SECONDS: float = Field(default=120.0)
+    # Embedding model served locally (ollama /api/embed). Its output
+    # dimensionality must match EMBEDDING_DIM / the vector(<dim>) column.
+    LOCAL_EMBEDDING_MODEL: str = Field(default="nomic-embed-text")
+
     # --- Embeddings (memory subsystem) ----------------------------------
     # "gemini" (Gemini API direct, GEMINI_API_KEY — live path today) |
     # "vertex" (IAM-auth'd Vertex text embeddings; config-gated like
-    # MODEL_PROVIDER) | "none" (memory falls back to text search).
+    # MODEL_PROVIDER) | "local" (ollama /api/embed, on-prem; §9.5) |
+    # "none" (memory falls back to text search).
     EMBEDDING_PROVIDER: str = Field(default="gemini")
     EMBEDDING_MODEL: str = Field(default="gemini-embedding-001")
     # Must match the vector(<dim>) column created by migrations.
