@@ -27,6 +27,7 @@ from app import models_supply_chain as _models_supply_chain  # noqa: F401 — re
 from app import models_finance as _models_finance  # noqa: F401 — registers finance ORM models with Base.metadata
 from app import models_compliance as _models_compliance  # noqa: F401 — registers compliance ORM models with Base.metadata
 from app import models_sites as _models_sites  # noqa: F401 — registers site drive intake ORM models with Base.metadata
+from app import models_modules as _models_modules  # noqa: F401 — registers module_configs ORM model with Base.metadata
 from app.routes import admin, approvals, audit, auth, contracts, dev_chat, documents, estimates, realtime, requests as requests_routes, sites as sites_routes, projects as projects_routes
 from app.routes import pipeline as pipeline_routes, operations as operations_routes
 from app.routes import customers as customers_routes
@@ -36,6 +37,7 @@ from app.routes import finance as finance_routes
 from app.routes import compliance as compliance_routes
 from app.routes import portal as portal_routes  # Sprint 4B — Customer Portal
 from app.routes import agent_cloud as agent_cloud_routes  # Sprint A5 — Agent Cloud bridge (WEBCHAT.md)
+from app.routes import modules as modules_routes  # Modular Framework Phase 0
 from app.services import sentry as sentry_svc
 from app.services.audit_mirror import get_mirror
 from app.services.sla import run_forever as sla_run_forever
@@ -183,4 +185,5 @@ app.include_router(finance_routes.router)  # Sprint 3A — Finance module
 app.include_router(compliance_routes.router)  # Sprint 4A — Compliance Register
 app.include_router(portal_routes.router)   # Sprint 4B — Customer Portal
 app.include_router(agent_cloud_routes.router)  # Sprint A5 — Agent Cloud bridge (agent-cloud/WEBCHAT.md)
+app.include_router(modules_routes.router)  # Modular Framework Phase 0 — per-workspace module config
 # Sprint DC.4: Agent Registry routes are in admin.py (GET/PATCH /v1/agents). Seed on startup via lifespan.

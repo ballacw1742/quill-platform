@@ -48,7 +48,13 @@ import {
 import { MobileShell } from "@/components/layout/MobileShell";
 import { ModuleTile } from "@/components/home/ModuleTile";
 import { MODULE_ROSTER } from "@/lib/modules";
-import { useApprovals, useLogout, useProjectRequests, useSession } from "@/lib/api";
+import {
+  useApprovals,
+  useLogout,
+  useModuleConfig,
+  useProjectRequests,
+  useSession,
+} from "@/lib/api";
 import type { Session } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
@@ -74,12 +80,16 @@ const MODULE_ICONS: Record<string, LucideIcon> = {
 };
 
 const MODULES = MODULE_ROSTER.map((m) => ({
+  key: m.key,
   href: m.href,
   label: m.label,
   gradient: m.gradient,
   icon: MODULE_ICONS[m.key] ?? Bot,
   badge: m.key === "approvals" ? ("approvals" as const) : undefined,
 }));
+const ROSTER_ORDER: Record<string, number> = Object.fromEntries(
+  MODULE_ROSTER.map((m, i) => [m.key, i]),
+);
 
 function greetingFor(hour: number): string {
   if (hour < 12) return "Good morning";
@@ -100,9 +110,26 @@ function HomeScreen() {
   const session = rawSession as Session | null | undefined;
   const { data: approvals } = useApprovals();
   const { data: requestsData } = useProjectRequests();
+  const { data: moduleConfig } = useModuleConfig();
 
   const pendingApprovals = (approvals ?? []).filter((a) => a.status === "pending").length;
   const openRequests = (requestsData?.items ?? []).filter((r) => r.status === "processing").length;
+
+  // Modular framework (Phase 0): show only enabled modules, in the configured
+  // order. Until the config loads (or if the request fails) we fall back to the
+  // full static roster so the home screen is never empty.
+  const visibleModules = React.useMemo(() => {
+    const cfg = moduleConfig?.items;
+    if (!cfg || cfg.length === 0) return MODULES;
+    const enabled = new Set(cfg.filter((c) => c.enabled).map((c) => c.key));
+    const orderOf = new Map(cfg.map((c) => [c.key, c.sort_order] as const));
+    return MODULES.filter((m) => enabled.has(m.key)).sort(
+      (a, b) =>
+        (orderOf.get(a.key) ?? ROSTER_ORDER[a.key]) -
+          (orderOf.get(b.key) ?? ROSTER_ORDER[b.key]) ||
+        ROSTER_ORDER[a.key] - ROSTER_ORDER[b.key],
+    );
+  }, [moduleConfig]);
 
   const [now, setNow] = React.useState<Date | null>(null);
   React.useEffect(() => setNow(new Date()), []);
@@ -194,7 +221,7 @@ function HomeScreen() {
         aria-label="Modules"
         className="grid grid-cols-4 justify-items-center gap-x-4 gap-y-6 pb-8 sm:grid-cols-5 sm:gap-x-6 md:gap-x-8 md:gap-y-8"
       >
-        {MODULES.map((m) => (
+        {visibleModules.map((m) => (
           <ModuleTile
             key={m.href}
             href={m.href}

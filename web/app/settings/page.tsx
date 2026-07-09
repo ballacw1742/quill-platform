@@ -4,6 +4,7 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
   Info,
+  LayoutGrid,
   LogOut,
   Mail,
   Moon,
@@ -100,6 +101,20 @@ export default function SettingsPage() {
             title="Appearance"
             subtitle="Follows system setting"
             chevron={false}
+            hideDivider
+          />
+        </ListGroup>
+
+        <ListGroup
+          title="Workspace"
+          footer="Turn modules on or off and reorder your home screen. Owner only."
+        >
+          <ListRow
+            icon={<LayoutGrid className="h-4 w-4" />}
+            iconTone="accent"
+            title="Modules"
+            subtitle="Enable, disable & reorder"
+            href="/settings/modules"
             hideDivider
           />
         </ListGroup>
