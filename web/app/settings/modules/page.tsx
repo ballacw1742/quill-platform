@@ -19,9 +19,11 @@ import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  useApplyModulePreset,
   useCreateCustomModule,
   useDeleteCustomModule,
   useModuleConfig,
+  useModulePresets,
   useSession,
   useUpdateModuleConfig,
   type ModuleConfigItem,
@@ -51,6 +53,23 @@ function ModulesManager() {
   const update = useUpdateModuleConfig();
   const createCustom = useCreateCustomModule();
   const deleteCustom = useDeleteCustomModule();
+  const presets = useModulePresets();
+  const applyPreset = useApplyModulePreset();
+
+  function applyTemplate(key: string, label: string) {
+    if (!window.confirm(`Apply the "${label}" template? This enables that module set and disables the rest.`)) return;
+    applyPreset.mutate(
+      { key },
+      {
+        onSuccess: (res) => {
+          setItems(res.items);
+          toast.success(`Applied ${label}`);
+        },
+        onError: (e) =>
+          toast.error(e instanceof Error ? e.message : "Couldn't apply template"),
+      },
+    );
+  }
 
   const [showNew, setShowNew] = React.useState(false);
   const [newKey, setNewKey] = React.useState("");
@@ -172,6 +191,32 @@ function ModulesManager() {
           ? "Turn modules on or off and reorder how they appear on your home screen. Disabled modules are hidden from the grid."
           : "This is a read-only view. Only the workspace owner can change module settings."}
       </p>
+
+      {isOwner && (presets.data?.presets?.length ?? 0) > 0 && (
+        <div className="mb-5">
+          <h2 className="mb-1 text-footnote font-medium uppercase tracking-wide text-label-secondary/70">
+            Quick setup
+          </h2>
+          <p className="mb-2 text-footnote text-label-secondary">
+            Apply a template to turn on a module set for a project type. You can
+            still fine-tune below.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {presets.data!.presets.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                title={p.description}
+                disabled={applyPreset.isPending}
+                onClick={() => applyTemplate(p.key, p.label)}
+                className="rounded-full border border-separator/50 bg-bg-elevated/60 px-3 py-1.5 text-footnote text-label-primary active:opacity-60 no-tap-highlight disabled:opacity-40"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <ul className="flex flex-col divide-y divide-separator/40 overflow-hidden rounded-2xl border border-separator/40 bg-bg-elevated/40">
         {rows.map((m, i) => (

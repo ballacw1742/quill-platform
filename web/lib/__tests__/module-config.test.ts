@@ -131,3 +131,17 @@ describe("ModuleFeatureItem + features on config", () => {
     expect(parsed.features).toEqual([]);
   });
 });
+
+import { ModulePresetSchema } from "@/lib/api";
+
+describe("ModulePresetSchema", () => {
+  it("parses a preset", () => {
+    const p = ModulePresetSchema.parse({
+      key: "small-project",
+      label: "Small project",
+      description: "Lean set.",
+      modules: ["requests", "projects", "agents"],
+    });
+    expect(p.modules).toContain("projects");
+  });
+});

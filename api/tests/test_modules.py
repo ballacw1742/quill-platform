@@ -241,3 +241,66 @@ async def test_edit_unknown_custom_404(client, owner_token):
         json={"label": "Nope"},
     )
     assert r.status_code == 404
+
+
+# ── Phase 4: project templates / presets ─────────────────────────────────────
+
+
+async def test_list_presets(client, owner_token):
+    _, token = owner_token
+    r = await client.get("/v1/modules/presets", headers=auth_h(token))
+    assert r.status_code == 200
+    keys = {p["key"] for p in r.json()["presets"]}
+    assert {"full", "small-project", "construction", "back-office"} <= keys
+
+
+async def test_apply_preset_enables_exactly_the_set(client, owner_token):
+    _, token = owner_token
+    r = await client.post(
+        "/v1/modules/presets/apply",
+        headers=auth_h(token),
+        json={"key": "small-project"},
+    )
+    assert r.status_code == 200
+    items = {i["key"]: i["enabled"] for i in r.json()["items"]}
+    # in-set enabled
+    assert items["requests"] is True and items["projects"] is True
+    # out-of-set disabled
+    assert items["finance"] is False and items["sites"] is False
+
+
+async def test_apply_unknown_preset_400(client, owner_token):
+    _, token = owner_token
+    r = await client.post(
+        "/v1/modules/presets/apply",
+        headers=auth_h(token),
+        json={"key": "nope"},
+    )
+    assert r.status_code == 400
+
+
+async def test_non_owner_cannot_apply_preset(client, partner_token):
+    _, token = partner_token
+    r = await client.post(
+        "/v1/modules/presets/apply",
+        headers=auth_h(token),
+        json={"key": "full"},
+    )
+    assert r.status_code == 403
+
+
+async def test_apply_full_preset_reenables_everything(client, owner_token):
+    _, token = owner_token
+    # First disable a module, then apply "full" to restore all.
+    await client.patch(
+        "/v1/modules",
+        headers=auth_h(token),
+        json={"updates": [{"key": "finance", "enabled": False}]},
+    )
+    r = await client.post(
+        "/v1/modules/presets/apply",
+        headers=auth_h(token),
+        json={"key": "full"},
+    )
+    items = {i["key"]: i["enabled"] for i in r.json()["items"]}
+    assert all(items[m] for m in ["finance", "sites", "projects", "agents"])

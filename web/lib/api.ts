@@ -4105,3 +4105,43 @@ export function useDeleteCustomModule() {
       void qc.invalidateQueries({ queryKey: ["modules", vars.workspace ?? "personal"] }),
   });
 }
+
+// ─── Modular framework — project templates / presets (Phase 4) ───────────────
+
+export const ModulePresetSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  description: z.string(),
+  modules: z.array(z.string()),
+});
+export type ModulePreset = z.infer<typeof ModulePresetSchema>;
+
+export const ModulePresetListSchema = z.object({
+  presets: z.array(ModulePresetSchema),
+});
+
+export function useModulePresets(opts?: UseQueryOptions<{ presets: ModulePreset[] }>) {
+  return useQuery<{ presets: ModulePreset[] }>({
+    queryKey: ["module-presets"],
+    queryFn: async () =>
+      (await apiFetch(`/api/v1/modules/presets`, {
+        schema: ModulePresetListSchema,
+      })) as { presets: ModulePreset[] },
+    staleTime: 300_000,
+    ...opts,
+  });
+}
+
+export function useApplyModulePreset() {
+  const qc = useQueryClient();
+  return useMutation<ModuleConfigList, Error, { key: string; workspace?: string }>({
+    mutationFn: async ({ key, workspace = "personal" }) =>
+      (await apiFetch(`/api/v1/modules/presets/apply`, {
+        method: "POST",
+        body: JSON.stringify({ key, workspace }),
+        schema: ModuleConfigListSchema,
+      })) as ModuleConfigList,
+    onSuccess: (_d, vars) =>
+      void qc.invalidateQueries({ queryKey: ["modules", vars.workspace ?? "personal"] }),
+  });
+}
