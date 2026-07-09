@@ -84,12 +84,16 @@ class Settings(BaseSettings):
     # --- Events (A3) ---------------------------------------------------
     # "inline" (in-process dispatch — local/dev/tests) | "pubsub"
     # (google-cloud-pubsub publisher; see EVENTS.md for the contract,
-    # dead-letter + retry policy). Publish is always best-effort.
+    # dead-letter + retry policy) | "file" (local durable JSONL bus,
+    # on-prem / single-node — see ONPREM.md). Publish is always best-effort.
     EVENT_BUS: str = Field(default="inline")
     PUBSUB_PROJECT: str = Field(default="totemic-formula-467102-s9")
     EVENT_TOPIC: str = Field(default="agentcloud-events")
     EVENT_DEADLETTER_TOPIC: str = Field(default="agentcloud-events-deadletter")
     EVENT_PUBLISH_TIMEOUT_SECONDS: float = Field(default=5.0)
+    # FileBus path (EVENT_BUS=file). Default is ~/.agentcloud/events.jsonl.
+    # The cursor file is written to the same directory as events.jsonl.
+    EVENT_BUS_FILE: str = Field(default="~/.agentcloud/events.jsonl")
 
     # --- Sub-agent jobs (A3) ---------------------------------------------
     # "local" (in-process asyncio task — dev/tests) | "cloudrun"
@@ -170,11 +174,17 @@ class Settings(BaseSettings):
 
     # --- Per-tenant secrets (B2, SECRETS.md) ------------------------------
     # "plaintext-dev" (default — dev/tests, value stored raw, loudly named)
-    # | "kms" (envelope encryption: AES-256-GCM DEK wrapped by Cloud KMS).
+    # | "kms" (envelope encryption: AES-256-GCM DEK wrapped by Cloud KMS)
+    # | "age" (on-prem KEK: pyrage envelope encryption, §9.5 local-first).
     SECRETS_BACKEND: str = Field(default="plaintext-dev")
     # Full KMS key resource name (SECRETS.md §5); required for kms backend.
     SECRETS_KMS_KEY: str = Field(default="")
     SECRETS_KMS_TIMEOUT_SECONDS: float = Field(default=10.0)
+    # age backend (SECRETS_BACKEND=age) — on-prem KEK (ONPREM.md).
+    # AGE_RECIPIENT: the age public key (age1...) used to encrypt.
+    # AGE_IDENTITY_FILE: path to the age private key file used to decrypt.
+    AGE_RECIPIENT: str = Field(default="")
+    AGE_IDENTITY_FILE: str = Field(default="")
 
     # --- Ops ------------------------------------------------------------
     LOG_LEVEL: str = Field(default="INFO")
