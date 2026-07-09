@@ -1,4 +1,4 @@
-"""Model providers. Switch with MODEL_PROVIDER=anthropic|vertex."""
+"""Model providers. Switch with MODEL_PROVIDER=anthropic|vertex|local."""
 
 from __future__ import annotations
 
@@ -16,8 +16,13 @@ def get_provider(name: str | None = None) -> ModelProvider:
         from app.providers.vertex_anthropic import VertexAnthropicProvider
 
         return VertexAnthropicProvider()
+    if provider == "local":
+        from app.providers.local_ollama import LocalProvider
+
+        return LocalProvider()
     raise ProviderError(
-        f"unknown MODEL_PROVIDER '{provider}' (expected 'anthropic' or 'vertex')"
+        f"unknown MODEL_PROVIDER '{provider}' "
+        "(expected 'anthropic', 'vertex', or 'local')"
     )
 
 

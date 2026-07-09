@@ -56,6 +56,7 @@ async def test_catalog_grouped_from_registry(client):
         "claude-fable-5",
         "claude-sonnet-4-6",
         "claude-haiku-4-5",
+        "local",
     ]
     assert body["memory_policies"] == ["off", "tools_only", "auto_recall"]
 

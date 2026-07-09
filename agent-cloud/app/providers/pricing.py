@@ -23,7 +23,22 @@ DEFAULT_PRICING: dict[str, tuple[float, float]] = {
     "claude-fable-5": (5.0, 25.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
+    # §9.5 local-first: on-prem inference is electricity-only, so budgets /
+    # meters read ~0. "local" is the canonical id; any model routed through
+    # MODEL_PROVIDER=local or named with the "local:" / "ollama:" prefix is
+    # also treated as $0 (see _lookup) so a user's real ollama model id
+    # (e.g. "gemma4:12b-mlx") does not fall through to the conservative
+    # cloud fallback and inflate a local budget.
+    "local": (0.0, 0.0),
 }
+
+# Providers whose token cost is electricity-only (§9.5). When the active
+# MODEL_PROVIDER is one of these, every model meters at $0.
+ZERO_COST_PROVIDERS = frozenset({"local"})
+
+# Model-id prefixes that always price at $0 regardless of provider, so a
+# local model id can be pinned to free even in a mixed deployment.
+ZERO_COST_PREFIXES = ("local:", "ollama:")
 
 # Conservative fallback for unknown models.
 FALLBACK = (5.0, 25.0)
@@ -46,6 +61,15 @@ def _lookup(model: str) -> tuple[float, float]:
     table = pricing_table()
     if model in table:
         return table[model]
+    # §9.5: any local model prices at $0. Two triggers, either sufficient:
+    #  (a) the active provider is electricity-only (MODEL_PROVIDER=local), or
+    #  (b) the model id is explicitly prefixed local:/ollama:.
+    # A PRICING_JSON override for the exact id still wins (checked above).
+    lowered = model.lower()
+    if lowered.startswith(ZERO_COST_PREFIXES):
+        return (0.0, 0.0)
+    if get_settings().MODEL_PROVIDER.strip().lower() in ZERO_COST_PROVIDERS:
+        return (0.0, 0.0)
     # Tolerate versioned ids, e.g. claude-haiku-4-5@20251001 (Vertex style).
     base = model.split("@", 1)[0]
     if base in table:
