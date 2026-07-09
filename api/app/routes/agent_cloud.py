@@ -284,6 +284,23 @@ async def get_templates(
     return await _get_json("/v1/agents/templates", {})
 
 
+@router.get("/agents/published")
+async def list_published_agents(
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """Tenant's published agents as clone-source cards (AUTHORING_MATURITY.md
+    §2.6 / §6). Declared BEFORE /agents/{agent_id} so the static path wins the
+    route match (same ordering rule the orchestrator enforces)."""
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _get_json(
+        "/v1/agents/published",
+        {"tenant_id": tenant_id, "limit": limit, "offset": offset},
+    )
+
+
 @router.get("/agents/{agent_id}")
 async def get_agent(
     agent_id: str,
@@ -327,6 +344,104 @@ async def delete_agent(
     tenant_id = _resolve_tenant(user, workspace)
     return await _request_json(
         "DELETE", f"/v1/agents/{agent_id}", params={"tenant_id": tenant_id}
+    )
+
+
+# ---------------------------------------------------------------------------
+# Authoring maturity: versioning / diff / rollback / publish
+# (AUTHORING_MATURITY.md §6). JWT-gated forwarders, identical conventions to
+# the CRUD proxies above: server-side tenant, {detail}/{items} passthrough,
+# 502 on unreachable. agent_id/version/from/to/to_version/published are
+# path/query/body — never the tenant.
+# ---------------------------------------------------------------------------
+
+
+class RollbackBody(BaseModel):
+    """AUTHORING_MATURITY.md §2.4 — rollback to a prior version."""
+
+    to_version: int = Field(ge=1)
+    workspace: Workspace = Workspace.personal
+
+
+class PublishBody(BaseModel):
+    """AUTHORING_MATURITY.md §2.5 — toggle tenant-scoped publish flag."""
+
+    published: bool
+    workspace: Workspace = Workspace.personal
+
+
+@router.get("/agents/{agent_id}/versions")
+async def list_agent_versions(
+    agent_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """Version history, newest-first (AUTHORING_MATURITY.md §2.1)."""
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _get_json(
+        f"/v1/agents/{agent_id}/versions",
+        {"tenant_id": tenant_id, "limit": limit, "offset": offset},
+    )
+
+
+@router.get("/agents/{agent_id}/diff")
+async def diff_agent_versions(
+    agent_id: str,
+    from_: int = Query(alias="from", ge=1),
+    to: int = Query(ge=1),
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """Field-level diff between two versions (AUTHORING_MATURITY.md §2.3)."""
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _get_json(
+        f"/v1/agents/{agent_id}/diff",
+        {"tenant_id": tenant_id, "from": from_, "to": to},
+    )
+
+
+@router.get("/agents/{agent_id}/versions/{version}")
+async def get_agent_version(
+    agent_id: str,
+    version: int,
+    workspace: Workspace = Workspace.personal,
+    user=Depends(get_current_user),
+):
+    """One version's full field snapshot (AUTHORING_MATURITY.md §2.2)."""
+    tenant_id = _resolve_tenant(user, workspace)
+    return await _get_json(
+        f"/v1/agents/{agent_id}/versions/{version}",
+        {"tenant_id": tenant_id},
+    )
+
+
+@router.post("/agents/{agent_id}/rollback")
+async def rollback_agent(
+    agent_id: str, body: RollbackBody, user=Depends(get_current_user)
+):
+    """Rollback to a prior version as a new version (AUTHORING_MATURITY.md §2.4)."""
+    tenant_id = _resolve_tenant(user, body.workspace)
+    return await _request_json(
+        "POST",
+        f"/v1/agents/{agent_id}/rollback",
+        params={"tenant_id": tenant_id},
+        json_body={"to_version": body.to_version},
+    )
+
+
+@router.post("/agents/{agent_id}/publish")
+async def publish_agent(
+    agent_id: str, body: PublishBody, user=Depends(get_current_user)
+):
+    """Toggle the tenant-scoped publish flag (AUTHORING_MATURITY.md §2.5)."""
+    tenant_id = _resolve_tenant(user, body.workspace)
+    return await _request_json(
+        "POST",
+        f"/v1/agents/{agent_id}/publish",
+        params={"tenant_id": tenant_id},
+        json_body={"published": body.published},
     )
 
 

@@ -14,7 +14,7 @@ import uuid
 
 import httpx
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.routes import agent_cloud as bridge
@@ -226,6 +226,14 @@ def make_fake_agentcloud(calls: list) -> FastAPI:
             raise HTTPException(404, "channel link not found for this tenant")
         return {"link_id": str(link_id), "status": "revoked"}
 
+    # Phase 5 authoring: /published declared BEFORE /{agent_id} so the static
+    # path wins the fake's route match (mirrors the real orchestrator order).
+    @fake.get("/v1/agents/published")
+    async def list_published(tenant_id: str, limit: int = 100, offset: int = 0):
+        calls.append(("list_published", tenant_id))
+        return {"items": [{"agent_id": "shared-bot", "version": 3, "published": True}],
+                "total": 1, "limit": limit, "offset": offset}
+
     @fake.get("/v1/agents/{agent_id}")
     async def get_agent(agent_id: str, tenant_id: str):
         calls.append(("get_agent", tenant_id, agent_id))
@@ -287,6 +295,41 @@ def make_fake_agentcloud(calls: list) -> FastAPI:
         if agent_id in ("personal", "quill"):
             raise HTTPException(403, f"seed agent '{agent_id}' cannot be deleted")
         return {"agent_id": agent_id, "enabled": False, "soft_deleted": True}
+
+    # ── Phase 5 authoring-maturity upstream (versions/diff/rollback/publish) ──
+    @fake.get("/v1/agents/{agent_id}/versions")
+    async def list_versions(agent_id: str, tenant_id: str, limit: int = 100, offset: int = 0):
+        calls.append(("list_versions", tenant_id, agent_id))
+        if agent_id == "ghost":
+            raise HTTPException(404, "agent not found for this tenant")
+        return {"items": [{"version": 2, "change_action": "updated"},
+                          {"version": 1, "change_action": "created"}],
+                "total": 2, "limit": limit, "offset": offset}
+
+    @fake.get("/v1/agents/{agent_id}/diff")
+    async def diff_versions(agent_id: str, tenant_id: str, to: int,
+                            from_: int = Query(alias="from")):
+        calls.append(("diff_versions", tenant_id, agent_id, from_, to))
+        return {"agent_id": agent_id, "from_version": from_, "to_version": to,
+                "changes": {"system_prompt": {"from": "v1", "to": "v2"}}}
+
+    @fake.get("/v1/agents/{agent_id}/versions/{version}")
+    async def get_version(agent_id: str, version: int, tenant_id: str):
+        calls.append(("get_version", tenant_id, agent_id, version))
+        if version == 99:
+            raise HTTPException(404, "version not found")
+        return {"agent_id": agent_id, "version": version, "system_prompt": "p"}
+
+    @fake.post("/v1/agents/{agent_id}/rollback")
+    async def rollback(agent_id: str, tenant_id: str, body: dict):
+        calls.append(("rollback", tenant_id, agent_id, body))
+        return {"agent_id": agent_id, "version": 3,
+                "rolled_back_from": body["to_version"]}
+
+    @fake.post("/v1/agents/{agent_id}/publish")
+    async def publish(agent_id: str, tenant_id: str, body: dict):
+        calls.append(("publish", tenant_id, agent_id, body))
+        return {"agent_id": agent_id, "published": body["published"]}
 
     return fake
 
@@ -786,3 +829,94 @@ async def test_channel_pair_unreachable_502(client, owner_token, monkeypatch):
     )
     assert r.status_code == 502
     assert r.json() == {"detail": "agent service unreachable"}
+
+
+# ── Phase 5 authoring-maturity bridge routes (AUTHORING_MATURITY.md §6) ──────
+
+
+async def test_list_versions_passthrough_and_tenant(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.get("/v1/agent-cloud/agents/vbot/versions", headers=auth_h(token))
+    assert r.status_code == 200
+    assert [v["version"] for v in r.json()["items"]] == [2, 1]
+    assert ("list_versions", expected_tenant(uid), "vbot") in fake_agentcloud
+
+
+async def test_list_versions_unknown_agent_404(client, owner_token, fake_agentcloud):
+    _, token = owner_token
+    r = await client.get("/v1/agent-cloud/agents/ghost/versions", headers=auth_h(token))
+    assert r.status_code == 404
+    assert r.json() == {"detail": "agent not found for this tenant"}
+
+
+async def test_diff_forwards_from_to(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.get(
+        "/v1/agent-cloud/agents/vbot/diff?from=1&to=2", headers=auth_h(token)
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["from_version"] == 1 and body["to_version"] == 2
+    assert ("diff_versions", expected_tenant(uid), "vbot", 1, 2) in fake_agentcloud
+
+
+async def test_get_single_version(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.get("/v1/agent-cloud/agents/vbot/versions/2", headers=auth_h(token))
+    assert r.status_code == 200
+    assert r.json()["version"] == 2
+    assert ("get_version", expected_tenant(uid), "vbot", 2) in fake_agentcloud
+
+
+async def test_get_single_version_404(client, owner_token, fake_agentcloud):
+    _, token = owner_token
+    r = await client.get("/v1/agent-cloud/agents/vbot/versions/99", headers=auth_h(token))
+    assert r.status_code == 404
+
+
+async def test_rollback_forwards_body_and_tenant(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.post(
+        "/v1/agent-cloud/agents/vbot/rollback",
+        headers=auth_h(token),
+        json={"to_version": 1},
+    )
+    assert r.status_code == 200
+    assert r.json()["rolled_back_from"] == 1
+    call = next(c for c in fake_agentcloud if c[0] == "rollback")
+    assert call[1] == expected_tenant(uid) and call[3] == {"to_version": 1}
+
+
+async def test_publish_forwards_body_and_tenant(client, owner_token, fake_agentcloud):
+    uid, token = owner_token
+    r = await client.post(
+        "/v1/agent-cloud/agents/vbot/publish",
+        headers=auth_h(token),
+        json={"published": True},
+    )
+    assert r.status_code == 200
+    assert r.json()["published"] is True
+    call = next(c for c in fake_agentcloud if c[0] == "publish")
+    assert call[1] == expected_tenant(uid) and call[3] == {"published": True}
+
+
+async def test_list_published_not_shadowed_by_agent_id(client, owner_token, fake_agentcloud):
+    """/agents/published must route to the static handler, NOT /agents/{agent_id}."""
+    uid, token = owner_token
+    r = await client.get("/v1/agent-cloud/agents/published", headers=auth_h(token))
+    assert r.status_code == 200
+    assert r.json()["items"][0]["agent_id"] == "shared-bot"
+    assert ("list_published", expected_tenant(uid)) in fake_agentcloud
+    # crucially, it did NOT hit get_agent with agent_id="published"
+    assert not any(c[0] == "get_agent" and c[2] == "published" for c in fake_agentcloud)
+
+
+async def test_phase5_routes_require_bearer(client, fake_agentcloud):
+    for method, path in [
+        ("get", "/v1/agent-cloud/agents/vbot/versions"),
+        ("post", "/v1/agent-cloud/agents/vbot/rollback"),
+    ]:
+        kwargs = {"json": {"to_version": 1}} if method == "post" else {}
+        r = await getattr(client, method)(path, **kwargs)
+        assert r.status_code in (401, 403)
+    assert fake_agentcloud == []
