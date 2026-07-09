@@ -383,6 +383,90 @@ def chain_for_event(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Workflow-assignment DATA OVERLAY (ADK_AGENTS_DESIGN.md §4)
+# ---------------------------------------------------------------------------
+# Base chains above are CODE. An APPROVED workflow_assignment row is DATA that
+# overrides which agent_id runs at a given stage_key ("change representation,
+# not substance"). Unapproved assignments are INERT and never reach here — the
+# overlay map only ever contains approved rows (see
+# agent-cloud app/workflow_assignments.approved_overlay). This is the
+# structural enforcement of the safety invariant: no approved row ⇒ no
+# override ⇒ zero workflow mutation by an unapproved agent.
+#
+# stage_key convention: a stage is identified by the base step's agent_id
+# (the natural, stable stage handle). An overlay entry
+# (chain_id, stage_key) -> agent_id replaces the step whose agent_id ==
+# stage_key with the assigned agent_id. If stage_key matches no existing step
+# it is APPENDED as a new terminal stage (insert semantics per §4).
+
+
+def stage_keys(chain: Chain) -> list[str]:
+    """The stage handles for a chain (each step's agent_id)."""
+    return [s.agent_id for s in chain.steps]
+
+
+def apply_overlay(
+    chain: Chain,
+    overlay: dict[tuple[str, str], str],
+) -> Chain:
+    """Return a new Chain with approved assignments applied.
+
+    `overlay` maps (chain_id, stage_key) -> agent_id. Only entries whose
+    chain_id matches this chain are considered. Overriding a stage preserves
+    that step's gate/composer (only the agent_id changes); an unmatched
+    stage_key is appended as a new terminal step.
+
+    Passing an empty overlay returns an equivalent chain (base behavior),
+    so callers can always route through this function safely.
+    """
+    relevant = {
+        sk: aid for (cid, sk), aid in overlay.items() if cid == chain.chain_id
+    }
+    if not relevant:
+        return chain
+
+    existing_keys = set(stage_keys(chain))
+    new_steps: list[Step] = []
+    for step in chain.steps:
+        if step.agent_id in relevant:
+            new_steps.append(
+                Step(
+                    agent_id=relevant[step.agent_id],
+                    gate=step.gate,
+                    compose_inputs=step.compose_inputs,
+                )
+            )
+        else:
+            new_steps.append(step)
+    # Insert semantics: an approved assignment for a stage_key that isn't an
+    # existing step appends a new terminal stage running the assigned agent.
+    for sk, aid in relevant.items():
+        if sk not in existing_keys:
+            new_steps.append(Step(agent_id=aid))
+
+    return Chain(
+        chain_id=chain.chain_id,
+        event_kinds=chain.event_kinds,
+        steps=tuple(new_steps),
+    )
+
+
+def resolve_chain(
+    event_kind: str,
+    overlay: dict[tuple[str, str], str] | None = None,
+    chains: tuple[Chain, ...] = DEFAULT_CHAINS,
+) -> Chain | None:
+    """chain_for_event + apply_overlay in one call. `overlay` defaults to
+    empty (pure base-chain behavior)."""
+    base = chain_for_event(event_kind, chains)
+    if base is None:
+        return None
+    if not overlay:
+        return base
+    return apply_overlay(base, overlay)
+
+
 __all__ = [
     "Chain",
     "ChainContext",
@@ -396,6 +480,9 @@ __all__ = [
     "chain_for_event",
     "confidence_gate",
     "run_chain",
+    "apply_overlay",
+    "resolve_chain",
+    "stage_keys",
 ]
 
 

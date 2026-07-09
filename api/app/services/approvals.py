@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
     AGENT_FLEET,
+    OWNER_ONLY_WORKFLOWS,
     ApprovalStatus,
     AuthMethod,
     Decision,
@@ -46,6 +47,21 @@ def compute_sla_due(lane: int, priority: str, now: datetime | None = None) -> da
     return (now or _utcnow()) + timedelta(hours=base)
 
 
+def is_owner_only_workflow(workflow: str | None) -> bool:
+    """ADK_AGENTS_DESIGN.md §4 — workflow-assignment (and any future
+    live-workflow-mutating) approvals are owner-only and never auto-execute."""
+    return workflow in OWNER_ONLY_WORKFLOWS
+
+
+def owner_only_decide_allowed(workflow: str | None, role: str) -> bool:
+    """True iff `role` may DECIDE an approval of this workflow. For owner-only
+    workflows, only role=owner qualifies; all other workflows defer to the
+    normal required_approvers authority check."""
+    if is_owner_only_workflow(workflow):
+        return (role or "").lower() == UserRole.OWNER.value
+    return True
+
+
 def required_approvers_for_lane(lane: int, override: list[str] | None = None) -> list[str]:
     if override:
         return override
@@ -75,6 +91,16 @@ async def create_approval(
 
     lane = int(payload.get("lane") or Lane.SINGLE.value)
     priority = payload.get("priority") or Priority.NORMAL.value
+
+    # ADK_AGENTS_DESIGN.md §4: workflow-assignment items can NEVER auto-execute
+    # (no Lane 1) and are always owner-only. Force the lane + approver list
+    # here so a caller cannot request auto-execution of a live-workflow change.
+    workflow_val = payload.get("workflow")
+    _owner_only = workflow_val in OWNER_ONLY_WORKFLOWS
+    if _owner_only:
+        if lane == Lane.AUTO.value:
+            lane = Lane.DUAL.value
+        payload = {**payload, "required_approvers": [UserRole.OWNER.value]}
 
     item = ApprovalItem(
         agent_id=payload["agent_id"],
@@ -164,6 +190,16 @@ async def decide_approval(
         raise ValueError(f"approval {approval_id} is not pending (status={item.status})")
     if item.litigation_hold:
         raise PermissionError("approval is under litigation hold")
+
+    # ADK_AGENTS_DESIGN.md §4 governance: workflow-assignment approvals are
+    # OWNER-ONLY — only role=owner may decide (approve OR reject), regardless
+    # of any agent trust tier or required_approvers list. This is the core
+    # safety invariant: a non-owner can never change a live workflow.
+    if not owner_only_decide_allowed(item.workflow, approver.role):
+        raise PermissionError(
+            f"workflow {item.workflow!r} is owner-only; role "
+            f"{approver.role!r} cannot decide it"
+        )
 
     # Authority check: approver's role must be one of required_approvers (case-insensitive).
     needed = {r.lower() for r in (item.required_approvers or [])}

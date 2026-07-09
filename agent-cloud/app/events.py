@@ -47,6 +47,12 @@ EVENT_TYPES = (
     "agent.updated",  # Phase C (AGENT_BUILDER.md §9)
     "channel.linked",  # Phase D (CHANNELS.md §8)
     "channel.message",  # Phase D (CHANNELS.md §8)
+    "task.started",  # ADK task-agents (ADK_AGENTS_DESIGN.md §2)
+    "task.completed",  # ADK task-agents (ADK_AGENTS_DESIGN.md §2)
+    "task.failed",  # ADK task-agents (ADK_AGENTS_DESIGN.md §2)
+    "workflow_assignment.suggested",  # ADK governance (ADK_AGENTS_DESIGN.md §4)
+    "workflow_assignment.approved",  # ADK governance (ADK_AGENTS_DESIGN.md §4)
+    "workflow_assignment.rejected",  # ADK governance (ADK_AGENTS_DESIGN.md §4)
 )
 
 

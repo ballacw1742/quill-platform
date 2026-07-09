@@ -12,6 +12,7 @@ Cross-tenant ids are 404 (no existence oracle, TENANCY.md §4).
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -33,9 +34,17 @@ from app.tools.quill_writes import QUILL_WRITE_TOOL_NAMES, QUILL_WRITE_TOOLS
 
 # --- constants / catalog -----------------------------------------------------
 
+log = logging.getLogger("agentcloud.agents")
+
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 MEMORY_POLICIES = ("off", "tools_only", "auto_recall")
 SEED_AGENT_IDS = frozenset(s.agent_id for s in SEED_AGENTS)
+
+# ADK_AGENTS_DESIGN.md §1 vocabularies.
+AGENT_KINDS = ("assistant", "adk_task")
+RUNTIMES = ("claude", "adk")
+VISIBILITIES = ("private", "shared")
+APPROVAL_STATES = ("draft", "suggested", "approved", "rejected")
 
 # Allowed model aliases = keys of the pricing table (source of truth,
 # app/providers/pricing.py). A versioned `@date` suffix is tolerated exactly
@@ -194,7 +203,11 @@ def templates() -> dict[str, Any]:
 
 
 def _detail_dict(a: AgentDef) -> dict[str, Any]:
-    """AGENT_BUILDER.md §1 — the detail shape (superset of the A5 list dict)."""
+    """AGENT_BUILDER.md §1 — the detail shape (superset of the A5 list dict).
+
+    Additive ADK fields (ADK_AGENTS_DESIGN.md §1) appended so the builder UI
+    can render agent-kind/runtime/visibility/approval_state + adk_config.
+    Existing consumers keep working (they read a subset)."""
     return {
         "agent_id": a.agent_id,
         "system_prompt": a.system_prompt,
@@ -204,6 +217,12 @@ def _detail_dict(a: AgentDef) -> dict[str, Any]:
         "budget_monthly_usd": float(a.budget_monthly_usd),
         "enabled": a.enabled,
         "is_seed": a.agent_id in SEED_AGENT_IDS,
+        "agent_kind": getattr(a, "agent_kind", "assistant") or "assistant",
+        "runtime": getattr(a, "runtime", "claude") or "claude",
+        "owner_user_id": getattr(a, "owner_user_id", None),
+        "visibility": getattr(a, "visibility", "private") or "private",
+        "approval_state": getattr(a, "approval_state", "draft") or "draft",
+        "adk_config": getattr(a, "adk_config", None),
         "created_at": a.created_at,
     }
 
@@ -233,17 +252,25 @@ def _validate_prompt(system_prompt: str) -> str:
     return text
 
 
-def _validate_tools(tools: list[str]) -> list[str]:
+def _validate_tools(tools: list[str], *, agent_kind: str = "assistant") -> list[str]:
     if tools is None:
         return []
     if not isinstance(tools, list):
         raise AgentValidationError("tools must be a list of tool names")
+    # adk_task agents draw from the curated ADK tool registry (read/deliverable/
+    # memory/approval-gated-write); classic agents use the legacy REGISTRY.
+    if agent_kind == "adk_task":
+        from app.adk.registry import ADK_TOOL_REGISTRY
+
+        valid = ADK_TOOL_REGISTRY
+    else:
+        valid = REGISTRY
     out: list[str] = []
     seen: set[str] = set()
     for name in tools:
         if not isinstance(name, str):
             raise AgentValidationError("tools must be a list of tool names")
-        if name not in REGISTRY:
+        if name not in valid:
             raise AgentValidationError(f"unknown tool {name!r}")
         if name not in seen:
             seen.add(name)
@@ -268,6 +295,42 @@ def _validate_memory_policy(policy: str) -> str:
             f"memory_policy must be one of {', '.join(MEMORY_POLICIES)}"
         )
     return policy
+
+
+def _validate_agent_kind(kind: str) -> str:
+    if kind not in AGENT_KINDS:
+        raise AgentValidationError(
+            f"agent_kind must be one of {', '.join(AGENT_KINDS)}"
+        )
+    return kind
+
+
+def _validate_runtime(runtime: str) -> str:
+    if runtime not in RUNTIMES:
+        raise AgentValidationError(f"runtime must be one of {', '.join(RUNTIMES)}")
+    return runtime
+
+
+def _validate_visibility(vis: str) -> str:
+    if vis not in VISIBILITIES:
+        raise AgentValidationError(
+            f"visibility must be one of {', '.join(VISIBILITIES)}"
+        )
+    return vis
+
+
+def _validate_adk_config(cfg: Any) -> dict | None:
+    if cfg is None:
+        return None
+    if not isinstance(cfg, dict):
+        raise AgentValidationError("adk_config must be an object")
+    # instruction is the ADK agent's system instruction; tools/output_schema
+    # are optional. Keep validation light — the ADK tool allow-list is the
+    # `tools` column (validated separately) and the runner filters by it.
+    instruction = cfg.get("instruction")
+    if instruction is not None and not isinstance(instruction, str):
+        raise AgentValidationError("adk_config.instruction must be a string")
+    return cfg
 
 
 async def _validate_budget(db, tenant_id: str, budget: float) -> float:
@@ -301,11 +364,63 @@ def _emit_agent_updated(db, tenant_id: str, agent_id: str, action: str, fields: 
 
 
 async def get_agent(tenant_id: str, agent_id: str) -> dict:
-    """AGENT_BUILDER.md §2 — detail read; 404 unknown/cross-tenant."""
+    """AGENT_BUILDER.md §2 — detail read; 404 unknown/cross-tenant.
+
+    Sharing (ADK_AGENTS_DESIGN.md §3): if the agent is not found in the
+    caller's own tenant, fall back to the audited platform-scope SHARED read
+    — a `visibility='shared'` agent authored by any tenant is usable by all.
+    Private agents stay strictly tenant-isolated (still 404 cross-tenant).
+    """
     async with tenant_session(tenant_id) as db:
         await _provision_tenant(db, tenant_id)
-        row = await _load(db, tenant_id, agent_id)
-        return _detail_dict(row)
+        row = (
+            await db.execute(
+                sa.select(AgentDef).where(
+                    AgentDef.tenant_id == tenant_id,
+                    AgentDef.agent_id == agent_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is not None:
+            return _detail_dict(row)
+    # Not in the caller's tenant — try the shared platform scope.
+    shared = await _load_shared_agent(agent_id)
+    if shared is not None:
+        return shared
+    raise AgentNotFoundError("agent not found for this tenant")
+
+
+async def _load_shared_agent(agent_id: str) -> dict | None:
+    """Audited platform-scope read for a SHARED agent (ADK_AGENTS_DESIGN.md §3).
+
+    Bypasses per-tenant RLS via admin_session — but ONLY returns agents whose
+    visibility='shared'. This is the sole sanctioned cross-tenant read; a
+    private agent is never returned here. Sharing exposes the DEFINITION only
+    (not the creator's data).
+    """
+    from app.db import admin_session  # local import (maintenance-path session)
+
+    async with admin_session() as db:
+        row = (
+            await db.execute(
+                sa.select(AgentDef).where(
+                    AgentDef.agent_id == agent_id,
+                    AgentDef.visibility == "shared",
+                    AgentDef.enabled.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return None
+        detail = _detail_dict(row)
+        detail["shared"] = True
+        detail["authoring_tenant_id"] = row.tenant_id
+        log.info(
+            "shared agent read: agent=%s authoring_tenant=%s",
+            agent_id,
+            row.tenant_id,
+        )
+        return detail
 
 
 async def _load(db, tenant_id: str, agent_id: str) -> AgentDef:
@@ -347,14 +462,28 @@ async def create_agent(tenant_id: str, data: dict) -> dict:
         model = _validate_model(
             str(data.get("model") or seed_model_for_tenant(tenant_id))
         )
-        tools = _validate_tools(data.get("tools", []) or [])
+        agent_kind = _validate_agent_kind(str(data.get("agent_kind", "assistant")))
+        tools = _validate_tools(data.get("tools", []) or [], agent_kind=agent_kind)
         memory_policy = _validate_memory_policy(str(data.get("memory_policy", "off")))
-        budget = await _validate_budget(
-            db,
-            tenant_id,
-            data.get("budget_monthly_usd", s.DEFAULT_BUDGET_MONTHLY_USD),
-        )
+        # When no explicit budget is given, default to the config default but
+        # never above the tenant's own cap (user-* tenants cap below the config
+        # default, so a fixed default would otherwise 400 every create).
+        if data.get("budget_monthly_usd") is not None:
+            budget = await _validate_budget(db, tenant_id, data["budget_monthly_usd"])
+        else:
+            tenant_cap, _ = await budget_mod.resolve_tenant_budget(db, tenant_id)
+            budget = await _validate_budget(
+                db, tenant_id, min(s.DEFAULT_BUDGET_MONTHLY_USD, tenant_cap)
+            )
         enabled = bool(data.get("enabled", True))
+        # An adk_task agent implies the adk runtime (and vice-versa default).
+        default_runtime = "adk" if agent_kind == "adk_task" else "claude"
+        runtime = _validate_runtime(str(data.get("runtime", default_runtime)))
+        visibility = _validate_visibility(str(data.get("visibility", "private")))
+        adk_config = _validate_adk_config(data.get("adk_config"))
+        owner_user_id = data.get("owner_user_id")
+        if owner_user_id is not None:
+            owner_user_id = str(owner_user_id)
 
         row = AgentDef(
             tenant_id=tenant_id,
@@ -365,6 +494,12 @@ async def create_agent(tenant_id: str, data: dict) -> dict:
             budget_monthly_usd=budget,
             enabled=enabled,
             memory_policy=memory_policy,
+            agent_kind=agent_kind,
+            runtime=runtime,
+            visibility=visibility,
+            owner_user_id=owner_user_id,
+            approval_state="draft",
+            adk_config=adk_config,
         )
         db.add(row)
         ev = _emit_agent_updated(db, tenant_id, agent_id, "created", ["*"])
@@ -389,8 +524,14 @@ async def update_agent(tenant_id: str, agent_id: str, patch: dict) -> dict:
         if "model" in patch:
             row.model = _validate_model(str(patch["model"]))
             changed.append("model")
+        if "agent_kind" in patch:
+            row.agent_kind = _validate_agent_kind(str(patch["agent_kind"]))
+            changed.append("agent_kind")
         if "tools" in patch:
-            row.tools = _validate_tools(patch["tools"])
+            # Validate against the registry implied by the effective kind
+            # (patched kind wins; else the row's current kind).
+            eff_kind = getattr(row, "agent_kind", "assistant") or "assistant"
+            row.tools = _validate_tools(patch["tools"], agent_kind=eff_kind)
             changed.append("tools")
         if "memory_policy" in patch:
             row.memory_policy = _validate_memory_policy(str(patch["memory_policy"]))
@@ -409,6 +550,20 @@ async def update_agent(tenant_id: str, agent_id: str, patch: dict) -> dict:
                 )
             row.enabled = enabled
             changed.append("enabled")
+        if "runtime" in patch:
+            row.runtime = _validate_runtime(str(patch["runtime"]))
+            changed.append("runtime")
+        if "visibility" in patch:
+            # Sharing toggle (private ↔ shared). Any user may share their own
+            # agent (internal-tool sharing, ADK_AGENTS_DESIGN.md §3).
+            row.visibility = _validate_visibility(str(patch["visibility"]))
+            changed.append("visibility")
+        if "adk_config" in patch:
+            row.adk_config = _validate_adk_config(patch["adk_config"])
+            changed.append("adk_config")
+        # approval_state is NOT directly patchable here: it only moves via the
+        # governance flow (suggest → owner approve/reject). This prevents a
+        # non-owner from self-approving an agent by PATCH.
 
         if not changed:
             return _detail_dict(row)

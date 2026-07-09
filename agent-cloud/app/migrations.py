@@ -96,6 +96,26 @@ ALTER TABLE agentcloud_agents
     """
 ALTER TABLE agentcloud_agents
     ADD COLUMN IF NOT EXISTS memory_policy TEXT NOT NULL DEFAULT 'off'""",
+    # ADK task-agents + sharing + governance (ADK_AGENTS_DESIGN.md §1).
+    # All additive with safe defaults — no reorder/rename of existing cols.
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS agent_kind TEXT NOT NULL DEFAULT 'assistant'""",
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS runtime TEXT NOT NULL DEFAULT 'claude'""",
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS owner_user_id TEXT""",
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'private'""",
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS approval_state TEXT NOT NULL DEFAULT 'draft'""",
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS adk_config JSONB""",
 ]
 
 
@@ -312,6 +332,57 @@ CREATE UNIQUE INDEX IF NOT EXISTS agentcloud_channel_links_route_idx
     ON agentcloud_channel_links (platform, platform_chat_id) WHERE status = 'linked'""",
 ]
 
+# ADK: workflow assignments (ADK_AGENTS_DESIGN.md §4). Governed data overlay
+# of the base chains. One statement each (asyncpg constraint), additive +
+# idempotent. A partial unique index enforces at most one *approved*
+# assignment per (workflow_id, stage_key) — the overlay is deterministic.
+DDL_ADK = [
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_workflow_assignments (
+    assignment_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workflow_id          TEXT NOT NULL,
+    stage_key            TEXT NOT NULL,
+    agent_id             TEXT NOT NULL,
+    owner_tenant_id      TEXT NOT NULL,
+    suggested_by_user_id TEXT NOT NULL,
+    state                TEXT NOT NULL DEFAULT 'suggested',
+    approval_item_id     TEXT,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    approved_by          TEXT,
+    approved_at          TIMESTAMPTZ
+)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_workflow_assignments_tenant_idx
+    ON agentcloud_workflow_assignments (owner_tenant_id, state)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_workflow_assignments_stage_idx
+    ON agentcloud_workflow_assignments (workflow_id, stage_key, state)""",
+    """
+CREATE UNIQUE INDEX IF NOT EXISTS agentcloud_workflow_assignments_approved_idx
+    ON agentcloud_workflow_assignments (workflow_id, stage_key)
+    WHERE state = 'approved'""",
+]
+
+# The workflow-assignments table keys its tenant column `owner_tenant_id`
+# (not `tenant_id`), so it gets a bespoke RLS policy instead of the shared
+# _RLS_TABLES loop below.
+DDL_ADK_RLS = [
+    "ALTER TABLE agentcloud_workflow_assignments ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE agentcloud_workflow_assignments FORCE ROW LEVEL SECURITY",
+    """DO $$ BEGIN
+    CREATE POLICY agentcloud_workflow_assignments_tenant_isolation
+        ON agentcloud_workflow_assignments
+        USING (owner_tenant_id = current_setting('app.tenant_id', true))
+        WITH CHECK (owner_tenant_id = current_setting('app.tenant_id', true));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    """DO $$ BEGIN
+    CREATE POLICY agentcloud_workflow_assignments_admin
+        ON agentcloud_workflow_assignments
+        USING (current_setting('app.admin', true) = 'on')
+        WITH CHECK (current_setting('app.admin', true) = 'on');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+]
+
 _RLS_TABLES = [
     "agentcloud_tenants",
     "agentcloud_agents",
@@ -365,9 +436,11 @@ async def run_migrations(engine: AsyncEngine) -> None:
         *DDL_A6,
         *DDL_B2,
         *DDL_D,
+        *DDL_ADK,
     ]
     for table in _RLS_TABLES:
         statements.extend(_rls_ddl(table))
+    statements.extend(DDL_ADK_RLS)
     async with engine.begin() as conn:
         for stmt in statements:
             await conn.execute(text(stmt))

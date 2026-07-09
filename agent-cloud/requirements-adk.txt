@@ -1,0 +1,12 @@
+# Optional ADK task-agent runtime dependency (ADK_AGENTS_DESIGN.md §2).
+#
+# Install alongside requirements.txt to enable the LIVE google-adk code path:
+#     pip install -r requirements-adk.txt
+#
+# When google-adk is NOT installed, app/adk/runner.py transparently falls back
+# to the platform's existing ModelProvider tool-loop (same provider the Claude
+# chat loop uses), so the feature is real, not faked: the curated ADK tool
+# registry, token/cost accounting, audit-chain events, approval-gating, and
+# read-only governance are all exercised identically. The only thing gated on
+# this install is google-adk's own session/event plumbing.
+google-adk>=0.3.0

@@ -57,6 +57,13 @@ _ACTIONS = (
     "request_update",
 )
 
+# ADK_AGENTS_DESIGN.md §4: the workflow_assignment workflow does NOT mutate a
+# local Quill business object — its "execution" is remote (agent-cloud flips
+# the assignment row to 'approved' via the resolution notify). The api-side
+# executor treats it as a success no-op and returns the assignment ref, so
+# the standard agentcloud_write validation is bypassed for it.
+WORKFLOW_ASSIGNMENT_WORKFLOW = "agentcloud.workflow_assignment"
+
 
 class AgentCloudActionError(ValueError):
     """Invalid proposed_action / target not found / bad values."""
@@ -97,6 +104,15 @@ def _proposed_action(item) -> dict[str, Any]:
 
 async def execute_agentcloud_action(session: AsyncSession, item, *, actor: str) -> str:
     """Apply the approved write. Returns external_ref. Raises AgentCloudActionError."""
+    # Workflow-assignment approvals mutate DATA in agent-cloud, not a local
+    # Quill object. The remote flip happens via notify_agentcloud_resolution
+    # on the terminal transition; here we just return the ref (success no-op).
+    if item.workflow == WORKFLOW_ASSIGNMENT_WORKFLOW:
+        payload = (item.payload or {}) if isinstance(item.payload, dict) else {}
+        proposed = payload.get("proposed_action") or {}
+        assignment_id = proposed.get("assignment_id") or ""
+        return f"workflow_assignment:{assignment_id}"
+
     proposed = _proposed_action(item)
     action: str = proposed["action"]
     args: dict[str, Any] = proposed["args"]
@@ -256,6 +272,10 @@ async def notify_agentcloud_resolution(item, *, error: str | None = None) -> Non
         "proposal_id": proposed.get("proposal_id"),
         "external_ref": getattr(item, "external_ref", None),
         "error": error,
+        # ADK_AGENTS_DESIGN.md §4: carry workflow-assignment context so the
+        # agent-cloud notify handler can flip the assignment row's state.
+        "kind": proposed.get("kind"),
+        "assignment_id": proposed.get("assignment_id"),
     }
     if not body["tenant_id"]:
         log.warning("agentcloud notify: approval %s has no tenant_id — skipped", item.id)

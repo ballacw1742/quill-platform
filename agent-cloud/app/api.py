@@ -50,6 +50,9 @@ from app import directory as directory_mod
 from app import jobs as jobs_mod
 from app import ratelimit as ratelimit_mod
 from app import scheduler as scheduler_mod
+from app import workflow_assignments as workflow_assignments_mod
+from app.adk import get_runner as get_adk_runner
+from app.adk.base import TaskContext
 from app.config import get_settings
 from app.logging_setup import request_id_var, setup_logging
 from app.migrations import run_migrations
@@ -125,6 +128,12 @@ class AgentCreateIn(BaseModel):
     memory_policy: str | None = None
     budget_monthly_usd: float | None = None
     enabled: bool = True
+    # ADK_AGENTS_DESIGN.md §1 — ADK task-agents + sharing.
+    agent_kind: str | None = None
+    runtime: str | None = None
+    visibility: str | None = None
+    owner_user_id: str | None = None
+    adk_config: dict | None = None
 
 
 class AgentPatchIn(BaseModel):
@@ -136,6 +145,11 @@ class AgentPatchIn(BaseModel):
     memory_policy: str | None = None
     budget_monthly_usd: float | None = None
     enabled: bool | None = None
+    # ADK_AGENTS_DESIGN.md §1 — agent-kind/runtime/share/adk_config toggles.
+    agent_kind: str | None = None
+    runtime: str | None = None
+    visibility: str | None = None
+    adk_config: dict | None = None
 
 
 class ChannelPairIn(BaseModel):
@@ -674,6 +688,28 @@ async def delete_agent(agent_id: str, tenant_id: str):
         raise _agent_crud_error(exc) from exc
 
 
+class AssignmentSuggestIn(BaseModel):
+    """ADK_AGENTS_DESIGN.md §4 — any user suggests an assignment."""
+
+    tenant_id: str = Field(min_length=1, max_length=128)
+    workflow_id: str = Field(min_length=1, max_length=200)
+    stage_key: str = Field(min_length=1, max_length=200)
+    agent_id: str = Field(min_length=1, max_length=128)
+    suggested_by_user_id: str = Field(min_length=1, max_length=128)
+
+
+class TaskRunIn(BaseModel):
+    """ADK_AGENTS_DESIGN.md §2 — invoke an ADK task-agent (generate a
+    deliverable). allow_writes defaults False (read-only) unless the caller is
+    the owner AND the agent holds an approved assignment — enforced here."""
+
+    tenant_id: str = Field(min_length=1, max_length=128)
+    agent_id: str = Field(min_length=1, max_length=128)
+    task: str = Field(min_length=1, max_length=8000)
+    user_id: str | None = None
+    session_id: uuid.UUID | None = None
+
+
 class ApprovalNotifyIn(BaseModel):
     """api → agent-cloud resolution push (APPROVALS.md §6)."""
 
@@ -684,6 +720,9 @@ class ApprovalNotifyIn(BaseModel):
     proposal_id: str | None = None
     external_ref: str | None = None
     error: str | None = None
+    # ADK_AGENTS_DESIGN.md §4 — workflow-assignment finalization context.
+    kind: str | None = None
+    assignment_id: str | None = None
 
 
 @app.post("/v1/internal/approvals/notify")
@@ -700,6 +739,18 @@ async def approvals_notify(body: ApprovalNotifyIn, x_agent_secret: str = Header(
     mapped = approvals_mod.QUILL_STATUS_MAP.get(body.status)
     if mapped is None:
         raise HTTPException(400, f"non-terminal approval status {body.status!r}")
+    # ADK_AGENTS_DESIGN.md §4: workflow-assignment approvals flip the
+    # assignment row (approved on execute, rejected/expired otherwise) rather
+    # than finalizing a proposal.
+    if body.kind == "workflow_assignment" and body.assignment_id:
+        approve = mapped == "executed"
+        did = await workflow_assignments_mod.finalize_assignment(
+            tenant_id=body.tenant_id,
+            assignment_id=body.assignment_id,
+            approve=approve,
+            approved_by="owner",
+        )
+        return {"finalized": did, "state": "approved" if approve else "rejected"}
     finalized = await approvals_mod.finalize_proposal(
         tenant_id=body.tenant_id,
         quill_approval_id=body.approval_id,

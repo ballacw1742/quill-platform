@@ -247,14 +247,6 @@ export default function AssistantPage() {
               </a>
               <button
                 type="button"
-                aria-label="New chat"
-                onClick={() => resetTo(agentId, null)}
-                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-accent active:opacity-60 no-tap-highlight"
-              >
-                <Plus className="h-5 w-5" />
-              </button>
-              <button
-                type="button"
                 aria-label="Chat history"
                 onClick={() => setSheetOpen(true)}
                 className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md text-accent active:opacity-60 no-tap-highlight"
