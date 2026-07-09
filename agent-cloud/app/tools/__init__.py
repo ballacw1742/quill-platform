@@ -17,13 +17,26 @@ from app.tools.base import Tool, ToolNotAllowedError, ToolNotFoundError
 from app.tools.builtin import BUILTIN_TOOLS
 from app.tools.memory import MEMORY_TOOL_NAMES, MEMORY_TOOLS
 from app.tools.quill import QUILL_TOOLS
-from app.tools.quill_writes import QUILL_WRITE_TOOL_NAMES, QUILL_WRITE_TOOLS
+from app.tools.quill_writes import (
+    EMAIL_WRITE_TOOL_NAMES,
+    EMAIL_WRITE_TOOLS,
+    QUILL_WRITE_TOOL_NAMES,
+    QUILL_WRITE_TOOLS,
+)
+from app.tools.web_tools import WEB_TOOL_NAMES, WEB_TOOLS
 
 log = logging.getLogger("agentcloud.tools")
 
 REGISTRY: dict[str, Tool] = {
     t.name: t
-    for t in (*BUILTIN_TOOLS, *QUILL_TOOLS, *MEMORY_TOOLS, *QUILL_WRITE_TOOLS)
+    for t in (
+        *BUILTIN_TOOLS,
+        *QUILL_TOOLS,
+        *MEMORY_TOOLS,
+        *QUILL_WRITE_TOOLS,
+        *EMAIL_WRITE_TOOLS,
+        *WEB_TOOLS,
+    )
 }
 
 
@@ -52,12 +65,16 @@ async def run_tool(name: str, args: dict[str, Any], allowlist: list[str]) -> str
 
 
 __all__ = [
+    "EMAIL_WRITE_TOOL_NAMES",
+    "EMAIL_WRITE_TOOLS",
     "MEMORY_TOOL_NAMES",
     "QUILL_WRITE_TOOL_NAMES",
     "REGISTRY",
     "Tool",
     "ToolNotAllowedError",
     "ToolNotFoundError",
+    "WEB_TOOL_NAMES",
+    "WEB_TOOLS",
     "run_tool",
     "specs_for_allowlist",
 ]

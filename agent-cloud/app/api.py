@@ -46,6 +46,7 @@ from app import approvals as approvals_mod
 from app import channels as channels_mod
 from app.channels import links as channel_links_mod
 from app import db as db_mod
+from app.push_consumer import ProactivePushConsumer
 from app import directory as directory_mod
 from app import jobs as jobs_mod
 from app import ratelimit as ratelimit_mod
@@ -182,6 +183,10 @@ async def lifespan(app: FastAPI):
     await run_migrations(db_mod.engine)
     if settings.SCHEDULER_BACKEND == "loop":
         scheduler_mod.start_loop()
+    # §9 Wave 2: proactive push consumer (MIGRATION.md §3.1)
+    _push_consumer = ProactivePushConsumer()
+    if settings.PUSH_CONSUMER_ENABLED:
+        await _push_consumer.start()
     log.info(
         "agentcloud started",
         extra={
@@ -189,10 +194,12 @@ async def lifespan(app: FastAPI):
                 "model_provider": settings.MODEL_PROVIDER,
                 "model_default": settings.MODEL_DEFAULT,
                 "scheduler_backend": settings.SCHEDULER_BACKEND,
+                "push_consumer": settings.PUSH_CONSUMER_ENABLED,
             }
         },
     )
     yield
+    await _push_consumer.stop()
     await scheduler_mod.stop_loop()
     await db_mod.dispose()
 

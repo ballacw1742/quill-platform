@@ -346,9 +346,12 @@ def test_build_default_source_mock(tmp_path: Path):
     assert src.poll_interval_s == 0.1
 
 
-def test_build_default_source_webhook_not_implemented():
-    with pytest.raises(NotImplementedError):
-        build_default_source(source_type="webhook")
+def test_build_default_source_webhook_implemented():
+    """webhook source is now implemented (§9 Wave 2)."""
+    from runtime.triage_dispatcher import WebhookEventSource
+    src = build_default_source(source_type="webhook", webhook_port=19876)
+    assert isinstance(src, WebhookEventSource)
+    assert src.port == 19876
 
 
 def test_build_default_source_unknown_type_raises():

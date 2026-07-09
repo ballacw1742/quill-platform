@@ -189,3 +189,91 @@ QUILL_WRITE_TOOLS = [
 ]
 
 QUILL_WRITE_TOOL_NAMES = [t.name for t in QUILL_WRITE_TOOLS]
+
+
+# --- Email send (approval-gated write, §9 Wave 2, MIGRATION.md §3.3) --------
+
+async def _email_send_handler(args: dict[str, Any]) -> str:
+    """Custom handler for quill_email_send — validates, queues proposal,
+    and emits email.send_queued on success."""
+    args = dict(args or {})
+    reasoning = args.pop("reasoning", None)
+    if reasoning is not None and not isinstance(reasoning, str):
+        reasoning = str(reasoning)
+    try:
+        result = await approvals_mod.create_proposal(
+            tool_name="quill_email_send",
+            action="email_send",
+            args=args,
+            reasoning=reasoning,
+        )
+    except approvals_mod.ProposalValidationError as exc:
+        return json.dumps({"error": f"invalid args: {exc}"})
+    except Exception as exc:  # noqa: BLE001 — queueing failure → model
+        log.warning("email proposal queueing failed: %s", exc)
+        return json.dumps({"error": f"could not queue email approval: {exc}"})
+
+    # Best-effort: emit email.send_queued event so consumers can react.
+    from app import events as events_mod  # noqa: PLC0415 — avoid circular at module load
+    from app.logging_setup import agent_id_var, session_id_var, tenant_id_var  # noqa: PLC0415
+
+    tenant_id = tenant_id_var.get()
+    if tenant_id:
+        try:
+            ev = events_mod.make_event(
+                tenant_id=tenant_id,
+                agent_id=agent_id_var.get() or "",
+                session_id=session_id_var.get(),
+                type="email.send_queued",
+                payload={
+                    "proposal_id": result.get("proposal_id"),
+                    "to": args.get("to"),
+                    "subject": args.get("subject"),
+                },
+            )
+            import asyncio  # noqa: PLC0415
+            asyncio.ensure_future(events_mod.emit([ev]))
+        except Exception:  # noqa: BLE001 — best-effort; never fail the tool call
+            pass
+
+    return json.dumps(result, default=str)
+
+
+quill_email_send = Tool(
+    name="quill_email_send",
+    description=(
+        "Propose sending an email to one or more recipients. Requires human "
+        "approval before anything is sent — the email is NEVER delivered "
+        "automatically. Queued for approval in the Quill queue."
+        + _PENDING_NOTE
+    ),
+    handler=_email_send_handler,
+    input_schema={
+        "type": "object",
+        "properties": {
+            "to": {
+                "type": "string",
+                "description": "Recipient email address.",
+            },
+            "subject": {
+                "type": "string",
+                "description": "Email subject (max 200 chars).",
+            },
+            "body": {
+                "type": "string",
+                "description": "Plain-text email body (max 10 000 chars).",
+            },
+            "cc": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional CC recipients (email addresses).",
+            },
+            **_REASONING_PROP,
+        },
+        "required": ["to", "subject", "body"],
+    },
+)
+
+# Separate list so agents.py can expose it under its own catalog group.
+EMAIL_WRITE_TOOLS = [quill_email_send]
+EMAIL_WRITE_TOOL_NAMES = [t.name for t in EMAIL_WRITE_TOOLS]

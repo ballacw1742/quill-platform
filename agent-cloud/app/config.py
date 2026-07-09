@@ -199,6 +199,23 @@ class Settings(BaseSettings):
     AGE_RECIPIENT: str = Field(default="")
     AGE_IDENTITY_FILE: str = Field(default="")
 
+    # --- Proactive push consumer (§9 Wave 2, MIGRATION.md §3.1) -----------
+    # When true the ProactivePushConsumer is active in the lifespan.
+    PUSH_CONSUMER_ENABLED: bool = Field(default=True)
+
+    # --- Web fetch tool (§9 Wave 2, MIGRATION.md §3.3) -------------------
+    # Safety gate: quill_web_fetch only executes when this is True.
+    ALLOW_WEB_FETCH: bool = Field(default=False)
+
+    # --- Triage webhook event source (§9 Wave 2, prod ingress) ----------
+    # HTTP port the WebhookEventSource listens on (TRIAGE_EVENT_SOURCE=webhook).
+    TRIAGE_WEBHOOK_PORT: int = Field(default=8765)
+    # Shared secret validated against X-Triage-Secret header (empty ⇒ auth disabled).
+    TRIAGE_WEBHOOK_SECRET: str = Field(default="")
+    # Event source selection for the runtime triage dispatcher.
+    # "file" (default, MockDataEventSource) | "webhook" (WebhookEventSource)
+    TRIAGE_EVENT_SOURCE: str = Field(default="file")
+
     # --- Ops ------------------------------------------------------------
     LOG_LEVEL: str = Field(default="INFO")
     SERVICE_NAME: str = Field(default="quill-agent-orchestrator")
