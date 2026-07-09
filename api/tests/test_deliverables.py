@@ -291,3 +291,38 @@ async def test_other_user_cannot_rollback_deliverable(
         json={"to_version": 1},
     )
     assert r.status_code == 404
+
+
+async def test_rollback_to_intermediate_version_restores_that_content(client, owner_token):
+    """Regression: each version's snapshot must capture the content AT that
+    version. Rolling back to an intermediate version (v2) must restore v2's
+    content, not v1's or the prior state. Pins the create→bump→snapshot order."""
+    _, token = owner_token
+    created = (await client.post(BASE, headers=auth_h(token), json={
+        "module_key": "estimates", "deliverable_type": "cost_estimate",
+        "title": "v1", "content": {"n": 1},
+    })).json()
+    did = created["id"]
+
+    # v2 with distinct content
+    await client.patch(BASE + f"/{did}", headers=auth_h(token),
+                       json={"title": "v2", "content": {"n": 2}})
+    # v3 with distinct content
+    await client.patch(BASE + f"/{did}", headers=auth_h(token),
+                       json={"title": "v3", "content": {"n": 3}})
+
+    # the versions list must expose exactly one snapshot per version number
+    items = (await client.get(BASE + f"/{did}/versions", headers=auth_h(token))).json()["items"]
+    by_ver = {}
+    for it in items:
+        by_ver.setdefault(it["version"], 0)
+        by_ver[it["version"]] += 1
+    assert by_ver.get(1) == 1 and by_ver.get(2) == 1 and by_ver.get(3) == 1, by_ver
+
+    # rollback to v2 → new v4 whose content is v2's
+    r = await client.post(BASE + f"/{did}/rollback", headers=auth_h(token),
+                          json={"to_version": 2})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["version"] == 4
+    assert d["title"] == "v2" and d["content"] == {"n": 2}, d

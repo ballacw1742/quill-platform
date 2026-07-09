@@ -205,10 +205,10 @@ async def update_deliverable(
     row = await _get_own_deliverable(deliverable_id, user.id, db)
 
     now = datetime.now(UTC)
-    # Snapshot the PRIOR state before applying changes.
-    snap = _snapshot(row, "updated", now)
-    db.add(snap)
-
+    # Apply changes and bump the version FIRST, then snapshot the NEW state so
+    # the snapshot's version number matches its content (one snapshot per
+    # version, mirroring agent-cloud Phase 5). v1's snapshot was written at
+    # create time; each PATCH writes the snapshot for the version it produces.
     if body.title is not None:
         row.title = body.title
     if body.status is not None:
@@ -217,6 +217,9 @@ async def update_deliverable(
         row.content = body.content
     row.version = row.version + 1
     row.updated_at = now
+
+    snap = _snapshot(row, "updated", now)
+    db.add(snap)
 
     await db.commit()
     await db.refresh(row)
@@ -254,10 +257,8 @@ async def rollback_deliverable(
     as a NEW version (never destructive). 404 if the version is unknown."""
     row = await _get_own_deliverable(deliverable_id, user.id, db)
 
-    # Multiple snapshots may exist for the same version number (e.g., the
-    # "created" snapshot from POST and the "updated" snapshot both capture v1).
-    # Fetch the first matching snapshot — version is a reference point, not a
-    # unique key on the snapshot table.
+    # One snapshot per version number (created at v1, one per PATCH/rollback).
+    # .limit(1) is defensive only.
     target_snap = (
         await db.execute(
             select(DeliverableVersion)
@@ -265,6 +266,7 @@ async def rollback_deliverable(
                 DeliverableVersion.deliverable_id == deliverable_id,
                 DeliverableVersion.version == body.to_version,
             )
+            .order_by(DeliverableVersion.created_at.asc())
             .limit(1)
         )
     ).scalar_one_or_none()
