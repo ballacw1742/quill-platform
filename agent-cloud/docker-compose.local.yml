@@ -1,0 +1,127 @@
+# docker-compose.local.yml — On-prem local stack (no GCP required)
+#
+# Starts three services:
+#   postgres   — PostgreSQL 16 (state)
+#   ollama     — Ollama inference server (local models)
+#   agent-cloud — Quill Agent Cloud orchestrator (this repo)
+#
+# See ONPREM.md for the full operator guide, quick-start, and backup/restore
+# instructions. See README.local.md for the 3-command quick-start.
+#
+# Usage:
+#   docker compose -f docker-compose.local.yml up -d
+#
+# Pull a model (after ollama is running):
+#   docker exec quill-ollama ollama pull llama3.2
+#
+# Set your age key (required when SECRETS_BACKEND=age):
+#   Copy the AGE_RECIPIENT and AGE_IDENTITY_FILE lines in the agent-cloud
+#   environment section below, or put them in a .env.local file and pass
+#   --env-file .env.local to docker compose.
+
+services:
+
+  postgres:
+    image: postgres:16
+    container_name: quill-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: quill
+      POSTGRES_PASSWORD: quill
+      POSTGRES_DB: agentcloud
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quill -d agentcloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: quill-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    ports:
+      - "11434:11434"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  agent-cloud:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: quill-agent-cloud
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      # ---- Database --------------------------------------------------------
+      DATABASE_URL: "postgresql+asyncpg://quill:quill@postgres:5432/agentcloud"
+
+      # ---- Model provider — local Ollama ----------------------------------
+      MODEL_PROVIDER: "local"
+      LOCAL_OLLAMA_BASE: "http://ollama:11434"
+      # Set MODEL_DEFAULT to whichever model you've pulled via ollama pull.
+      # Examples: llama3.2, mistral, phi4, qwen2.5
+      MODEL_DEFAULT: "llama3.2"
+      MODEL_CHEAP: "llama3.2"
+
+      # ---- Embeddings — local Ollama --------------------------------------
+      EMBEDDING_PROVIDER: "local"
+      LOCAL_OLLAMA_EMBED_MODEL: "nomic-embed-text"
+
+      # ---- Event bus — local durable JSONL --------------------------------
+      EVENT_BUS: "file"
+      # Path inside the container; backed by the events volume below.
+      EVENT_BUS_FILE: "/data/events/events.jsonl"
+
+      # ---- Jobs / Scheduler — local in-process ----------------------------
+      JOBS_BACKEND: "local"
+      SCHEDULER_BACKEND: "loop"
+
+      # ---- Secrets — age on-prem KEK --------------------------------------
+      # Replace with your real age public key (run: age-keygen).
+      # The identity file must be mounted into the container; see the volume
+      # mount below. Leave both empty to fall back to plaintext-dev (dev/test
+      # only — not for production on-prem).
+      SECRETS_BACKEND: "age"
+      AGE_RECIPIENT: "${AGE_RECIPIENT:-}"
+      AGE_IDENTITY_FILE: "${AGE_IDENTITY_FILE:-/run/secrets/age-identity}"
+
+      # ---- Service auth (internal routes) ---------------------------------
+      # Set a strong random secret in production:
+      #   SERVICE_AUTH_SECRET=$(openssl rand -hex 32)
+      SERVICE_AUTH_SECRET: "${SERVICE_AUTH_SECRET:-}"
+
+      # ---- Logging --------------------------------------------------------
+      LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+
+    volumes:
+      # Persist durable event log across restarts
+      - events_data:/data/events
+      # Mount age identity file (private key) read-only.
+      # Create the local file first: age-keygen -o ~/.agentcloud/age-identity.txt
+      # Then set AGE_IDENTITY_FILE on the host or in .env.local.
+      # The container reads it at ${AGE_IDENTITY_FILE} (default /run/secrets/age-identity).
+      # Example bind-mount — adjust host path to your actual key file:
+      # - "${HOST_AGE_IDENTITY_FILE:-/dev/null}:/run/secrets/age-identity:ro"
+
+volumes:
+  postgres_data:
+    driver: local
+  ollama_models:
+    driver: local
+  events_data:
+    driver: local
