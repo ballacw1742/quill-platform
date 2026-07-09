@@ -122,7 +122,7 @@ function HomeScreen() {
     : "";
 
   return (
-    <div className="mx-auto w-full max-w-[708px] px-5 pt-safe md:max-w-5xl lg:max-w-6xl xl:max-w-[1600px] md:px-8 lg:px-10">
+    <div className="mx-auto w-full max-w-[708px] px-5 pt-safe md:max-w-4xl md:px-8 lg:px-10">
       {/* ── Greeting header ── */}
       <header className="flex items-start justify-between pt-6 pb-4">
         <div className="min-w-0">
@@ -137,7 +137,7 @@ function HomeScreen() {
       </header>
 
       {/* ── Today strip ── */}
-      <section aria-label="Today" className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <section aria-label="Today" className="mb-6 grid grid-cols-2 gap-3 md:gap-4">
         <Link
           href="/queue"
           className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
@@ -161,7 +161,7 @@ function HomeScreen() {
       </section>
 
       {/* ── Quick access: Lifecycle + Assistant (not in the locked 15-tile roster) ── */}
-      <section aria-label="Quick access" className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <section aria-label="Quick access" className="mb-6 grid grid-cols-2 gap-3 md:gap-4">
         <Link
           href="/lifecycle"
           className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
@@ -184,10 +184,16 @@ function HomeScreen() {
         </Link>
       </section>
 
-      {/* ── Module grid ── 4-up on mobile (all 15 visible without scrolling),
-          scaling to more columns on tablet/desktop so the wider container
-          stays filled instead of looking like a stretched phone layout. */}
-      <section aria-label="Modules" className="grid grid-cols-4 gap-x-4 gap-y-6 pb-8 sm:grid-cols-5 sm:gap-x-8 md:grid-cols-6 lg:grid-cols-8">
+      {/* ── Module grid ──
+          Fixed, even column counts so rows stay symmetric and tiles keep a
+          natural size instead of stretching: 4-up on mobile (all 15 tiles
+          visible without scrolling) → 5-up from sm upward, which lays the 15
+          tiles out as exactly three even rows of five on tablet/desktop.
+          justify-items-center keeps each tile centered in its cell. */}
+      <section
+        aria-label="Modules"
+        className="grid grid-cols-4 justify-items-center gap-x-4 gap-y-6 pb-8 sm:grid-cols-5 sm:gap-x-6 md:gap-x-8 md:gap-y-8"
+      >
         {MODULES.map((m) => (
           <ModuleTile
             key={m.href}
@@ -196,6 +202,7 @@ function HomeScreen() {
             icon={m.icon}
             gradient={m.gradient}
             badge={m.badge === "approvals" ? pendingApprovals : undefined}
+            className="w-full max-w-[96px]"
           />
         ))}
       </section>
