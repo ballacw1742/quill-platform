@@ -101,3 +101,43 @@ async def test_personal_and_org_are_isolated(client, owner_token):
     org_finance = {i["key"]: i["enabled"] for i in org.json()["items"]}["finance"]
     # org workspace unaffected — still enabled
     assert org_finance is True
+
+
+# ── Phase 1: sub-feature toggles ─────────────────────────────────────────────
+
+
+async def test_get_includes_feature_catalog(client, owner_token):
+    _, token = owner_token
+    r = await client.get("/v1/modules", headers=auth_h(token))
+    items = {i["key"]: i for i in r.json()["items"]}
+    # contracts has a fixed feature list, all enabled by default
+    feats = {f["key"]: f["enabled"] for f in items["contracts"]["features"]}
+    assert "change_orders" in feats and all(feats.values())
+    # a module with no sub-features has an empty list
+    assert items["approvals"]["features"] == []
+
+
+async def test_owner_can_disable_a_feature(client, owner_token):
+    _, token = owner_token
+    r = await client.patch(
+        "/v1/modules",
+        headers=auth_h(token),
+        json={"updates": [{"key": "contracts", "features": {"e_sign": False}}]},
+    )
+    assert r.status_code == 200
+    items = {i["key"]: i for i in r.json()["items"]}
+    feats = {f["key"]: f["enabled"] for f in items["contracts"]["features"]}
+    assert feats["e_sign"] is False
+    assert feats["change_orders"] is True  # others unaffected
+    # module itself stays enabled
+    assert items["contracts"]["enabled"] is True
+
+
+async def test_unknown_feature_key_400(client, owner_token):
+    _, token = owner_token
+    r = await client.patch(
+        "/v1/modules",
+        headers=auth_h(token),
+        json={"updates": [{"key": "contracts", "features": {"nope": False}}]},
+    )
+    assert r.status_code == 400

@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_db
 from app.models_requests import RequestRecord
-from app.routes.modules import is_module_enabled
+from app.routes.modules import is_feature_enabled, is_module_enabled
 from app.rate_limit import DISPATCH_LIMIT, GET_LIMIT, limiter
 from app.security import get_current_user, require_agent_secret
 
@@ -84,6 +84,23 @@ INTENT_TO_MODULE: dict[str, str] = {
     "intelligence": "intelligence",
     # "general" intentionally omitted — the coordinator/general path is never
     # gated so a catch-all request always gets a response.
+}
+
+# Phase 1: intent → (module, sub-feature). When the specific sub-feature is
+# disabled (but the module is on), the request is still skipped. Only intents
+# that map to a discrete feature appear here; others are gated at module level.
+INTENT_TO_FEATURE: dict[str, str] = {
+    "rfi": "rfi",
+    "schedule": "schedule",
+    "site_evaluation": "evaluation",
+    "site_research": "research",
+    "site_scoring": "scoring",
+    "incident": "incidents",
+    "uptime": "uptime",
+    "pue": "uptime",
+    "procurement": "procurement",
+    "vendor": "vendors",
+    "equipment": "equipment",
 }
 
 # Maps intent → ADK agent name for POST /invoke
@@ -870,11 +887,19 @@ async def submit_request(
     # return immediately (the time/cost saver). FAIL-OPEN: is_module_enabled
     # returns True on any ambiguity, so we never silently drop work.
     owning_module = INTENT_TO_MODULE.get(intent)
+    owning_feature = INTENT_TO_FEATURE.get(intent)
     module_skipped = False
     if owning_module is not None:
         try:
-            enabled = await is_module_enabled(db, f"personal:{user.id}", owning_module)
-            module_skipped = not enabled
+            ws = f"personal:{user.id}"
+            if owning_feature is not None:
+                # Feature-level gate implies the module gate (feature off OR
+                # whole module off both skip).
+                module_skipped = not await is_feature_enabled(
+                    db, ws, owning_module, owning_feature
+                )
+            else:
+                module_skipped = not await is_module_enabled(db, ws, owning_module)
         except Exception:  # noqa: BLE001 — fail-open, never block on config error
             log.warning("module_gate.check_failed intent=%s module=%s — running anyway",
                         intent, owning_module)

@@ -104,3 +104,30 @@ describe("home grid visible-modules derivation", () => {
     expect(visibleKeys(roster, cfg)[0]).toBe("agents");
   });
 });
+
+describe("ModuleFeatureItem + features on config", () => {
+  it("parses a module with a feature list", () => {
+    const parsed = ModuleConfigItemSchema.parse({
+      key: "contracts",
+      label: "Contracts",
+      enabled: true,
+      sort_order: 4,
+      features: [
+        { key: "e_sign", label: "E-signature", enabled: false },
+        { key: "templates", label: "Templates", enabled: true },
+      ],
+    });
+    expect(parsed.features).toHaveLength(2);
+    expect(parsed.features[0].enabled).toBe(false);
+  });
+
+  it("defaults features to [] when omitted (back-compat)", () => {
+    const parsed = ModuleConfigItemSchema.parse({
+      key: "approvals",
+      label: "Approvals",
+      enabled: true,
+      sort_order: 1,
+    });
+    expect(parsed.features).toEqual([]);
+  });
+});
