@@ -3958,3 +3958,67 @@ export function usePortalUsage(opts?: UseQueryOptions<PortalUsage>) {
   });
 }
 // ci retrigger sprint4 2026-07-06
+
+// ─── Modular framework — module config (Phase 0) ─────────────────────────────
+
+export const ModuleConfigItemSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  enabled: z.boolean(),
+  sort_order: z.number(),
+});
+export type ModuleConfigItem = z.infer<typeof ModuleConfigItemSchema>;
+
+export const ModuleConfigListSchema = z.object({
+  items: z.array(ModuleConfigItemSchema),
+});
+export type ModuleConfigList = z.infer<typeof ModuleConfigListSchema>;
+
+export type ModuleUpdate = {
+  key: string;
+  enabled?: boolean;
+  sort_order?: number;
+};
+
+function moduleWsQuery(workspace: string): string {
+  return workspace && workspace !== "personal"
+    ? `?workspace=${encodeURIComponent(workspace)}`
+    : "";
+}
+
+/** GET /v1/modules — effective per-workspace module config (roster+overrides).
+ * Open to any authenticated member (read-only). */
+export function useModuleConfig(
+  workspace = "personal",
+  opts?: UseQueryOptions<ModuleConfigList>,
+) {
+  return useQuery<ModuleConfigList>({
+    queryKey: ["modules", workspace],
+    queryFn: async () =>
+      (await apiFetch(`/api/v1/modules${moduleWsQuery(workspace)}`, {
+        schema: ModuleConfigListSchema,
+      })) as ModuleConfigList,
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+/** PATCH /v1/modules — enable/disable + reorder. OWNER-ONLY (server enforces). */
+export function useUpdateModuleConfig() {
+  const qc = useQueryClient();
+  return useMutation<
+    ModuleConfigList,
+    Error,
+    { updates: ModuleUpdate[]; workspace?: string }
+  >({
+    mutationFn: async ({ updates, workspace = "personal" }) =>
+      (await apiFetch(`/api/v1/modules`, {
+        method: "PATCH",
+        body: JSON.stringify({ updates, workspace }),
+        schema: ModuleConfigListSchema,
+      })) as ModuleConfigList,
+    onSuccess: (_data, vars) => {
+      void qc.invalidateQueries({ queryKey: ["modules", vars.workspace ?? "personal"] });
+    },
+  });
+}
