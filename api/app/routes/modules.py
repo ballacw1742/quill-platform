@@ -521,3 +521,98 @@ async def delete_custom_module(
         await db.delete(ov)
     await db.commit()
     return {"key": module_key, "deleted": True}
+
+
+# ── Phase 4: project templates / presets (MODULAR_FRAMEWORK_DESIGN.md §4) ─────
+# A preset is a named module set. Applying it enables exactly those builtins
+# and disables the rest (customs are left untouched). One-action setup for a
+# project type/size. Per-workspace (decision #4) — applied to ModuleConfig rows.
+
+MODULE_PRESETS: list[dict] = [
+    {
+        "key": "full",
+        "label": "Full platform",
+        "description": "Every module enabled (the default).",
+        "modules": [m["key"] for m in MODULE_ROSTER],
+    },
+    {
+        "key": "small-project",
+        "label": "Small project",
+        "description": "Lean set for a small job: requests, projects, docs, approvals, agents.",
+        "modules": ["requests", "approvals", "projects", "documents", "agents"],
+    },
+    {
+        "key": "construction",
+        "label": "Construction / development",
+        "description": "Field + delivery focus: projects, sites, contracts, estimates, supply chain, operations, documents, approvals, agents.",
+        "modules": [
+            "requests", "approvals", "projects", "sites", "contracts", "estimates",
+            "documents", "supply-chain", "operations", "agents",
+        ],
+    },
+    {
+        "key": "back-office",
+        "label": "Back office",
+        "description": "Finance, compliance, customers, sales, intelligence + the essentials.",
+        "modules": [
+            "requests", "approvals", "finance", "compliance", "customers", "sales",
+            "intelligence", "documents", "agents",
+        ],
+    },
+]
+_PRESET_BY_KEY = {p["key"]: p for p in MODULE_PRESETS}
+
+
+class PresetApplyIn(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+    workspace: str = "personal"
+
+
+@router.get("/presets")
+async def list_presets(user=Depends(get_current_user)):
+    """Available project templates. Read-only; any member."""
+    return {"presets": MODULE_PRESETS}
+
+
+@router.post("/presets/apply", response_model=ModuleConfigList)
+async def apply_preset(
+    body: PresetApplyIn,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+) -> ModuleConfigList:
+    """Apply a preset (OWNER-ONLY): enable exactly the preset's builtin modules,
+    disable the rest. Custom modules are left as-is. Returns the new config."""
+    if user.role != UserRole.OWNER.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "owner role required")
+    preset = _PRESET_BY_KEY.get(body.key)
+    if preset is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unknown preset {body.key!r}")
+
+    ws = _resolve_workspace(user, body.workspace)
+    overrides = await _load_overrides(db, ws)
+    now = datetime.now(UTC)
+    wanted = set(preset["modules"])
+
+    for m in MODULE_ROSTER:
+        key = m["key"]
+        should_enable = key in wanted
+        row = overrides.get(key)
+        if row is None:
+            row = ModuleConfig(
+                workspace=ws,
+                module_key=key,
+                enabled=should_enable,
+                sort_order=_ROSTER_ORDER[key],
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(row)
+            overrides[key] = row
+        else:
+            row.enabled = should_enable
+            row.updated_at = now
+
+    await db.commit()
+    fresh = await _load_overrides(db, ws)
+    customs = await _load_customs(db, ws)
+    return ModuleConfigList(items=_merged(fresh, customs))
