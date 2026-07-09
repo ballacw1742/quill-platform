@@ -163,7 +163,94 @@ def _encrypt(tenant_id: str, name: str, value: str) -> dict[str, Any]:
         }
     if backend == "kms":
         return _encrypt_kms(tenant_id, name, value)
-    raise SecretError(f"unknown SECRETS_BACKEND {backend!r} (plaintext-dev|kms)")
+    if backend == "age":
+        return _encrypt_age(tenant_id, name, value)
+    raise SecretError(f"unknown SECRETS_BACKEND {backend!r} (plaintext-dev|kms|age)")
+
+
+# --- backend: age (on-prem KEK, §9.5 local-first) -----------------------
+# pyrage is an optional dependency — only needed when SECRETS_BACKEND=age.
+# We import it lazily inside AgeBackend and guard the top-level import so
+# that all other backends continue to work even if pyrage is not installed.
+_pyrage_encrypt_func = None
+_pyrage_decrypt_func = None
+
+
+def _load_pyrage() -> None:
+    """Lazily import pyrage; raises ImportError with a clear install hint."""
+    global _pyrage_encrypt_func, _pyrage_decrypt_func
+    if _pyrage_encrypt_func is not None:
+        return
+    try:
+        import pyrage  # noqa: PLC0415
+        _pyrage_encrypt_func = pyrage.encrypt
+        _pyrage_decrypt_func = pyrage.decrypt
+    except ImportError as exc:
+        raise ImportError(
+            "Install pyrage: pip install pyrage"
+        ) from exc
+
+
+# Injectable age encrypt/decrypt for tests (no real age keys needed).
+_age_encrypt_override: "Callable[[bytes, list[str]], bytes] | None" = None
+_age_decrypt_override: "Callable[[bytes, str], bytes] | None" = None
+
+
+def set_age_crypto_override(
+    enc: "Callable[[bytes, list[str]], bytes] | None",
+    dec: "Callable[[bytes, str], bytes] | None",
+) -> None:
+    """Test hook: inject mock age encrypt/decrypt (or reset to None)."""
+    global _age_encrypt_override, _age_decrypt_override
+    _age_encrypt_override = enc
+    _age_decrypt_override = dec
+
+
+def _encrypt_age(tenant_id: str, name: str, value: str) -> dict["str", Any]:
+    s = get_settings()
+    recipient = s.AGE_RECIPIENT
+    if not recipient:
+        raise SecretError("SECRETS_BACKEND=age requires AGE_RECIPIENT")
+    plaintext = value.encode()
+    if _age_encrypt_override is not None:
+        ciphertext = _age_encrypt_override(plaintext, [recipient])
+    else:
+        _load_pyrage()
+        ciphertext = _pyrage_encrypt_func(plaintext, [recipient])  # type: ignore[call-arg]
+    return {
+        "backend": "age",
+        "kms_key_ref": recipient,   # reuse column to store the public key
+        "dek_wrapped": None,
+        "nonce": None,
+        "ciphertext": ciphertext,
+    }
+
+
+def _decrypt_age(row: TenantSecret) -> str:
+    s = get_settings()
+    identity_file = s.AGE_IDENTITY_FILE
+    if not identity_file:
+        raise SecretDecryptError(
+            "SECRETS_BACKEND=age requires AGE_IDENTITY_FILE"
+        )
+    if not os.path.isfile(identity_file):
+        raise SecretDecryptError(
+            f"age identity file not found: {identity_file!r}"
+        )
+    ciphertext = bytes(row.ciphertext)
+    try:
+        if _age_decrypt_override is not None:
+            plaintext = _age_decrypt_override(ciphertext, identity_file)
+        else:
+            _load_pyrage()
+            plaintext = _pyrage_decrypt_func(ciphertext, identity_file)  # type: ignore[call-arg]
+        return plaintext.decode()
+    except (SecretError, SecretDecryptError):
+        raise
+    except Exception as exc:
+        raise SecretDecryptError(
+            f"secret {row.name!r} could not be decrypted via age"
+        ) from exc
 
 
 def _decrypt(row: TenantSecret) -> str:
@@ -171,6 +258,8 @@ def _decrypt(row: TenantSecret) -> str:
         return bytes(row.ciphertext).decode()
     if row.backend == "kms":
         return _decrypt_kms(row)
+    if row.backend == "age":
+        return _decrypt_age(row)
     raise SecretDecryptError(f"unknown secret backend {row.backend!r}")
 
 

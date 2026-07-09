@@ -12,3 +12,7 @@ croniter>=2.0
 # A3: only imported when EVENT_BUS=pubsub / JOBS_BACKEND=cloudrun (lazy imports)
 google-cloud-pubsub>=2.21
 google-cloud-run>=0.10
+# Phase 4 §9.5: age on-prem KEK (SECRETS_BACKEND=age, ONPREM.md).
+# Optional — only needed for the age backend; lazy-imported inside app/secrets.py
+# via _load_pyrage(). All other backends work without it.
+pyrage>=0.2
