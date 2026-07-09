@@ -21,6 +21,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import pathlib
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -161,10 +163,95 @@ class PubSubBus:
         )
 
 
-_bus: InlineBus | PubSubBus | None = None
+class FileBus:
+    """Local durable event bus (EVENT_BUS=file).
+
+    Writes each event as a JSONL line to EVENT_BUS_FILE (default
+    ~/.agentcloud/events.jsonl) AND dispatches inline so in-process
+    subscribers receive events exactly as with InlineBus.
+
+    A cursor file (same dir, suffix .cursor) tracks the last-processed
+    byte offset so replay() on startup re-dispatches only unprocessed
+    events. Safe for single-node use; no distributed locking.
+    """
+
+    name = "file"
+
+    def __init__(self, path: str | None = None) -> None:
+        s = get_settings()
+        raw_path = path or s.EVENT_BUS_FILE
+        self._events_path = pathlib.Path(os.path.expanduser(raw_path))
+        self._cursor_path = self._events_path.with_suffix(".cursor")
+        self._events_path.parent.mkdir(parents=True, exist_ok=True)
+        self.published: list[dict[str, Any]] = []
+        self._subscribers: list[Callable[[dict[str, Any]], Any]] = []
+
+    def subscribe(self, fn: Callable[[dict[str, Any]], Any]) -> None:
+        self._subscribers.append(fn)
+
+    def _read_cursor(self) -> int:
+        """Return last-processed byte offset, or 0 if cursor missing."""
+        try:
+            return int(self._cursor_path.read_text().strip())
+        except (FileNotFoundError, ValueError):
+            return 0
+
+    def _write_cursor(self, offset: int) -> None:
+        self._cursor_path.write_text(str(offset))
+
+    async def _dispatch(self, event: dict[str, Any]) -> None:
+        self.published.append(event)
+        for fn in self._subscribers:
+            res = fn(event)
+            if asyncio.iscoroutine(res):
+                await res
+
+    async def publish(self, event: dict[str, Any]) -> None:
+        """Append to JSONL file and dispatch inline."""
+        line = json.dumps(event, default=str) + "\n"
+        with self._events_path.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+        await self._dispatch(event)
+
+    async def replay(self) -> None:
+        """Replay unprocessed events from cursor to EOF, then advance cursor.
+
+        Called once at startup before the service starts accepting requests.
+        Events already dispatched (offset < cursor) are skipped. After replay
+        the cursor is advanced to the current EOF so future restarts only see
+        new events.
+        """
+        if not self._events_path.exists():
+            return
+        cursor = self._read_cursor()
+        try:
+            with self._events_path.open("rb") as fh:
+                fh.seek(cursor)
+                raw = fh.read()
+                new_offset = cursor + len(raw)
+        except FileNotFoundError:
+            return
+        for line in raw.decode("utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                log.warning("FileBus: skipping malformed JSONL line during replay")
+                continue
+            try:
+                await self._dispatch(event)
+            except Exception:  # noqa: BLE001
+                log.exception("FileBus: subscriber error during replay (event_id=%s)",
+                              event.get("event_id"))
+        self._write_cursor(new_offset)
 
 
-def get_bus() -> InlineBus | PubSubBus:
+_bus: InlineBus | PubSubBus | FileBus | None = None
+
+
+def get_bus() -> InlineBus | PubSubBus | FileBus:
     global _bus
     if _bus is None:
         backend = get_settings().EVENT_BUS
@@ -172,8 +259,10 @@ def get_bus() -> InlineBus | PubSubBus:
             _bus = PubSubBus()
         elif backend == "inline":
             _bus = InlineBus()
+        elif backend == "file":
+            _bus = FileBus()
         else:
-            raise ValueError(f"unknown EVENT_BUS {backend!r} (inline|pubsub)")
+            raise ValueError(f"unknown EVENT_BUS {backend!r} (inline|pubsub|file)")
     return _bus
 
 
