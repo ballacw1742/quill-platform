@@ -20,7 +20,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, ShieldAlert, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, History, Plus, ShieldAlert, Sparkles, Trash2, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,12 +41,18 @@ import {
   deleteAgent,
   fetchAgentDetail,
   patchAgent,
+  publishAgent,
+  rollbackAgent,
   sendAgentChat,
   useAgentCloudAgents,
   useAgentCloudCatalog,
   useAgentCloudTemplates,
+  useAgentVersionDiff,
+  useAgentVersions,
   validateAgentDraft,
   type AgentDetail,
+  type AgentVersionDiff,
+  type AgentVersionItem,
   type Catalog,
   type Template,
 } from "@/lib/agent-cloud";
@@ -63,6 +69,7 @@ type Draft = {
   enabled: boolean;
   tools: string[];
   is_seed: boolean;
+  published: boolean; // Phase 5 (AUTHORING_MATURITY.md §2.5)
 };
 
 const BLANK: Draft = {
@@ -74,6 +81,7 @@ const BLANK: Draft = {
   enabled: true,
   tools: [],
   is_seed: false,
+  published: false,
 };
 
 function draftFromDetail(a: AgentDetail): Draft {
@@ -86,6 +94,7 @@ function draftFromDetail(a: AgentDetail): Draft {
     enabled: a.enabled,
     tools: [...a.tools],
     is_seed: a.is_seed,
+    published: a.published ?? false,
   };
 }
 
@@ -209,6 +218,12 @@ export default function AgentBuilderPage() {
     }
   }
 
+  /** Called from VersionPanel after rollback or publish-toggle. */
+  function onVersionChange(detail: AgentDetail) {
+    setDraft(draftFromDetail(detail));
+    void agents.refetch();
+  }
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-4 px-4 py-4">
       <header className="flex items-center justify-between gap-2">
@@ -265,6 +280,7 @@ export default function AgentBuilderPage() {
           saving={saving}
           onSave={save}
           onDelete={onDelete}
+          onVersionChange={onVersionChange}
           workspace={workspace}
           savedAgentId={mode === "edit" ? selected : null}
         />
@@ -359,6 +375,7 @@ function Editor(props: {
   saving: boolean;
   onSave: () => void;
   onDelete: () => void;
+  onVersionChange: (detail: AgentDetail) => void;
   workspace: string;
   savedAgentId: string | null;
 }) {
@@ -544,6 +561,16 @@ function Editor(props: {
       ) : (
         <p className="text-xs text-muted-foreground">Save to test this agent.</p>
       )}
+
+      {/* version history panel (only for a saved agent) */}
+      {props.savedAgentId && (
+        <VersionPanel
+          agentId={props.savedAgentId}
+          workspace={props.workspace}
+          published={props.draft.published}
+          onVersionChange={props.onVersionChange}
+        />
+      )}
     </div>
   );
 }
@@ -627,4 +654,257 @@ function TestConsole(props: { agentId: string; workspace: string }) {
       </div>
     </div>
   );
+}
+
+// ─── VersionPanel ──────────────────────────────────────────────────────────────────
+
+/**
+ * Version history, diff viewer, rollback, and publish toggle for a saved agent.
+ * AUTHORING_MATURITY.md §7.
+ */
+function VersionPanel(props: {
+  agentId: string;
+  workspace: string;
+  published: boolean;
+  onVersionChange: (detail: AgentDetail) => void;
+}) {
+  const [diffPair, setDiffPair] = React.useState<[number, number] | null>(null);
+  const [rollingBack, setRollingBack] = React.useState<number | null>(null);
+  const [toggling, setToggling] = React.useState(false);
+
+  const versions = useAgentVersions(props.agentId, props.workspace);
+  const items: AgentVersionItem[] = versions.data?.items ?? [];
+  const currentVersion = items.find((i) => i.is_current)?.version ?? null;
+
+  async function doRollback(toVersion: number) {
+    if (
+      !window.confirm(
+        `Roll back to v${toVersion}? A new version is created — history is never lost.`,
+      )
+    )
+      return;
+    setRollingBack(toVersion);
+    try {
+      const detail = await rollbackAgent(props.agentId, toVersion, props.workspace);
+      toast.success(`Rolled back → now at v${detail.version ?? "?"}`);
+      void versions.refetch();
+      setDiffPair(null);
+      props.onVersionChange(detail);
+    } catch (e) {
+      toast.error(e instanceof AgentCloudError ? e.message : "Rollback failed");
+    } finally {
+      setRollingBack(null);
+    }
+  }
+
+  async function doPublishToggle() {
+    setToggling(true);
+    try {
+      const detail = await publishAgent(
+        props.agentId,
+        !props.published,
+        props.workspace,
+      );
+      toast.success(detail.published ? "Published to workspace" : "Unpublished");
+      props.onVersionChange(detail);
+    } catch (e) {
+      toast.error(e instanceof AgentCloudError ? e.message : "Publish toggle failed");
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  function toggleDiff(version: number) {
+    if (!currentVersion || version === currentVersion) return;
+    setDiffPair((pair) =>
+      pair && pair[0] === version ? null : [version, currentVersion],
+    );
+  }
+
+  if (versions.isLoading)
+    return (
+      <div className="mt-2 rounded-lg border border-input p-3">
+        <p className="text-xs text-muted-foreground">Loading history…</p>
+      </div>
+    );
+  if (versions.isError)
+    return (
+      <div className="mt-2 rounded-lg border border-input p-3">
+        <p className="text-xs text-destructive">Couldn&apos;t load version history.</p>
+      </div>
+    );
+
+  return (
+    <div className="mt-2 flex flex-col gap-3 rounded-lg border border-input p-3">
+      {/* header + publish toggle */}
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-sm font-medium">
+          <History className="h-4 w-4" />
+          Version history
+          {items.length > 0 && (
+            <span className="text-xs font-normal text-muted-foreground">
+              ({items.length})
+            </span>
+          )}
+        </h3>
+        <label className="flex cursor-pointer select-none items-center gap-1.5 text-xs">
+          <input
+            type="checkbox"
+            checked={props.published}
+            disabled={toggling}
+            onChange={doPublishToggle}
+            className="cursor-pointer"
+          />
+          <span>
+            Publish
+            <span className="ml-1 text-muted-foreground">(workspace-visible)</span>
+          </span>
+        </label>
+      </div>
+
+      {items.length === 0 && (
+        <p className="text-xs text-muted-foreground">No version history yet.</p>
+      )}
+
+      {/* version list */}
+      <ul className="flex flex-col gap-1.5">
+        {items.map((v) => (
+          <li key={v.version} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
+              <span className="font-mono text-xs tabular-nums text-foreground">
+                v{v.version}
+              </span>
+              {v.is_current && <Badge variant="secondary">current</Badge>}
+              <span className="text-xs capitalize text-muted-foreground">
+                {v.change_action}
+              </span>
+              {v.rolled_back_from !== null && (
+                <span className="text-xs text-muted-foreground">
+                  (from v{v.rolled_back_from})
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">
+                {new Date(v.created_at).toLocaleDateString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                })}
+              </span>
+              {v.changed_fields.length > 0 &&
+                !v.changed_fields.includes("*") && (
+                  <span className="text-xs text-muted-foreground">
+                    · {v.changed_fields.join(", ")}
+                  </span>
+                )}
+            </span>
+            <span className="flex shrink-0 items-center gap-2">
+              {!v.is_current && currentVersion !== null && (
+                <button
+                  type="button"
+                  onClick={() => toggleDiff(v.version)}
+                  className={
+                    "text-xs underline-offset-2 hover:underline " +
+                    (diffPair?.[0] === v.version
+                      ? "font-medium text-accent"
+                      : "text-accent")
+                  }
+                >
+                  {diffPair?.[0] === v.version ? "hide diff" : "diff"}
+                </button>
+              )}
+              {!v.is_current && (
+                <button
+                  type="button"
+                  disabled={rollingBack !== null}
+                  onClick={() => doRollback(v.version)}
+                  className="text-xs text-destructive underline-offset-2 hover:underline disabled:opacity-50"
+                >
+                  {rollingBack === v.version ? "…" : "rollback"}
+                </button>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {/* diff view */}
+      {diffPair && (
+        <DiffView
+          agentId={props.agentId}
+          from={diffPair[0]}
+          to={diffPair[1]}
+          workspace={props.workspace}
+          onClose={() => setDiffPair(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── DiffView ───────────────────────────────────────────────────────────────────────
+
+function DiffView(props: {
+  agentId: string;
+  from: number;
+  to: number;
+  workspace: string;
+  onClose: () => void;
+}) {
+  const diff = useAgentVersionDiff(props.agentId, props.from, props.to, props.workspace);
+
+  return (
+    <div className="rounded-md border border-input bg-muted/30 p-3 text-xs">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="font-medium">
+          v{props.from} → v{props.to} (current)
+        </span>
+        <button
+          type="button"
+          onClick={props.onClose}
+          aria-label="Close diff"
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {diff.isLoading && (
+        <p className="text-muted-foreground">Loading diff…</p>
+      )}
+      {diff.isError && (
+        <p className="text-destructive">Couldn&apos;t load diff.</p>
+      )}
+      {diff.data && diff.data.changes.length === 0 && (
+        <p className="text-muted-foreground">No differences between these versions.</p>
+      )}
+      {diff.data &&
+        diff.data.changes.map((c) => (
+          <div key={c.field} className="mb-2 last:mb-0">
+            <div className="mb-1 font-semibold text-foreground">{c.field}</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="overflow-x-auto rounded bg-destructive/10 p-1.5 font-mono">
+                <span className="text-destructive">− </span>
+                {formatDiffValue(c.from)}
+              </div>
+              <div className="overflow-x-auto rounded bg-green-500/10 p-1.5 font-mono">
+                <span className="text-green-600">+ </span>
+                {formatDiffValue(c.to)}
+              </div>
+            </div>
+          </div>
+        ))}
+    </div>
+  );
+}
+
+/** Render a diff value as a compact display string. Truncates long text. */
+function formatDiffValue(v: unknown): string {
+  if (typeof v === "string") {
+    return v.length > 200 ? v.slice(0, 200) + "…" : v || "(empty)";
+  }
+  if (Array.isArray(v)) {
+    const parts = v.map(String);
+    return parts.length > 0 ? parts.join(", ") : "(none)";
+  }
+  if (v === null || v === undefined) return "(null)";
+  return String(JSON.stringify(v));
 }

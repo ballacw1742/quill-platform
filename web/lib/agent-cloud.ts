@@ -49,6 +49,9 @@ export const AgentDetailSchema = z.object({
   enabled: z.boolean(),
   is_seed: z.boolean(),
   created_at: z.string(),
+  // Phase 5 (AUTHORING_MATURITY.md §2.5): additive, optional for backward compat.
+  version: z.number().int().optional(),
+  published: z.boolean().optional(),
 });
 export type AgentDetail = z.infer<typeof AgentDetailSchema>;
 
@@ -469,6 +472,59 @@ export function renderableMessages(messages: TranscriptMessage[]): RenderableIte
   return items;
 }
 
+// ─── Versioning schemas (Phase 5, AUTHORING_MATURITY.md) ─────────────────────────
+
+/** One row from the §2.1 version-history list. */
+export const AgentVersionItemSchema = z.object({
+  version: z.number().int(),
+  change_action: z.string(),
+  changed_fields: z.array(z.string()),
+  rolled_back_from: z.number().int().nullable(),
+  is_current: z.boolean(),
+  created_at: z.string(),
+});
+export type AgentVersionItem = z.infer<typeof AgentVersionItemSchema>;
+
+export const AgentVersionListSchema = z.object({
+  items: z.array(AgentVersionItemSchema),
+  total: z.number(),
+  limit: z.number(),
+  offset: z.number(),
+});
+export type AgentVersionList = z.infer<typeof AgentVersionListSchema>;
+
+/** Full field snapshot for a single version (§2.2). */
+export const AgentVersionDetailSchema = z.object({
+  agent_id: z.string(),
+  version: z.number().int(),
+  system_prompt: z.string(),
+  model: z.string(),
+  tools: z.array(z.string()),
+  memory_policy: z.string(),
+  budget_monthly_usd: z.number(),
+  enabled: z.boolean(),
+  is_current: z.boolean(),
+  created_at: z.string(),
+});
+export type AgentVersionDetail = z.infer<typeof AgentVersionDetailSchema>;
+
+/** One field-level diff entry (§2.3). `from`/`to` are polymorphic
+ * (string | string[] | boolean | number) so we keep them as unknown. */
+export const DiffChangeSchema = z.object({
+  field: z.string(),
+  from: z.unknown(),
+  to: z.unknown(),
+});
+export type DiffChange = z.infer<typeof DiffChangeSchema>;
+
+export const AgentVersionDiffSchema = z.object({
+  agent_id: z.string(),
+  from_version: z.number().int(),
+  to_version: z.number().int(),
+  changes: z.array(DiffChangeSchema),
+});
+export type AgentVersionDiff = z.infer<typeof AgentVersionDiffSchema>;
+
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
 const API_BASE =
@@ -593,6 +649,80 @@ export function deleteAgent(agentId: string, workspace = "personal") {
   );
 }
 
+
+// ─── Versioning fetch calls (Phase 5, AUTHORING_MATURITY.md) ────────────────────
+
+export function fetchAgentVersions(
+  agentId: string,
+  workspace = "personal",
+): Promise<AgentVersionList> {
+  return getJson(
+    `/api/v1/agent-cloud/agents/${encodeURIComponent(agentId)}/versions${wsQuery(workspace)}`,
+    AgentVersionListSchema,
+  );
+}
+
+export function fetchAgentVersionDetail(
+  agentId: string,
+  version: number,
+  workspace = "personal",
+): Promise<AgentVersionDetail> {
+  return getJson(
+    `/api/v1/agent-cloud/agents/${encodeURIComponent(agentId)}/versions/${version}${wsQuery(workspace)}`,
+    AgentVersionDetailSchema,
+  );
+}
+
+export function fetchAgentVersionDiff(
+  agentId: string,
+  from: number,
+  to: number,
+  workspace = "personal",
+): Promise<AgentVersionDiff> {
+  const params = new URLSearchParams();
+  if (workspace && workspace !== "personal") params.set("workspace", workspace);
+  params.set("from", String(from));
+  params.set("to", String(to));
+  return getJson(
+    `/api/v1/agent-cloud/agents/${encodeURIComponent(agentId)}/diff?${params.toString()}`,
+    AgentVersionDiffSchema,
+  );
+}
+
+/** POST rollback — returns the new live AgentDetail (AUTHORING_MATURITY.md §2.4). */
+export function rollbackAgent(
+  agentId: string,
+  toVersion: number,
+  workspace = "personal",
+): Promise<AgentDetail> {
+  const payload = { to_version: toVersion };
+  const body =
+    workspace && workspace !== "personal" ? { ...payload, workspace } : payload;
+  return sendJson(
+    "POST",
+    `/api/v1/agent-cloud/agents/${encodeURIComponent(agentId)}/rollback`,
+    AgentDetailSchema,
+    body,
+  );
+}
+
+/** POST publish toggle — returns the updated AgentDetail (AUTHORING_MATURITY.md §2.5). */
+export function publishAgent(
+  agentId: string,
+  published: boolean,
+  workspace = "personal",
+): Promise<AgentDetail> {
+  const payload = { published };
+  const body =
+    workspace && workspace !== "personal" ? { ...payload, workspace } : payload;
+  return sendJson(
+    "POST",
+    `/api/v1/agent-cloud/agents/${encodeURIComponent(agentId)}/publish`,
+    AgentDetailSchema,
+    body,
+  );
+}
+
 // ─── Query hooks ─────────────────────────────────────────────────────────────
 
 export function useAgentCloudAgents(
@@ -669,6 +799,53 @@ export function useAgentCloudTemplates(
     queryKey: ["agent-cloud", "templates", workspace],
     queryFn: () => fetchTemplates(workspace),
     staleTime: 5 * 60_000,
+    ...opts,
+  });
+}
+
+// ─── Versioning hooks (Phase 5) ────────────────────────────────────────────
+
+export function useAgentVersions(
+  agentId: string | null,
+  workspace = "personal",
+  opts?: Partial<UseQueryOptions<AgentVersionList>>,
+) {
+  return useQuery<AgentVersionList>({
+    queryKey: ["agent-cloud", "versions", agentId, workspace],
+    queryFn: () => fetchAgentVersions(agentId!, workspace),
+    enabled: !!agentId,
+    staleTime: 10_000,
+    ...opts,
+  });
+}
+
+export function useAgentVersionDetail(
+  agentId: string | null,
+  version: number | null,
+  workspace = "personal",
+  opts?: Partial<UseQueryOptions<AgentVersionDetail>>,
+) {
+  return useQuery<AgentVersionDetail>({
+    queryKey: ["agent-cloud", "version-detail", agentId, version, workspace],
+    queryFn: () => fetchAgentVersionDetail(agentId!, version!, workspace),
+    enabled: !!agentId && version !== null,
+    staleTime: 60_000,
+    ...opts,
+  });
+}
+
+export function useAgentVersionDiff(
+  agentId: string | null,
+  from: number | null,
+  to: number | null,
+  workspace = "personal",
+  opts?: Partial<UseQueryOptions<AgentVersionDiff>>,
+) {
+  return useQuery<AgentVersionDiff>({
+    queryKey: ["agent-cloud", "version-diff", agentId, from, to, workspace],
+    queryFn: () => fetchAgentVersionDiff(agentId!, from!, to!, workspace),
+    enabled: !!agentId && from !== null && to !== null && from !== to,
+    staleTime: 60_000,
     ...opts,
   });
 }
