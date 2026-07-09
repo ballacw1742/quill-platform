@@ -53,6 +53,27 @@ _ROSTER_KEYS = {m["key"] for m in MODULE_ROSTER}
 _ROSTER_ORDER = {m["key"]: i for i, m in enumerate(MODULE_ROSTER)}
 
 
+async def is_module_enabled(db: AsyncSession, workspace: str, module_key: str) -> bool:
+    """Phase 2 gate (MODULAR_FRAMEWORK_DESIGN.md §3.3). True if the module is
+    enabled for the workspace. FAIL-OPEN: an unknown module key, or any config
+    lookup issue, returns True — we never silently skip work on ambiguity. Only
+    an explicit override row with enabled=False disables it.
+    """
+    if module_key not in _ROSTER_KEYS:
+        return True  # not a gated module — never block
+    row = (
+        await db.execute(
+            select(ModuleConfig).where(
+                ModuleConfig.workspace == workspace,
+                ModuleConfig.module_key == module_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return True  # no override → enabled by default
+    return bool(row.enabled)
+
+
 def _resolve_workspace(user, workspace: str) -> str:
     """Server-side workspace id. 'org' is shared; anything else is the caller's
     personal workspace. Never trust a client-supplied raw id."""
