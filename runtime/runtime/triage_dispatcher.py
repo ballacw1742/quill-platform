@@ -16,8 +16,10 @@ Design goals:
 from __future__ import annotations
 
 import asyncio
+import http.server
 import json
 import os
+import threading
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -252,6 +254,154 @@ class InMemoryEventSource(EventSource):
             yield e
 
 
+class WebhookEventSource(EventSource):
+    """HTTP webhook listener that accepts POST /events and feeds events into
+    the dispatcher.  Selected when TRIAGE_EVENT_SOURCE=webhook.
+
+    Auth: every request must carry the ``X-Triage-Secret`` header whose value
+    matches ``TRIAGE_WEBHOOK_SECRET`` (env).  An empty/unset secret disables
+    the header check (dev-only — always configure a secret in prod).
+
+    Request body:
+        {"events": [{...one TriageEvent log-record shape...}, ...]}
+
+    Each record is parsed through TriageEvent.from_log_record; records that
+    produce None are silently dropped (same dedup as MockDataEventSource).
+
+    The HTTP server runs in a daemon thread so it does not block the asyncio
+    event loop.  Events are bridged into the async consumer via
+    asyncio.Queue.  The server binds to 0.0.0.0 on ``port`` (default 8765).
+    """
+
+    def __init__(
+        self,
+        *,
+        port: int = 8765,
+        secret: str = "",
+        stop_event: asyncio.Event | None = None,
+        _queue: asyncio.Queue | None = None,
+    ) -> None:
+        self.port = port
+        self._secret = secret
+        self._stop_event = stop_event or asyncio.Event()
+        # Allow injection of a pre-created queue (test hook).
+        self._queue: asyncio.Queue = _queue if _queue is not None else asyncio.Queue()
+        self._server: http.server.HTTPServer | None = None
+        self._thread: threading.Thread | None = None
+
+    # ------------------------------------------------------------------
+    # Control
+    # ------------------------------------------------------------------
+
+    async def start(self) -> None:
+        """Start the background HTTP server thread."""
+        loop = asyncio.get_running_loop()
+        self._thread = threading.Thread(
+            target=self._serve_forever,
+            args=(loop,),
+            daemon=True,
+            name="triage-webhook-server",
+        )
+        self._thread.start()
+        # Brief yield so the OS has time to bind the socket before the
+        # first request in tests.
+        await asyncio.sleep(0.05)
+
+    def stop(self) -> None:
+        """Signal the async iterator and shut down the HTTP server."""
+        self._stop_event.set()
+        if self._server is not None:
+            threading.Thread(
+                target=self._server.shutdown, daemon=True, name="triage-webhook-shutdown"
+            ).start()
+
+    async def aclose(self) -> None:
+        self.stop()
+
+    # ------------------------------------------------------------------
+    # Internal: HTTP server thread
+    # ------------------------------------------------------------------
+
+    def _serve_forever(self, loop: asyncio.AbstractEventLoop) -> None:
+        source = self
+
+        class _Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, fmt: str, *args: Any) -> None:  # type: ignore[override]
+                """Suppress per-request stderr output."""
+
+            def do_POST(self) -> None:  # noqa: N802
+                if self.path != "/events":
+                    self._reply(404, b'{"error": "not found"}')
+                    return
+
+                # Authentication.
+                secret = self.headers.get("X-Triage-Secret", "")
+                if source._secret and secret != source._secret:
+                    self._reply(401, b'{"error": "unauthorized"}')
+                    return
+
+                # Parse body.
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                try:
+                    data = json.loads(body)
+                except json.JSONDecodeError:
+                    self._reply(400, b'{"error": "invalid JSON"}')
+                    return
+
+                if not isinstance(data, dict) or "events" not in data:
+                    self._reply(400, b'{"error": "body must have an events key"}')
+                    return
+
+                events = data.get("events", [])
+                if not isinstance(events, list):
+                    self._reply(400, b'{"error": "events must be an array"}')
+                    return
+
+                # Bridge into the asyncio event loop safely from this thread.
+                for ev in events:
+                    asyncio.run_coroutine_threadsafe(
+                        source._queue.put(ev), loop
+                    )
+
+                self._reply(200, b'{"ok": true}')
+
+            def _reply(self, status: int, body: bytes) -> None:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+        server = http.server.HTTPServer(("", source.port), _Handler)
+        source._server = server
+        try:
+            server.serve_forever()
+        finally:
+            server.server_close()
+
+    # ------------------------------------------------------------------
+    # Async iterator
+    # ------------------------------------------------------------------
+
+    async def __aiter__(self) -> AsyncIterator[TriageEvent]:
+        # Continue while the stop event is clear OR while there are still
+        # unconsumed items in the queue (drain on shutdown).
+        while not self._stop_event.is_set() or not self._queue.empty():
+            try:
+                raw = await asyncio.wait_for(
+                    self._queue.get(),
+                    timeout=0.2,
+                )
+            except asyncio.TimeoutError:
+                continue
+            if not isinstance(raw, dict):
+                continue
+            event = TriageEvent.from_log_record(raw)
+            if event is not None:
+                yield event
+
+
 # ---------------------------------------------------------------------------
 # Dispatcher
 # ---------------------------------------------------------------------------
@@ -405,13 +555,20 @@ class TriageDispatcher:
 # ---------------------------------------------------------------------------
 def build_default_source(
     *,
-    source_type: str = "mock",
+    source_type: str = "file",
     log_path: Path | None = None,
     poll_interval_s: float = 5.0,
+    webhook_port: int = 8765,
+    webhook_secret: str = "",
 ) -> EventSource:
-    """Construct the default event source for a given type."""
-    source_type = (source_type or "mock").lower()
-    if source_type == "mock":
+    """Construct the default event source for a given type.
+
+    source_type values:
+      ``"file"`` or ``"mock"``  — MockDataEventSource (default).
+      ``"webhook"``             — WebhookEventSource (prod ingress, §9 Wave 2).
+    """
+    source_type = (source_type or "file").lower()
+    if source_type in ("file", "mock"):
         if log_path is None:
             # Default location: <repo>/mock-data/_state/dispatch.log
             here = Path(__file__).resolve()
@@ -419,10 +576,8 @@ def build_default_source(
             log_path = repo / "mock-data" / "_state" / "dispatch.log"
         return MockDataEventSource(log_path=log_path, poll_interval_s=poll_interval_s)
     if source_type == "webhook":
-        raise NotImplementedError(
-            "webhook source not implemented in Phase F.1; use --source mock"
-        )
-    raise ValueError(f"unknown event source: {source_type!r}")
+        return WebhookEventSource(port=webhook_port, secret=webhook_secret)
+    raise ValueError(f"unknown event source: {source_type!r} (file|mock|webhook)")
 
 
 __all__ = [
@@ -433,5 +588,6 @@ __all__ = [
     "MockDataEventSource",
     "TriageDispatcher",
     "TriageEvent",
+    "WebhookEventSource",
     "build_default_source",
 ]
