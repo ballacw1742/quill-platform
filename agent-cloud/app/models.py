@@ -56,6 +56,14 @@ class AgentDef(Base):
     enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
     # off | tools_only | auto_recall (A2 memory subsystem)
     memory_policy: Mapped[str] = mapped_column(sa.Text, nullable=False, default="off")
+    # Phase 1 (GAP §9.4): operating-layer trust-tier hint used by the
+    # risk-graded lane decision at proposal time (belt #1). The CANONICAL tier
+    # is api-side (AgentRegistration.trust_tier); the api re-derives the lane
+    # from it (belt #2) and floors any over-permissive proposal. Default is the
+    # strictest tier so a brand-new agent never auto-executes.
+    trust_tier: Mapped[str] = mapped_column(
+        sa.Text, nullable=False, default="tier-0-mandatory"
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
     )

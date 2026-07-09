@@ -27,11 +27,12 @@ import httpx
 import sqlalchemy as sa
 
 from app import events as events_mod
+from app import lane_policy
 from app.config import get_settings
 from app.contracts import write_vocab as _write_vocab
 from app.db import admin_session, tenant_session
 from app.logging_setup import agent_id_var, session_id_var, tenant_id_var
-from app.models import Message, Proposal, Session
+from app.models import AgentDef, Message, Proposal, Session
 
 log = logging.getLogger("agentcloud.approvals")
 
@@ -315,12 +316,28 @@ async def create_proposal(
                 "note": "an identical proposal is already awaiting human approval",
             }
 
+    # Phase 1 (GAP §9.4): risk-graded lane. Read this agent's trust-tier hint
+    # from the operating layer and consult the shared lane-decision contract.
+    # This is belt #1; the api re-derives the lane from the CANONICAL
+    # AgentRegistration.trust_tier and floors any over-permissive proposal
+    # (belt #2), so money/contract/irreversible can never reach Lane 1.
+    trust_tier = "tier-0-mandatory"
+    async with tenant_session(tenant_id) as db:
+        agent_def = await db.get(AgentDef, (tenant_id, agent_id))
+        if agent_def is not None and getattr(agent_def, "trust_tier", None):
+            trust_tier = agent_def.trust_tier
+    lane_decision = lane_policy.decide_lane(
+        trust_tier=trust_tier,
+        action=action,
+        args=clean,
+    )
+
     proposal_id = uuid.uuid4()
     payload = {
         "agent_id": f"agentcloud:{tenant_id}/{agent_id}",
         "agent_version": "a6",
         "workflow": f"agentcloud.{action}",
-        "lane": 2,  # always single-approver; never auto-execute (APPROVALS.md §3)
+        "lane": lane_decision.lane,  # risk-graded; api belt #2 re-derives/floors
         "priority": "normal",
         "target_system": "none",
         "api_call": _API_CALL.get(action),
@@ -334,12 +351,20 @@ async def create_proposal(
                 "session_id": session_id,
                 "proposal_id": str(proposal_id),
                 "idempotency_key": idem,
+                # belt #1 lane reasoning (advisory; api re-derives from the
+                # canonical trust tier and is authoritative).
+                "lane_decision": lane_decision.as_audit_dict(),
             }
         },
         "agent_reasoning": (reasoning or "")[:2000] or None,
     }
     quill = await _post_approval(payload)  # RuntimeError/httpx errors → caller
     quill_approval_id = str(quill.get("id"))
+    # The api is authoritative on the lane (belt #2 may have floored our
+    # proposed lane) and on whether a Lane-1 item already auto-executed.
+    final_lane = int(quill.get("lane") or lane_decision.lane)
+    quill_status = str(quill.get("status") or "pending")
+    auto_executed = quill_status in ("executed", "execution_failed")
 
     ev = events_mod.make_event(
         tenant_id=tenant_id,
@@ -352,6 +377,9 @@ async def create_proposal(
             "action": action,
             "quill_approval_id": quill_approval_id,
             "args_preview": json.dumps(clean, default=str)[:300],
+            "lane": lane_decision.lane,
+            "trust_tier": lane_decision.trust_tier,
+            "risk_flags": list(lane_decision.risk_flags),
         },
     )
     async with tenant_session(tenant_id) as db:
@@ -381,16 +409,26 @@ async def create_proposal(
             }
         },
     )
+    if auto_executed:
+        note = (
+            f"auto-executed under Lane 1 (trusted tier-2 low-risk write); "
+            f"an audit entry was recorded. Result: {quill_status}."
+        )
+        status_out = "auto_executed" if quill_status == "executed" else "failed"
+    else:
+        note = (
+            f"queued for human approval in the Quill /queue (Lane {final_lane}) "
+            "— the write will only happen if a human approves; you'll get a "
+            "system wake in this session when it resolves"
+        )
+        status_out = "pending_approval"
     return {
-        "status": "pending_approval",
+        "status": status_out,
         "proposal_id": str(proposal_id),
         "quill_approval_id": quill_approval_id,
         "workflow": f"agentcloud.{action}",
-        "note": (
-            "queued for human approval in the Quill /queue — the write will "
-            "only happen if a human approves; you'll get a system wake in "
-            "this session when it resolves"
-        ),
+        "lane": final_lane,
+        "note": note,
     }
 
 

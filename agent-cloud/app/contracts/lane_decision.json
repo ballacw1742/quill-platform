@@ -1,0 +1,73 @@
+{
+  "_generated": "Authoritative lane-decision contract (Phase 1, GAP_ASSESSMENT_S9 §9.4). Hand-authored policy artifact; edited deliberately, covered by tests/test_lane_policy.py. Consumed by app.lane_policy.decide_lane and vendored on the agent-cloud side (the proposal path runs in-process there). The api executor re-validates independently (belt #2).",
+  "contract_version": 1,
+  "doc": {
+    "semantics": "final_lane = strictest(agent_default_lane, per-action base lane, risk-flag escalations). Strictness order: Lane 1 (AUTO) < Lane 2 (SINGLE) < Lane 3 (DUAL). Mirrors runtime.lane_router.route_lane's strictest-wins model.",
+    "hard_safety_invariant": "If ANY of money / contract / irreversible is true, the write can NEVER be Lane 1, regardless of agent trust tier. It is floored at Lane 2 and escalates to Lane 3 under dual-approval conditions. This is Charles's core HITL guarantee.",
+    "lane1_eligibility": "Lane 1 (auto-execute) is possible ONLY when (a) the agent is tier-2-auto, (b) the action is marked lane1_eligible, and (c) no money/contract/irreversible/low_confidence/cost_impact/critical_path risk flag is set."
+  },
+  "trust_tier_default_lane": {
+    "tier-0-mandatory": 2,
+    "tier-1-spotcheck": 2,
+    "tier-2-auto": 1
+  },
+  "risk_flags": {
+    "money": {"never_lane1": true, "escalates_to": 2, "description": "touches a monetary value (deal value, cost)"},
+    "contract": {"never_lane1": true, "escalates_to": 2, "description": "changes contractual state (deal won/lost, contract fields)"},
+    "irreversible": {"never_lane1": true, "escalates_to": 2, "description": "not cleanly reversible by a follow-up write"},
+    "cost_impact": {"never_lane1": true, "escalates_to": 2, "description": "has a cost/budget impact"},
+    "critical_path": {"never_lane1": true, "escalates_to": 2, "description": "affects schedule critical path"},
+    "low_confidence": {"never_lane1": true, "escalates_to": 2, "description": "agent confidence below threshold"}
+  },
+  "low_confidence_threshold": 0.70,
+  "dual_approval_when": {
+    "money_and_critical_path": "money AND critical_path both set -> Lane 3",
+    "contract_and_cost_impact": "contract AND cost_impact both set -> Lane 3",
+    "explicit": "requires_dual_approval flag set -> Lane 3"
+  },
+  "actions": {
+    "project_log_note": {
+      "base_lane": 1,
+      "lane1_eligible": true,
+      "static_flags": [],
+      "description": "Append a construction-log entry. Reversible, no money/contract."
+    },
+    "project_milestone_create": {
+      "base_lane": 1,
+      "lane1_eligible": true,
+      "static_flags": [],
+      "description": "Create a milestone. Reversible, no money/contract."
+    },
+    "project_update": {
+      "base_lane": 2,
+      "lane1_eligible": false,
+      "static_flags": [],
+      "conditional_flags": {
+        "advance_phase": ["critical_path", "irreversible"],
+        "phase": ["critical_path", "irreversible"],
+        "status:cancelled": ["irreversible"],
+        "status:complete": ["irreversible"]
+      },
+      "description": "Phase/status/notes change. Phase advance touches schedule critical path and is not cleanly reversible; terminal statuses are irreversible."
+    },
+    "request_update": {
+      "base_lane": 2,
+      "lane1_eligible": false,
+      "static_flags": [],
+      "description": "Mark a request complete/failed. Moderate; conservative default Lane 2."
+    },
+    "deal_update": {
+      "base_lane": 2,
+      "lane1_eligible": false,
+      "static_flags": [],
+      "conditional_flags": {
+        "value_usd": ["money"],
+        "stage:won": ["contract", "irreversible"],
+        "stage:lost": ["contract", "irreversible"],
+        "stage:negotiating": ["contract"],
+        "stage:proposal": ["contract"]
+      },
+      "description": "Sales deal change. value_usd is money; stage transitions are contractual and (won/lost) irreversible — ALWAYS Lane 2/3, never auto."
+    }
+  }
+}
