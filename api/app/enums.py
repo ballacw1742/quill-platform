@@ -31,7 +31,19 @@ class TargetSystem(str, Enum):
     ACC = "acc"
     DRIVE = "drive"
     EMAIL = "email"
+    # ADK_AGENTS_DESIGN.md §4: workflow-assignment approvals target the
+    # workflow-definition data (stage→agent mapping), not an external system.
+    WORKFLOW = "workflow"
     NONE = "none"
+
+
+# ADK_AGENTS_DESIGN.md §4 — agent-cloud approval workflows that require an
+# OWNER decision and can NEVER auto-execute regardless of agent trust tier.
+# A workflow_assignment changes a LIVE workflow (which agent runs at a stage),
+# so it is always human-owner-gated (extends Phase 1's money/contract/
+# irreversible rule to workflow/code changes).
+WORKFLOW_ASSIGNMENT_WORKFLOW = "agentcloud.workflow_assignment"
+OWNER_ONLY_WORKFLOWS = frozenset({WORKFLOW_ASSIGNMENT_WORKFLOW})
 
 
 class ApprovalStatus(str, Enum):

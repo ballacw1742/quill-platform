@@ -39,7 +39,18 @@ class Tenant(Base):
 
 
 class AgentDef(Base):
-    """An agent is data, not code (design doc §3.3)."""
+    """An agent is data, not code (design doc §3.3).
+
+    ADK task-agents + cross-platform sharing + workflow-assignment governance
+    (ADK_AGENTS_DESIGN.md §1) add six additive columns:
+      agent_kind    — assistant | adk_task
+      runtime       — claude | adk
+      owner_user_id — creator (suggest/approve attribution); NULL for seeds
+      visibility    — private (creator only) | shared (all platform users)
+      approval_state— draft | suggested | approved | rejected
+      adk_config    — ADK agent spec (instruction/tools/model/output_schema)
+    All are additive with safe defaults; existing columns are untouched.
+    """
 
     __tablename__ = "agentcloud_agents"
 
@@ -56,6 +67,17 @@ class AgentDef(Base):
     enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
     # off | tools_only | auto_recall (A2 memory subsystem)
     memory_policy: Mapped[str] = mapped_column(sa.Text, nullable=False, default="off")
+    # --- ADK task-agents + sharing + governance (ADK_AGENTS_DESIGN.md §1) ---
+    agent_kind: Mapped[str] = mapped_column(
+        sa.Text, nullable=False, default="assistant"
+    )
+    runtime: Mapped[str] = mapped_column(sa.Text, nullable=False, default="claude")
+    owner_user_id: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    visibility: Mapped[str] = mapped_column(sa.Text, nullable=False, default="private")
+    approval_state: Mapped[str] = mapped_column(
+        sa.Text, nullable=False, default="draft"
+    )
+    adk_config: Mapped[dict | None] = mapped_column(JSONVariant, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
     )
@@ -373,5 +395,53 @@ class TenantSecret(Base):
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
     )
     rotated_at: Mapped[datetime | None] = mapped_column(
+        sa.DateTime(timezone=True), nullable=True
+    )
+
+
+class WorkflowAssignment(Base):
+    """An agent assigned to a workflow stage — DATA, not code
+    (ADK_AGENTS_DESIGN.md §4).
+
+    Governance: any user creates a row in state='suggested'; only a workspace
+    OWNER may move it to 'approved'. The chain overlay
+    (runtime/runtime/chains.py) only honors rows in state='approved' — an
+    unapproved row is INERT and never affects dispatch. This is the
+    structural enforcement of the safety invariant: no approved row ⇒ the
+    agent holds no live workflow assignment and cannot mutate the workflow.
+
+    state: suggested | approved | rejected | retired.
+    """
+
+    __tablename__ = "agentcloud_workflow_assignments"
+    __table_args__ = (
+        sa.Index(
+            "agentcloud_workflow_assignments_tenant_idx",
+            "owner_tenant_id",
+            "state",
+        ),
+        sa.Index(
+            "agentcloud_workflow_assignments_stage_idx",
+            "workflow_id",
+            "stage_key",
+            "state",
+        ),
+    )
+
+    assignment_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[str] = mapped_column(sa.Text, nullable=False)  # chain_id
+    stage_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    agent_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    owner_tenant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    suggested_by_user_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    state: Mapped[str] = mapped_column(sa.Text, nullable=False, default="suggested")
+    approval_item_id: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    approved_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(
         sa.DateTime(timezone=True), nullable=True
     )
