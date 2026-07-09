@@ -20,6 +20,14 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+# Terminal statuses an agent-cloud proposal may set on a request via
+# `request_update`. Canonical source for the shared write-vocab contract
+# (scripts/gen_write_vocab.py). The full lifecycle status set on RequestRecord
+# is processing|complete|failed; only the two terminal values are settable by
+# an approved agent write.
+VALID_REQUEST_ACTION_STATUSES = ("complete", "failed")
+
+
 class RequestRecord(Base):
     """A user-submitted project request (estimate, schedule, RFI, or contract)."""
 

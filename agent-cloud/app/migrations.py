@@ -116,6 +116,12 @@ ALTER TABLE agentcloud_agents
     """
 ALTER TABLE agentcloud_agents
     ADD COLUMN IF NOT EXISTS adk_config JSONB""",
+    # Phase 1 (GAP §9.4): risk-graded lane. trust_tier hint on the operating
+    # layer; canonical tier is api-side AgentRegistration.trust_tier. Default
+    # strictest so a new agent never auto-executes until promoted.
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS trust_tier TEXT NOT NULL DEFAULT 'tier-0-mandatory'""",
 ]
 
 

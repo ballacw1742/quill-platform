@@ -78,6 +78,14 @@ class AgentDef(Base):
         sa.Text, nullable=False, default="draft"
     )
     adk_config: Mapped[dict | None] = mapped_column(JSONVariant, nullable=True)
+    # Phase 1 (GAP §9.4): operating-layer trust-tier hint used by the
+    # risk-graded lane decision at proposal time (belt #1). The CANONICAL tier
+    # is api-side (AgentRegistration.trust_tier); the api re-derives the lane
+    # from it (belt #2) and floors any over-permissive proposal. Default is the
+    # strictest tier so a brand-new agent never auto-executes.
+    trust_tier: Mapped[str] = mapped_column(
+        sa.Text, nullable=False, default="tier-0-mandatory"
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
     )

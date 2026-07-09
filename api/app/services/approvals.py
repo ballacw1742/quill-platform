@@ -17,10 +17,12 @@ from app.enums import (
     ExecutionResult,
     Lane,
     Priority,
+    TrustTier,
     UserRole,
 )
-from app.models import ApprovalItem, ApprovalRecord, User
+from app.models import AgentRegistration, ApprovalItem, ApprovalRecord, User
 from app.services import agentcloud_actions
+from app.services import lane_policy
 from app.services import audit as audit_svc
 from app.services.realtime import broadcaster
 
@@ -75,6 +77,60 @@ def required_approvers_for_lane(lane: int, override: list[str] | None = None) ->
 
 
 # ---------------------------------------------------------------------------
+# Belt #2 — authoritative agent-cloud lane floor
+# ---------------------------------------------------------------------------
+async def _agentcloud_lane_floor(
+    session: AsyncSession, *, payload: dict[str, Any], proposed_lane: int
+) -> tuple[int, dict[str, Any]]:
+    """Re-derive the lane for an agent-cloud proposal from the CANONICAL tier.
+
+    Returns ``(final_lane, audit)``. The final lane is the STRICTEST of the
+    lane agent-cloud proposed and the lane our own policy computes from the
+    canonical ``AgentRegistration.trust_tier``. So agent-cloud can never make a
+    write LESS strict than the api-side policy allows; a proposed Lane 1 on a
+    money/contract/irreversible action is floored back to Lane 2/3 here.
+    """
+    pl = payload.get("payload") or {}
+    proposed = pl.get("proposed_action") if isinstance(pl, dict) else None
+    if not isinstance(proposed, dict):
+        # Malformed — cannot risk-assess; force single-approver (never auto).
+        floored = max(proposed_lane, Lane.SINGLE.value)
+        return floored, {
+            "belt": 2,
+            "reason": "missing_proposed_action",
+            "proposed_lane": proposed_lane,
+            "final_lane": floored,
+        }
+    action = str(proposed.get("action") or "")
+    args = proposed.get("args") if isinstance(proposed.get("args"), dict) else {}
+
+    # Canonical trust tier: AgentRegistration keyed by the proposal's agent_id
+    # ("agentcloud:{tenant}/{agent}"). Unknown/absent → strictest (never auto).
+    agent_id = payload.get("agent_id") or ""
+    trust_tier = TrustTier.TIER_0.value
+    reg = await session.get(AgentRegistration, agent_id)
+    if reg is not None and reg.trust_tier:
+        trust_tier = reg.trust_tier
+
+    decision = lane_policy.decide_lane(
+        trust_tier=trust_tier, action=action, args=args
+    )
+    # STRICTEST wins: api policy floor vs. whatever agent-cloud proposed.
+    final_lane = max(int(decision.lane), int(proposed_lane))
+    audit = {
+        "belt": 2,
+        "canonical_trust_tier": trust_tier,
+        "agent_id": agent_id,
+        "proposed_lane": proposed_lane,
+        "api_policy_lane": decision.lane,
+        "final_lane": final_lane,
+        "risk_flags": list(decision.risk_flags),
+        "reasons": list(decision.reasons),
+    }
+    return final_lane, audit
+
+
+# ---------------------------------------------------------------------------
 # Create
 # ---------------------------------------------------------------------------
 async def create_approval(
@@ -92,11 +148,24 @@ async def create_approval(
     lane = int(payload.get("lane") or Lane.SINGLE.value)
     priority = payload.get("priority") or Priority.NORMAL.value
 
+    # ---- Belt #2: authoritative risk-graded lane for agent-cloud writes ----
+    # Never trust the lane agent-cloud sent. Re-derive the lane floor from the
+    # CANONICAL AgentRegistration.trust_tier + the proposed action's risk class
+    # (shared lane-decision contract). If agent-cloud (buggy/compromised)
+    # marked a money/contract/irreversible write as Lane 1, we floor it here.
+    # This is Charles's HITL guarantee — do not weaken it.
+    lane_audit: dict[str, Any] | None = None
+    workflow = payload.get("workflow") or ""
+    if agentcloud_actions.is_agentcloud_workflow(workflow):
+        lane, lane_audit = await _agentcloud_lane_floor(
+            session, payload=payload, proposed_lane=lane
+        )
+
     # ADK_AGENTS_DESIGN.md §4: workflow-assignment items can NEVER auto-execute
-    # (no Lane 1) and are always owner-only. Force the lane + approver list
-    # here so a caller cannot request auto-execution of a live-workflow change.
-    workflow_val = payload.get("workflow")
-    _owner_only = workflow_val in OWNER_ONLY_WORKFLOWS
+    # (no Lane 1) and are always owner-only. Applied AFTER the belt-#2 floor so
+    # owner-only always resolves toward the stricter outcome — a caller can
+    # never request auto-execution of a live-workflow change.
+    _owner_only = workflow in OWNER_ONLY_WORKFLOWS
     if _owner_only:
         if lane == Lane.AUTO.value:
             lane = Lane.DUAL.value
@@ -138,6 +207,7 @@ async def create_approval(
             "lane": item.lane,
             "priority": item.priority,
             "agent_confidence": item.agent_confidence,
+            **({"lane_decision": lane_audit} if lane_audit else {}),
         },
     )
     item.audit_hash = entry.hash
