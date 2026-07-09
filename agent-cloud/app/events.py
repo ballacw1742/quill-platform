@@ -45,6 +45,8 @@ EVENT_TYPES = (
     "approval.resolved",
     "rate_limit.exceeded",  # B2 (LIMITS.md §3)
     "agent.updated",  # Phase C (AGENT_BUILDER.md §9)
+    "agent.rolledback",  # Phase 5 (AUTHORING_MATURITY.md §4)
+    "agent.published",  # Phase 5 (AUTHORING_MATURITY.md §4)
     "channel.linked",  # Phase D (CHANNELS.md §8)
     "channel.message",  # Phase D (CHANNELS.md §8)
 )

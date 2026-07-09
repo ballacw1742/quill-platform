@@ -37,7 +37,7 @@ from contextlib import asynccontextmanager
 
 from datetime import datetime
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -136,6 +136,18 @@ class AgentPatchIn(BaseModel):
     memory_policy: str | None = None
     budget_monthly_usd: float | None = None
     enabled: bool | None = None
+
+
+class RollbackIn(BaseModel):
+    """AUTHORING_MATURITY.md §2.4 — rollback body."""
+
+    to_version: int = Field(ge=1)
+
+
+class PublishIn(BaseModel):
+    """AUTHORING_MATURITY.md §2.5 — publish/unpublish body."""
+
+    published: bool
 
 
 class ChannelPairIn(BaseModel):
@@ -621,7 +633,17 @@ def _agent_crud_error(exc: Exception) -> HTTPException:
         return HTTPException(400, str(exc))
     if isinstance(exc, agents_mod.AgentNotFoundError):
         return HTTPException(404, str(exc))
+    if isinstance(exc, agents_mod.VersionNotFoundError):
+        return HTTPException(404, str(exc))
     raise exc  # pragma: no cover
+
+
+@app.get("/v1/agents/published")
+async def list_published_agents(tenant_id: str, limit: int = 100, offset: int = 0):
+    """Tenant's published agents as clone-source cards (AUTHORING_MATURITY.md
+    §2.6). Tenant-isolated. Declared before /v1/agents/{agent_id} so the
+    static path wins the route match."""
+    return await agents_mod.list_published(tenant_id, limit=limit, offset=offset)
 
 
 @app.post("/v1/agents", status_code=201)
@@ -671,6 +693,74 @@ async def delete_agent(agent_id: str, tenant_id: str):
         agents_mod.SeedProtectedError,
         agents_mod.AgentNotFoundError,
     ) as exc:
+        raise _agent_crud_error(exc) from exc
+
+
+# --- Phase 5: versioning / diff / rollback / publish (AUTHORING_MATURITY.md) --
+
+
+@app.get("/v1/agents/{agent_id}/versions")
+async def list_agent_versions(
+    agent_id: str, tenant_id: str, limit: int = 100, offset: int = 0
+):
+    """Version history, newest-first (AUTHORING_MATURITY.md §2.1). 404 unknown."""
+    try:
+        return await agents_mod.list_versions(
+            tenant_id, agent_id, limit=limit, offset=offset
+        )
+    except agents_mod.AgentNotFoundError as exc:
+        raise _agent_crud_error(exc) from exc
+
+
+@app.get("/v1/agents/{agent_id}/diff")
+async def diff_agent_versions(
+    agent_id: str, tenant_id: str, from_: int = Query(alias="from"), to: int = Query(...)
+):
+    """Field-level diff between two versions (AUTHORING_MATURITY.md §2.3).
+    400 missing/invalid from/to; 404 unknown agent/version."""
+    try:
+        return await agents_mod.diff_versions(tenant_id, agent_id, from_, to)
+    except (
+        agents_mod.AgentNotFoundError,
+        agents_mod.VersionNotFoundError,
+    ) as exc:
+        raise _agent_crud_error(exc) from exc
+
+
+@app.get("/v1/agents/{agent_id}/versions/{version}")
+async def get_agent_version(agent_id: str, version: int, tenant_id: str):
+    """One version's full field snapshot (AUTHORING_MATURITY.md §2.2). 404
+    unknown agent/version."""
+    try:
+        return await agents_mod.get_version(tenant_id, agent_id, version)
+    except (
+        agents_mod.AgentNotFoundError,
+        agents_mod.VersionNotFoundError,
+    ) as exc:
+        raise _agent_crud_error(exc) from exc
+
+
+@app.post("/v1/agents/{agent_id}/rollback")
+async def rollback_agent(agent_id: str, tenant_id: str, body: RollbackIn):
+    """Rollback to a prior version as a new version (AUTHORING_MATURITY.md
+    §2.4). 400 invalid to_version; 404 unknown agent/version."""
+    try:
+        return await agents_mod.rollback_agent(tenant_id, agent_id, body.to_version)
+    except (
+        agents_mod.AgentNotFoundError,
+        agents_mod.VersionNotFoundError,
+        agents_mod.AgentValidationError,
+    ) as exc:
+        raise _agent_crud_error(exc) from exc
+
+
+@app.post("/v1/agents/{agent_id}/publish")
+async def publish_agent(agent_id: str, tenant_id: str, body: PublishIn):
+    """Toggle the tenant-scoped publish flag (AUTHORING_MATURITY.md §2.5).
+    404 unknown/cross-tenant."""
+    try:
+        return await agents_mod.set_published(tenant_id, agent_id, body.published)
+    except agents_mod.AgentNotFoundError as exc:
         raise _agent_crud_error(exc) from exc
 
 
