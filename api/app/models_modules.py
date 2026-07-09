@@ -60,3 +60,42 @@ class ModuleConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
     )
+
+
+class CustomModule(Base):
+    """A workspace-authored module (Modular Framework Phase 3, §3.4).
+
+    Custom modules extend the built-in roster with tenant-defined entries. They
+    carry their own presentation (label/icon/gradient/href) and an optional
+    feature list. Enable/disable/order is still handled by ModuleConfig rows
+    keyed on the same module_key, so builtins and customs share one config path.
+    """
+
+    __tablename__ = "custom_modules"
+    __table_args__ = (
+        UniqueConstraint("workspace", "module_key", name="uq_custom_modules_ws_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    workspace: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    # Author-chosen stable slug, unique within the workspace. Must not collide
+    # with a builtin roster key (validated in the route).
+    module_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    label: Mapped[str] = mapped_column(String(80), nullable=False)
+    # Route the tile links to (e.g. "/requests?module=my-thing"). Free-form but
+    # length-capped; defaults to the generic requests surface.
+    href: Mapped[str] = mapped_column(String(200), nullable=False, default="/requests")
+    # Tailwind gradient classes for the tile, mirrors the builtin roster style.
+    gradient: Mapped[str] = mapped_column(
+        String(120), nullable=False, default="from-slate-400 to-slate-600"
+    )
+    # Optional lucide icon name (web maps it; unknown falls back to a default).
+    icon: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    # Optional fixed feature list: [{key,label}]. Author-defined for customs.
+    features: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+    )

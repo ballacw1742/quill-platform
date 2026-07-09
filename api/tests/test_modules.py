@@ -141,3 +141,103 @@ async def test_unknown_feature_key_400(client, owner_token):
         json={"updates": [{"key": "contracts", "features": {"nope": False}}]},
     )
     assert r.status_code == 400
+
+
+# ── Phase 3: custom modules (Module Builder) ─────────────────────────────────
+
+
+async def test_owner_can_create_custom_module(client, owner_token):
+    _, token = owner_token
+    r = await client.post(
+        "/v1/modules/custom",
+        headers=auth_h(token),
+        json={
+            "key": "permits",
+            "label": "Permits",
+            "href": "/requests",
+            "features": [{"key": "applications", "label": "Applications"}],
+        },
+    )
+    assert r.status_code == 201
+    assert r.json()["key"] == "permits"
+    # It now appears in the merged config list.
+    lst = await client.get("/v1/modules", headers=auth_h(token))
+    keys = {i["key"]: i for i in lst.json()["items"]}
+    assert "permits" in keys
+    assert keys["permits"]["custom"] is True
+    assert keys["permits"]["enabled"] is True
+
+
+async def test_custom_key_cannot_collide_with_builtin(client, owner_token):
+    _, token = owner_token
+    r = await client.post(
+        "/v1/modules/custom",
+        headers=auth_h(token),
+        json={"key": "finance", "label": "My Finance"},
+    )
+    assert r.status_code == 400
+
+
+async def test_custom_duplicate_409(client, owner_token):
+    _, token = owner_token
+    await client.post(
+        "/v1/modules/custom",
+        headers=auth_h(token),
+        json={"key": "permits", "label": "Permits"},
+    )
+    r = await client.post(
+        "/v1/modules/custom",
+        headers=auth_h(token),
+        json={"key": "permits", "label": "Permits again"},
+    )
+    assert r.status_code == 409
+
+
+async def test_non_owner_cannot_create_custom(client, partner_token):
+    _, token = partner_token
+    r = await client.post(
+        "/v1/modules/custom",
+        headers=auth_h(token),
+        json={"key": "permits", "label": "Permits"},
+    )
+    assert r.status_code == 403
+
+
+async def test_edit_and_delete_custom_module(client, owner_token):
+    _, token = owner_token
+    await client.post(
+        "/v1/modules/custom",
+        headers=auth_h(token),
+        json={"key": "permits", "label": "Permits"},
+    )
+    # edit
+    e = await client.patch(
+        "/v1/modules/custom/permits",
+        headers=auth_h(token),
+        json={"label": "Permitting"},
+    )
+    assert e.status_code == 200
+    assert e.json()["label"] == "Permitting"
+    # a custom module can be disabled via the normal config PATCH
+    tog = await client.patch(
+        "/v1/modules",
+        headers=auth_h(token),
+        json={"updates": [{"key": "permits", "enabled": False}]},
+    )
+    assert tog.status_code == 200
+    assert {i["key"]: i["enabled"] for i in tog.json()["items"]}["permits"] is False
+    # delete
+    d = await client.delete("/v1/modules/custom/permits", headers=auth_h(token))
+    assert d.status_code == 200
+    lst = await client.get("/v1/modules", headers=auth_h(token))
+    assert "permits" not in {i["key"] for i in lst.json()["items"]}
+
+
+async def test_edit_unknown_custom_404(client, owner_token):
+    _, token = owner_token
+    r = await client.patch(
+        "/v1/modules/custom/ghost",
+        headers=auth_h(token),
+        json={"label": "Nope"},
+    )
+    assert r.status_code == 404

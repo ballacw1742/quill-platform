@@ -3974,6 +3974,10 @@ export const ModuleConfigItemSchema = z.object({
   enabled: z.boolean(),
   sort_order: z.number(),
   features: z.array(ModuleFeatureItemSchema).default([]),
+  custom: z.boolean().default(false),
+  href: z.string().nullable().default(null),
+  gradient: z.string().nullable().default(null),
+  icon: z.string().nullable().default(null),
 });
 export type ModuleConfigItem = z.infer<typeof ModuleConfigItemSchema>;
 
@@ -4029,5 +4033,75 @@ export function useUpdateModuleConfig() {
     onSuccess: (_data, vars) => {
       void qc.invalidateQueries({ queryKey: ["modules", vars.workspace ?? "personal"] });
     },
+  });
+}
+
+// ─── Modular framework — custom modules (Phase 3, Module Builder) ────────────
+
+export const CustomFeatureSchema = z.object({ key: z.string(), label: z.string() });
+
+export const CustomModuleSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  href: z.string(),
+  gradient: z.string(),
+  icon: z.string().nullable(),
+  features: z.array(CustomFeatureSchema).default([]),
+  custom: z.literal(true),
+});
+export type CustomModule = z.infer<typeof CustomModuleSchema>;
+
+export type CustomModulePayload = {
+  key: string;
+  label: string;
+  href?: string;
+  gradient?: string;
+  icon?: string | null;
+  features?: { key: string; label: string }[];
+};
+
+export function useCreateCustomModule() {
+  const qc = useQueryClient();
+  return useMutation<CustomModule, Error, CustomModulePayload & { workspace?: string }>({
+    mutationFn: async (payload) =>
+      (await apiFetch(`/api/v1/modules/custom`, {
+        method: "POST",
+        body: JSON.stringify({ workspace: "personal", ...payload }),
+        schema: CustomModuleSchema,
+      })) as CustomModule,
+    onSuccess: (_d, vars) =>
+      void qc.invalidateQueries({ queryKey: ["modules", vars.workspace ?? "personal"] }),
+  });
+}
+
+export function useEditCustomModule() {
+  const qc = useQueryClient();
+  return useMutation<
+    CustomModule,
+    Error,
+    { key: string; patch: Partial<CustomModulePayload>; workspace?: string }
+  >({
+    mutationFn: async ({ key, patch, workspace = "personal" }) =>
+      (await apiFetch(`/api/v1/modules/custom/${encodeURIComponent(key)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ workspace, ...patch }),
+        schema: CustomModuleSchema,
+      })) as CustomModule,
+    onSuccess: (_d, vars) =>
+      void qc.invalidateQueries({ queryKey: ["modules", vars.workspace ?? "personal"] }),
+  });
+}
+
+export function useDeleteCustomModule() {
+  const qc = useQueryClient();
+  return useMutation<{ key: string; deleted: boolean }, Error, { key: string; workspace?: string }>({
+    mutationFn: async ({ key, workspace = "personal" }) => {
+      const qs = workspace && workspace !== "personal" ? `?workspace=${encodeURIComponent(workspace)}` : "";
+      return (await apiFetch(`/api/v1/modules/custom/${encodeURIComponent(key)}${qs}`, {
+        method: "DELETE",
+      })) as { key: string; deleted: boolean };
+    },
+    onSuccess: (_d, vars) =>
+      void qc.invalidateQueries({ queryKey: ["modules", vars.workspace ?? "personal"] }),
   });
 }
