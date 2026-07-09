@@ -86,6 +86,64 @@ class AgentDef(Base):
     trust_tier: Mapped[str] = mapped_column(
         sa.Text, nullable=False, default="tier-0-mandatory"
     )
+    # Phase 5 (AUTHORING_MATURITY.md §1.1) — monotonic version, +1 per mutating
+    # update/rollback. Additive; existing rows default to 1.
+    version: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)
+    # Phase 5 (AUTHORING_MATURITY.md §2.5) — tenant-scoped publish/share flag.
+    published: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, default=_utcnow
+    )
+
+
+class AgentVersion(Base):
+    """Immutable snapshot of a superseded agent definition (Phase 5,
+    AUTHORING_MATURITY.md §1.2). Written on every mutating update/rollback:
+    the PRIOR live state is frozen here before the new state is applied.
+    Insert-only; never mutated, never hard-deleted (audit/history).
+
+    Tenant-scoped + RLS'd like every agentcloud_* table. The snapshot for
+    version N-1 carries the forward metadata (change_action/changed_fields/
+    rolled_back_from) describing the transition N-1 -> N, so the live head
+    (version N) can reconstruct its own metadata (AUTHORING_MATURITY.md §5).
+    """
+
+    __tablename__ = "agentcloud_agent_versions"
+    __table_args__ = (
+        sa.Index(
+            "agentcloud_agent_versions_tenant_idx",
+            "tenant_id",
+            "agent_id",
+            "version",
+        ),
+        sa.UniqueConstraint(
+            "tenant_id",
+            "agent_id",
+            "version",
+            name="agentcloud_agent_versions_uq",
+        ),
+    )
+
+    version_row_id: Mapped[uuid.UUID] = mapped_column(
+        sa.Uuid, primary_key=True, default=uuid.uuid4
+    )
+    tenant_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    agent_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    system_prompt: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    model: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    tools: Mapped[list] = mapped_column(JSONVariant, nullable=False, default=list)
+    memory_policy: Mapped[str] = mapped_column(sa.Text, nullable=False, default="off")
+    budget_monthly_usd: Mapped[float] = mapped_column(
+        sa.Numeric(10, 2), nullable=False, default=20.0
+    )
+    enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
+    # created | updated | rolledback — what produced this snapshot's SUCCESSOR.
+    change_action: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    changed_fields: Mapped[list] = mapped_column(
+        JSONVariant, nullable=False, default=list
+    )
+    rolled_back_from: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, default=_utcnow
     )

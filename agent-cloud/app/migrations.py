@@ -124,6 +124,42 @@ ALTER TABLE agentcloud_agents
     ADD COLUMN IF NOT EXISTS trust_tier TEXT NOT NULL DEFAULT 'tier-0-mandatory'""",
 ]
 
+# Phase 5: agent authoring maturity — versioning/diff/rollback/publish
+# (AUTHORING_MATURITY.md). One statement each (asyncpg constraint), additive +
+# idempotent. Two columns on agentcloud_agents (version, published) + a new
+# immutable-snapshot table with a unique index per (tenant, agent, version).
+DDL_P5 = [
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1""",
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS published BOOLEAN NOT NULL DEFAULT FALSE""",
+    """
+CREATE TABLE IF NOT EXISTS agentcloud_agent_versions (
+    version_row_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id          TEXT NOT NULL,
+    agent_id           TEXT NOT NULL,
+    version            INTEGER NOT NULL,
+    system_prompt      TEXT NOT NULL,
+    model              TEXT NOT NULL,
+    tools              JSONB NOT NULL DEFAULT '[]',
+    memory_policy      TEXT NOT NULL DEFAULT 'off',
+    budget_monthly_usd NUMERIC(10,2) NOT NULL DEFAULT 20.00,
+    enabled            BOOLEAN NOT NULL DEFAULT TRUE,
+    change_action      TEXT NOT NULL,
+    changed_fields     JSONB NOT NULL DEFAULT '[]',
+    rolled_back_from   INTEGER,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+)""",
+    """
+CREATE INDEX IF NOT EXISTS agentcloud_agent_versions_tenant_idx
+    ON agentcloud_agent_versions (tenant_id, agent_id, version)""",
+    """
+CREATE UNIQUE INDEX IF NOT EXISTS agentcloud_agent_versions_uq
+    ON agentcloud_agent_versions (tenant_id, agent_id, version)""",
+]
+
 
 def _memory_ddl(dim: int) -> list[str]:
     """A2 memory table. Every entry is one statement (asyncpg constraint).
@@ -403,6 +439,7 @@ _RLS_TABLES = [
     "agentcloud_rate_limits",
     "agentcloud_tenant_secrets",
     "agentcloud_channel_links",
+    "agentcloud_agent_versions",
 ]
 
 
@@ -443,6 +480,7 @@ async def run_migrations(engine: AsyncEngine) -> None:
         *DDL_B2,
         *DDL_D,
         *DDL_ADK,
+        *DDL_P5,
     ]
     for table in _RLS_TABLES:
         statements.extend(_rls_ddl(table))
@@ -451,5 +489,5 @@ async def run_migrations(engine: AsyncEngine) -> None:
         for stmt in statements:
             await conn.execute(text(stmt))
     log.info(
-        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + proposals + rate-limits + tenant-secrets + channel-links + RLS)"
+        "agentcloud migrations applied (tables + additive columns + memory + events + jobs + schedules + proposals + rate-limits + tenant-secrets + channel-links + agent-versions + RLS)"
     )
