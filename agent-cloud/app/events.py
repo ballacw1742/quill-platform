@@ -47,6 +47,9 @@ EVENT_TYPES = (
     "agent.updated",  # Phase C (AGENT_BUILDER.md §9)
     "channel.linked",  # Phase D (CHANNELS.md §8)
     "channel.message",  # Phase D (CHANNELS.md §8)
+    # Phase §9 Wave 2 additions
+    "agent.response",   # scheduled turn reply destined for a channel (MIGRATION.md §3.1)
+    "email.send_queued",  # approval-gated email proposal queued (MIGRATION.md §3.3)
 )
 
 
@@ -103,6 +106,13 @@ class InlineBus:
 
     def subscribe(self, fn: Callable[[dict[str, Any]], Any]) -> None:
         self._subscribers.append(fn)
+
+    def unsubscribe(self, fn: Callable[[dict[str, Any]], Any]) -> None:
+        """Remove a previously registered subscriber (no-op if not found)."""
+        try:
+            self._subscribers.remove(fn)
+        except ValueError:
+            pass
 
     async def publish(self, event: dict[str, Any]) -> None:
         self.published.append(event)
