@@ -28,6 +28,7 @@ import sqlalchemy as sa
 
 from app import events as events_mod
 from app.config import get_settings
+from app.contracts import write_vocab as _write_vocab
 from app.db import admin_session, tenant_session
 from app.logging_setup import agent_id_var, session_id_var, tenant_id_var
 from app.models import Message, Proposal, Session
@@ -61,20 +62,17 @@ def _utcnow() -> datetime:
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
-# Mirrors of the api-side vocabularies (canonical: api/app/models_projects.py
-# and api/app/routes/pipeline.py). Kept in sync by the A6 contract tests.
-VALID_PHASES = (
-    "site_control",
-    "permitting",
-    "design",
-    "construction",
-    "commissioning",
-    "turnover",
-)
-VALID_PROJECT_STATUSES = ("active", "on_hold", "complete", "cancelled")
-VALID_ENTRY_TYPES = ("general", "issue", "milestone", "decision")
-VALID_DEAL_STAGES = ("prospect", "qualified", "proposal", "negotiating", "won", "lost")
-VALID_REQUEST_STATUSES = ("complete", "failed")
+# Write vocabularies come from the ONE shared, generated contract
+# (app/contracts/agentcloud_write_vocab.json), whose source of truth is the
+# api canonical ORM models. This module never re-declares them by hand
+# (Phase 0, GAP_ASSESSMENT_S9 §3 — replaces the old hand-synced literals).
+# Names below are kept for backward compatibility with app.tools.quill_writes.
+_VOCAB = _write_vocab()
+VALID_PHASES = _VOCAB["project_phases"]
+VALID_PROJECT_STATUSES = _VOCAB["project_statuses"]
+VALID_ENTRY_TYPES = _VOCAB["log_entry_types"]
+VALID_DEAL_STAGES = _VOCAB["deal_stages"]
+VALID_REQUEST_STATUSES = _VOCAB["request_action_statuses"]
 
 
 def _req_str(args: dict, key: str, max_len: int = 200) -> str:

@@ -24,11 +24,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.models_pipeline import VALID_DEAL_STAGES, Account, Deal
+from app.contracts import write_vocab as _write_vocab
+from app.models_pipeline import Account, Deal
 from app.models_projects import (
-    VALID_ENTRY_TYPES,
-    VALID_PHASES,
-    VALID_STATUSES,
     Project,
     ProjectLogEntry,
     ProjectMilestone,
@@ -39,15 +37,18 @@ log = logging.getLogger("quill.agentcloud_actions")
 
 WORKFLOW_PREFIX = "agentcloud."
 
-# Phase order for advance_phase (kept in sync with routes/projects.py).
-PHASE_ORDER = [
-    "site_control",
-    "permitting",
-    "design",
-    "construction",
-    "commissioning",
-    "turnover",
-]
+# Belt #2 re-validation reads the SAME shared, generated contract that
+# agent-cloud validates against at queue time (Phase 0, GAP §3). The contract
+# is generated from the api canonical ORM models, so these stay authoritative.
+_VOCAB = _write_vocab()
+VALID_PHASES = _VOCAB["project_phases"]
+VALID_STATUSES = _VOCAB["project_statuses"]
+VALID_ENTRY_TYPES = _VOCAB["log_entry_types"]
+VALID_DEAL_STAGES = _VOCAB["deal_stages"]
+VALID_REQUEST_ACTION_STATUSES = _VOCAB["request_action_statuses"]
+
+# Phase order for advance_phase (shared contract; source = VALID_PHASES order).
+PHASE_ORDER = list(_VOCAB["phase_order"])
 
 _ACTIONS = (
     "project_update",
@@ -217,8 +218,10 @@ async def execute_agentcloud_action(session: AsyncSession, item, *, actor: str) 
         if record is None:
             raise AgentCloudActionError(f"request {args.get('request_id')!r} not found")
         status_val = str(args.get("status") or "")
-        if status_val not in ("complete", "failed"):
-            raise AgentCloudActionError("status must be 'complete' or 'failed'")
+        if status_val not in VALID_REQUEST_ACTION_STATUSES:
+            raise AgentCloudActionError(
+                f"status must be one of {VALID_REQUEST_ACTION_STATUSES}"
+            )
         record.status = status_val
         if args.get("response") is not None:
             record.response = str(args["response"])
