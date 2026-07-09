@@ -29,7 +29,13 @@ from app.tools import REGISTRY
 from app.tools.builtin import BUILTIN_TOOLS
 from app.tools.memory import MEMORY_TOOL_NAMES, MEMORY_TOOLS
 from app.tools.quill import QUILL_TOOLS
-from app.tools.quill_writes import QUILL_WRITE_TOOL_NAMES, QUILL_WRITE_TOOLS
+from app.tools.quill_writes import (
+    EMAIL_WRITE_TOOL_NAMES,
+    EMAIL_WRITE_TOOLS,
+    QUILL_WRITE_TOOL_NAMES,
+    QUILL_WRITE_TOOLS,
+)
+from app.tools.web_tools import WEB_TOOL_NAMES, WEB_TOOLS
 
 # --- constants / catalog -----------------------------------------------------
 
@@ -59,13 +65,25 @@ TOOL_LABELS: dict[str, str] = {
     "quill_project_milestone_create": "Create project milestone",
     "quill_deal_update": "Update deal",
     "quill_request_update": "Update request",
+    # §9 Wave 2 additions
+    "quill_email_send": "Send email (approval-gated)",
+    "quill_web_fetch": "Web fetch (read-only)",
 }
+
+# All approval-gated write tool names (used for the approval_gated flag in
+# the catalog; kept as a set for O(1) lookup).
+_ALL_WRITE_TOOL_NAMES: frozenset[str] = frozenset(
+    QUILL_WRITE_TOOL_NAMES + EMAIL_WRITE_TOOL_NAMES
+)
 
 _GROUPS = (
     ("builtin", "Built-in", [t.name for t in BUILTIN_TOOLS]),
     ("read", "Quill (read-only)", [t.name for t in QUILL_TOOLS]),
     ("memory", "Memory", [t.name for t in MEMORY_TOOLS]),
     ("write", "Quill writes (approval-gated)", [t.name for t in QUILL_WRITE_TOOLS]),
+    # §9 Wave 2 additions
+    ("email", "Email (approval-gated)", [t.name for t in EMAIL_WRITE_TOOLS]),
+    ("web", "Web (read-only)", [t.name for t in WEB_TOOLS]),
 )
 
 
@@ -103,7 +121,7 @@ def tool_catalog() -> dict[str, Any]:
                     "name": name,
                     "label": TOOL_LABELS.get(name, name),
                     "description": tool.description,
-                    "approval_gated": name in QUILL_WRITE_TOOL_NAMES,
+                    "approval_gated": name in _ALL_WRITE_TOOL_NAMES,
                     "memory_tool": name in MEMORY_TOOL_NAMES,
                 }
             )
