@@ -76,6 +76,22 @@ function ModulesManager() {
     persist([{ key, enabled }]);
   }
 
+  function toggleFeature(moduleKey: string, featureKey: string, enabled: boolean) {
+    setItems((prev) =>
+      (prev ?? []).map((r) =>
+        r.key === moduleKey
+          ? {
+              ...r,
+              features: r.features.map((f) =>
+                f.key === featureKey ? { ...f, enabled } : f,
+              ),
+            }
+          : r,
+      ),
+    );
+    persist([{ key: moduleKey, features: { [featureKey]: enabled } }]);
+  }
+
   function move(index: number, dir: -1 | 1) {
     const next = [...rows];
     const target = index + dir;
@@ -114,10 +130,11 @@ function ModulesManager() {
           <li
             key={m.key}
             className={cn(
-              "flex items-center gap-3 px-3 py-3",
+              "flex flex-col px-3 py-3",
               !m.enabled && "opacity-55",
             )}
           >
+            <div className="flex items-center gap-3">
             {isOwner && (
               <div className="flex flex-col">
                 <button
@@ -154,6 +171,28 @@ function ModulesManager() {
               onChange={(v) => toggle(m.key, v)}
               label={`${m.enabled ? "Disable" : "Enable"} ${m.label}`}
             />
+            </div>
+
+            {/* Sub-feature toggles (Phase 1) — only when the module is on and
+                has a fixed feature list. Disabling a feature skips just that
+                part of the module's pipeline. */}
+            {m.enabled && m.features.length > 0 && (
+              <ul className="mt-1 flex flex-col gap-1 border-t border-separator/30 pt-2 pl-9">
+                {m.features.map((f) => (
+                  <li key={f.key} className="flex items-center gap-3 py-1">
+                    <span className="flex-1 text-footnote text-label-secondary">
+                      {f.label}
+                    </span>
+                    <Toggle
+                      checked={f.enabled}
+                      disabled={!isOwner || update.isPending}
+                      onChange={(v) => toggleFeature(m.key, f.key, v)}
+                      label={`${f.enabled ? "Disable" : "Enable"} ${f.label} in ${m.label}`}
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

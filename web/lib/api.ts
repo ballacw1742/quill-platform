@@ -3961,11 +3961,19 @@ export function usePortalUsage(opts?: UseQueryOptions<PortalUsage>) {
 
 // ─── Modular framework — module config (Phase 0) ─────────────────────────────
 
+export const ModuleFeatureItemSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  enabled: z.boolean(),
+});
+export type ModuleFeatureItem = z.infer<typeof ModuleFeatureItemSchema>;
+
 export const ModuleConfigItemSchema = z.object({
   key: z.string(),
   label: z.string(),
   enabled: z.boolean(),
   sort_order: z.number(),
+  features: z.array(ModuleFeatureItemSchema).default([]),
 });
 export type ModuleConfigItem = z.infer<typeof ModuleConfigItemSchema>;
 
@@ -3978,6 +3986,7 @@ export type ModuleUpdate = {
   key: string;
   enabled?: boolean;
   sort_order?: number;
+  features?: Record<string, boolean>;
 };
 
 function moduleWsQuery(workspace: string): string {

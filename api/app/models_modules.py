@@ -16,7 +16,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -50,6 +50,10 @@ class ModuleConfig(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Lower sorts first. Nullable-free; defaults to the roster order on seed.
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Phase 1: per-module sub-feature toggles, {feature_key: bool}. A missing
+    # key means the feature is enabled (fixed feature list lives in the route
+    # roster). Absence of the whole dict = all features enabled.
+    features: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow
     )

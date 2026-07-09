@@ -52,6 +52,48 @@ MODULE_ROSTER: list[dict[str, str]] = [
 _ROSTER_KEYS = {m["key"] for m in MODULE_ROSTER}
 _ROSTER_ORDER = {m["key"]: i for i, m in enumerate(MODULE_ROSTER)}
 
+# ── Fixed sub-feature catalog (Phase 1, decision #2 = fixed list) ─────────────
+# Each entry: feature_key -> human label. Only modules with meaningful
+# separable parts are listed; modules absent here simply have no sub-features.
+# Disabling a feature will skip that specific part of the module's pipeline.
+MODULE_FEATURES: dict[str, list[dict[str, str]]] = {
+    "contracts": [
+        {"key": "change_orders", "label": "Change orders"},
+        {"key": "clause_library", "label": "Clause library"},
+        {"key": "templates", "label": "Templates"},
+        {"key": "e_sign", "label": "E-signature"},
+    ],
+    "projects": [
+        {"key": "rfi", "label": "RFIs"},
+        {"key": "schedule", "label": "Schedule monitoring"},
+        {"key": "submittals", "label": "Submittals"},
+        {"key": "owner_reports", "label": "Owner reports"},
+    ],
+    "estimates": [
+        {"key": "takeoff", "label": "Takeoff"},
+        {"key": "unit_pricing", "label": "Unit pricing"},
+        {"key": "bid_export", "label": "Bid export"},
+    ],
+    "sites": [
+        {"key": "evaluation", "label": "Evaluation"},
+        {"key": "research", "label": "Research"},
+        {"key": "scoring", "label": "Scoring"},
+    ],
+    "supply-chain": [
+        {"key": "procurement", "label": "Procurement"},
+        {"key": "vendors", "label": "Vendors"},
+        {"key": "equipment", "label": "Equipment tracking"},
+    ],
+    "operations": [
+        {"key": "incidents", "label": "Incidents"},
+        {"key": "uptime", "label": "Uptime / PUE"},
+        {"key": "field_reports", "label": "Field reports"},
+    ],
+}
+_FEATURE_KEYS: dict[str, set[str]] = {
+    mod: {f["key"] for f in feats} for mod, feats in MODULE_FEATURES.items()
+}
+
 
 async def is_module_enabled(db: AsyncSession, workspace: str, module_key: str) -> bool:
     """Phase 2 gate (MODULAR_FRAMEWORK_DESIGN.md §3.3). True if the module is
@@ -74,6 +116,31 @@ async def is_module_enabled(db: AsyncSession, workspace: str, module_key: str) -
     return bool(row.enabled)
 
 
+async def is_feature_enabled(
+    db: AsyncSession, workspace: str, module_key: str, feature_key: str
+) -> bool:
+    """Phase 1 sub-feature gate. True unless BOTH the module is enabled AND the
+    specific feature is explicitly disabled. FAIL-OPEN on any ambiguity
+    (unknown module/feature, no row, missing key = enabled).
+    """
+    if module_key not in _ROSTER_KEYS:
+        return True
+    row = (
+        await db.execute(
+            select(ModuleConfig).where(
+                ModuleConfig.workspace == workspace,
+                ModuleConfig.module_key == module_key,
+            )
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return True
+    if not row.enabled:
+        return False  # whole module off → feature is off too
+    feats = row.features or {}
+    return bool(feats.get(feature_key, True))
+
+
 def _resolve_workspace(user, workspace: str) -> str:
     """Server-side workspace id. 'org' is shared; anything else is the caller's
     personal workspace. Never trust a client-supplied raw id."""
@@ -82,11 +149,18 @@ def _resolve_workspace(user, workspace: str) -> str:
     return f"personal:{user.id}"
 
 
+class ModuleFeatureItem(BaseModel):
+    key: str
+    label: str
+    enabled: bool
+
+
 class ModuleConfigItem(BaseModel):
     key: str
     label: str
     enabled: bool
     sort_order: int
+    features: list[ModuleFeatureItem] = Field(default_factory=list)
 
 
 class ModuleConfigList(BaseModel):
@@ -94,11 +168,13 @@ class ModuleConfigList(BaseModel):
 
 
 class ModuleUpdate(BaseModel):
-    """One module's desired state. Absent fields are left unchanged."""
+    """One module's desired state. Absent fields are left unchanged.
+    `features` is a partial {feature_key: enabled} map merged into the row."""
 
     key: str = Field(min_length=1, max_length=64)
     enabled: bool | None = None
     sort_order: int | None = Field(default=None, ge=0)
+    features: dict[str, bool] | None = None
 
 
 class ModuleConfigPatch(BaseModel):
@@ -115,6 +191,21 @@ async def _load_overrides(db: AsyncSession, workspace: str) -> dict[str, ModuleC
     return {r.module_key: r for r in rows}
 
 
+def _feature_items(module_key: str, ov: ModuleConfig | None) -> list[ModuleFeatureItem]:
+    """Fixed feature catalog for a module, with each feature's effective enabled
+    state (override dict wins; missing key = enabled)."""
+    catalog = MODULE_FEATURES.get(module_key, [])
+    saved = (ov.features if ov is not None else None) or {}
+    return [
+        ModuleFeatureItem(
+            key=f["key"],
+            label=f["label"],
+            enabled=bool(saved.get(f["key"], True)),
+        )
+        for f in catalog
+    ]
+
+
 def _merged(overrides: dict[str, ModuleConfig]) -> list[ModuleConfigItem]:
     """Roster + overrides → the effective per-workspace module list, ordered."""
     items: list[ModuleConfigItem] = []
@@ -126,6 +217,7 @@ def _merged(overrides: dict[str, ModuleConfig]) -> list[ModuleConfigItem]:
                 label=m["label"],
                 enabled=ov.enabled if ov is not None else True,
                 sort_order=ov.sort_order if ov is not None else _ROSTER_ORDER[m["key"]],
+                features=_feature_items(m["key"], ov),
             )
         )
     items.sort(key=lambda i: (i.sort_order, _ROSTER_ORDER[i.key]))
@@ -164,6 +256,17 @@ async def patch_modules(
     overrides = await _load_overrides(db, ws)
     now = datetime.now(UTC)
 
+    # Validate any feature keys before mutating.
+    for u in body.updates:
+        if u.features:
+            valid = _FEATURE_KEYS.get(u.key, set())
+            for fk in u.features:
+                if fk not in valid:
+                    raise HTTPException(
+                        status.HTTP_400_BAD_REQUEST,
+                        f"unknown feature {fk!r} for module {u.key!r}",
+                    )
+
     for u in body.updates:
         row = overrides.get(u.key)
         if row is None:
@@ -181,6 +284,10 @@ async def patch_modules(
             row.enabled = u.enabled
         if u.sort_order is not None:
             row.sort_order = u.sort_order
+        if u.features is not None:
+            merged_feats = dict(row.features or {})
+            merged_feats.update(u.features)
+            row.features = merged_feats
         row.updated_at = now
 
     await db.commit()
