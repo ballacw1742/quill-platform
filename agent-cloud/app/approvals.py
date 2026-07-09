@@ -60,6 +60,36 @@ def _utcnow() -> datetime:
 # ---------------------------------------------------------------------------
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")  # simple RFC-style check
+
+
+def _validate_email_addr(args: dict, key: str) -> str:
+    """Validate a required email address field."""
+    val = args.get(key)
+    if not isinstance(val, str) or not val.strip():
+        raise ProposalValidationError(f"{key!r} is required (non-empty string)")
+    addr = val.strip()
+    if not _EMAIL_RE.match(addr):
+        raise ProposalValidationError(f"{key!r} is not a valid email address: {addr!r}")
+    return addr
+
+
+def _validate_email_list(args: dict, key: str) -> list[str]:
+    """Validate an optional list of email addresses."""
+    val = args.get(key)
+    if val is None:
+        return []
+    if not isinstance(val, list):
+        raise ProposalValidationError(f"{key!r} must be a list of email addresses")
+    out = []
+    for addr in val:
+        if not isinstance(addr, str) or not addr.strip():
+            raise ProposalValidationError(f"{key!r} contains an invalid entry: {addr!r}")
+        a = addr.strip()
+        if not _EMAIL_RE.match(a):
+            raise ProposalValidationError(f"{key!r} contains an invalid email: {a!r}")
+        out.append(a)
+    return out
 
 # Mirrors of the api-side vocabularies (canonical: api/app/models_projects.py
 # and api/app/routes/pipeline.py). Kept in sync by the A6 contract tests.
@@ -235,6 +265,18 @@ def validate_args(action: str, args: dict[str, Any]) -> dict[str, Any]:
             out["response"] = resp
         return out
 
+    if action == "email_send":
+        _reject_unknown(args, {"to", "subject", "body", "cc"})
+        out = {
+            "to": _validate_email_addr(args, "to"),
+            "subject": _req_str(args, "subject", 200),
+            "body": _req_str(args, "body", 10000),
+        }
+        cc = _validate_email_list(args, "cc")
+        if cc:
+            out["cc"] = cc
+        return out
+
     raise ProposalValidationError(f"unknown action {action!r}")
 
 
@@ -257,6 +299,8 @@ _API_CALL = {
     "project_milestone_create": "POST /v1/projects/{project_id}/milestones",
     "deal_update": "PATCH /v1/deals/{deal_id}",
     "request_update": "PATCH /v1/requests/{request_id}",
+    # §9 Wave 2: email send (proposal-only; executor not yet implemented)
+    "email_send": "POST /v1/email/send (proposal-only)",
 }
 
 
