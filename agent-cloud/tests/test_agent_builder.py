@@ -42,7 +42,9 @@ async def test_catalog_grouped_from_registry(client):
     assert r.status_code == 200
     body = r.json()
     groups = {g["group"]: g for g in body["groups"]}
-    assert list(groups) == ["builtin", "read", "memory", "write"]
+    # Original 4 groups still present; §9 Wave 2 added email + web groups.
+    for required_group in ("builtin", "read", "memory", "write"):
+        assert required_group in groups, f"missing expected group {required_group!r}"
     # write group tools are all approval-gated
     assert all(t["approval_gated"] for t in groups["write"]["tools"])
     assert len(groups["write"]["tools"]) == 5
@@ -52,6 +54,11 @@ async def test_catalog_grouped_from_registry(client):
     # builtin get_time is neither
     bt = groups["builtin"]["tools"][0]
     assert bt["name"] == "get_time" and not bt["approval_gated"]
+    # §9 Wave 2: email group is approval-gated; web group is read-only
+    assert "email" in groups
+    assert all(t["approval_gated"] for t in groups["email"]["tools"])
+    assert "web" in groups
+    assert all(not t["approval_gated"] for t in groups["web"]["tools"])
     assert body["models"] == [
         "claude-fable-5",
         "claude-sonnet-4-6",
