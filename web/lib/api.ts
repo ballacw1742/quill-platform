@@ -4145,3 +4145,160 @@ export function useApplyModulePreset() {
       void qc.invalidateQueries({ queryKey: ["modules", vars.workspace ?? "personal"] }),
   });
 }
+
+// ─── Deliverables — Phase A spine ────────────────────────────────────────────
+//
+// Mirrors agent-cloud versioning semantics: monotonic version int, immutable
+// snapshots, newest-first history. All paths under /api/v1/deliverables.
+
+export const DeliverableSchema = z.object({
+  id: z.string(),
+  user_id: z.string(),
+  project_id: z.string().nullable(),
+  module_key: z.string(),
+  deliverable_type: z.string(),
+  title: z.string(),
+  status: z.string(),
+  version: z.number().int(),
+  content: z.record(z.unknown()).nullable().default(null),
+  meta: z.record(z.unknown()).nullable().default(null),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type Deliverable = z.infer<typeof DeliverableSchema>;
+
+export const DeliverableListSchema = z.object({
+  items: z.array(DeliverableSchema),
+  total: z.number().int(),
+});
+export type DeliverableList = z.infer<typeof DeliverableListSchema>;
+
+export const DeliverableVersionSchema = z.object({
+  id: z.string(),
+  deliverable_id: z.string(),
+  version: z.number().int(),
+  title: z.string(),
+  status: z.string(),
+  content: z.record(z.unknown()).nullable().default(null),
+  change_action: z.string(),
+  created_at: z.string(),
+});
+export type DeliverableVersion = z.infer<typeof DeliverableVersionSchema>;
+
+export const DeliverableVersionListSchema = z.object({
+  items: z.array(DeliverableVersionSchema),
+  total: z.number().int(),
+});
+
+export type DeliverableCreatePayload = {
+  project_id?: string | null;
+  module_key: string;
+  deliverable_type: string;
+  title: string;
+  content?: Record<string, unknown> | null;
+};
+
+export type DeliverablePatchPayload = {
+  title?: string;
+  status?: string;
+  content?: Record<string, unknown> | null;
+};
+
+/** GET /v1/deliverables — list own deliverables; optionally filter by project_id */
+export function useDeliverables(
+  projectId?: string,
+  opts?: UseQueryOptions<DeliverableList>,
+) {
+  const qs = projectId ? `?project_id=${encodeURIComponent(projectId)}` : "";
+  return useQuery<DeliverableList>({
+    queryKey: ["deliverables", projectId ?? "all"],
+    queryFn: async () =>
+      (await apiFetch(`/api/v1/deliverables${qs}`, {
+        schema: DeliverableListSchema,
+      })) as DeliverableList,
+    staleTime: 30_000,
+    ...opts,
+  });
+}
+
+/** GET /v1/deliverables/{id} — single deliverable detail */
+export function useDeliverable(id: string, opts?: UseQueryOptions<Deliverable>) {
+  return useQuery<Deliverable>({
+    queryKey: ["deliverable", id],
+    queryFn: async () =>
+      (await apiFetch(`/api/v1/deliverables/${encodeURIComponent(id)}`, {
+        schema: DeliverableSchema,
+      })) as Deliverable,
+    enabled: Boolean(id),
+    staleTime: 30_000,
+    ...opts,
+  });
+}
+
+/** POST /v1/deliverables — create (any authed member) */
+export function useCreateDeliverable() {
+  const qc = useQueryClient();
+  return useMutation<Deliverable, Error, DeliverableCreatePayload>({
+    mutationFn: async (payload) =>
+      (await apiFetch("/api/v1/deliverables", {
+        method: "POST",
+        body: JSON.stringify(payload),
+        schema: DeliverableSchema,
+      })) as Deliverable,
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ["deliverables"] });
+      if (data.project_id) {
+        void qc.invalidateQueries({ queryKey: ["deliverables", data.project_id] });
+      }
+    },
+  });
+}
+
+/** PATCH /v1/deliverables/{id} — update title/status/content; bumps version */
+export function useUpdateDeliverable() {
+  const qc = useQueryClient();
+  return useMutation<Deliverable, Error, { id: string; patch: DeliverablePatchPayload }>({
+    mutationFn: async ({ id, patch }) =>
+      (await apiFetch(`/api/v1/deliverables/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+        schema: DeliverableSchema,
+      })) as Deliverable,
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ["deliverable", data.id] });
+      void qc.invalidateQueries({ queryKey: ["deliverables"] });
+      void qc.invalidateQueries({ queryKey: ["deliverable-versions", data.id] });
+    },
+  });
+}
+
+/** GET /v1/deliverables/{id}/versions — version history newest-first */
+export function useDeliverableVersions(id: string) {
+  return useQuery({
+    queryKey: ["deliverable-versions", id],
+    queryFn: async () =>
+      (await apiFetch(`/api/v1/deliverables/${encodeURIComponent(id)}/versions`, {
+        schema: DeliverableVersionListSchema,
+      })) as z.infer<typeof DeliverableVersionListSchema>,
+    enabled: Boolean(id),
+    staleTime: 30_000,
+  });
+}
+
+/** POST /v1/deliverables/{id}/rollback — rollback to a prior version */
+export function useRollbackDeliverable() {
+  const qc = useQueryClient();
+  return useMutation<Deliverable, Error, { id: string; to_version: number }>({
+    mutationFn: async ({ id, to_version }) =>
+      (await apiFetch(`/api/v1/deliverables/${encodeURIComponent(id)}/rollback`, {
+        method: "POST",
+        body: JSON.stringify({ to_version }),
+        schema: DeliverableSchema,
+      })) as Deliverable,
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ["deliverable", data.id] });
+      void qc.invalidateQueries({ queryKey: ["deliverables"] });
+      void qc.invalidateQueries({ queryKey: ["deliverable-versions", data.id] });
+    },
+  });
+}

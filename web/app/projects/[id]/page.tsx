@@ -54,6 +54,9 @@ import {
   useDeployTemplateCatalog,
   useDeployCampusFromTemplate,
   useApprovals,
+  useDeliverables,
+  useDeliverableVersions,
+  type Deliverable,
 } from "@/lib/api";
 import { LifecycleTracker } from "@/components/lifecycle/LifecycleTracker";
 import type {
@@ -66,13 +69,14 @@ import type {
 
 // ── Tab types ─────────────────────────────────────────────────────────────────
 
-type TabValue = "overview" | "milestones" | "log" | "links";
+type TabValue = "overview" | "milestones" | "log" | "links" | "deliverables";
 
 const TABS: { label: string; value: TabValue }[] = [
   { label: "Overview", value: "overview" },
   { label: "Milestones", value: "milestones" },
   { label: "Log", value: "log" },
   { label: "Links", value: "links" },
+  { label: "Deliverables", value: "deliverables" },
 ];
 
 // ── Phase config ──────────────────────────────────────────────────────────────
@@ -1049,6 +1053,116 @@ function LogTab({ projectId }: { projectId: string }) {
   );
 }
 
+// ── Deliverables Tab ──────────────────────────────────────────────────────────
+
+const DELIVERABLE_STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
+  draft:           { label: "Draft",           cls: "text-label-secondary bg-bg-elevated" },
+  in_progress:     { label: "In Progress",     cls: "text-blue-400 bg-blue-400/10" },
+  awaiting_human:  { label: "Awaiting Review", cls: "text-yellow-400 bg-yellow-400/10" },
+  approved:        { label: "Approved",        cls: "text-green-400 bg-green-400/10" },
+  published:       { label: "Published",       cls: "text-accent bg-accent/10" },
+  superseded:      { label: "Superseded",      cls: "text-label-quaternary bg-bg-elevated" },
+};
+
+function deliverableStatusCfg(status: string): { label: string; cls: string } {
+  return DELIVERABLE_STATUS_CONFIG[status] ?? { label: status, cls: "text-label-secondary bg-bg-elevated" };
+}
+
+function DeliverableVersionHistory({ deliverableId }: { deliverableId: string }) {
+  const { data, isLoading } = useDeliverableVersions(deliverableId);
+  if (isLoading) {
+    return <div className="px-4 pb-3"><Loader2 className="h-4 w-4 animate-spin text-label-quaternary" /></div>;
+  }
+  const items = data?.items ?? [];
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-2 border-t border-separator/20 pt-2">
+      <p className="text-caption-2 font-semibold text-label-tertiary uppercase tracking-wide mb-2 px-1">Version History</p>
+      <div className="space-y-1">
+        {items.map((v) => (
+          <div key={v.id} className="flex items-center gap-2 rounded-lg bg-bg-elevated px-3 py-1.5">
+            <span className="text-caption-2 font-bold text-label-tertiary tabular-nums w-4">v{v.version}</span>
+            <span className={cn(
+              "text-caption-2 font-semibold rounded-full px-1.5 py-0.5",
+              deliverableStatusCfg(v.status).cls,
+            )}>
+              {deliverableStatusCfg(v.status).label}
+            </span>
+            <span className="text-caption-2 text-label-tertiary flex-1 truncate">{v.title}</span>
+            <span className="text-caption-2 text-label-quaternary shrink-0 capitalize">{v.change_action}</span>
+            <span className="text-caption-2 text-label-quaternary shrink-0">
+              {new Date(v.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DeliverableRow({ d }: { d: Deliverable }) {
+  const [expanded, setExpanded] = React.useState(false);
+  const { label, cls } = deliverableStatusCfg(d.status);
+  return (
+    <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-4 mb-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="w-full flex items-start gap-3 text-left"
+      >
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className={cn("text-caption-1 font-semibold rounded-full px-2 py-0.5 shrink-0", cls)}>
+              {label}
+            </span>
+            <span className="text-caption-2 text-label-tertiary shrink-0">
+              {d.deliverable_type}
+            </span>
+            <span className="text-caption-2 font-semibold text-label-quaternary shrink-0 tabular-nums">
+              v{d.version}
+            </span>
+          </div>
+          <p className="text-callout font-semibold text-label-primary truncate">{d.title}</p>
+          <p className="text-caption-1 text-label-tertiary mt-0.5">{d.module_key}</p>
+        </div>
+        <ChevronRight
+          className={cn(
+            "h-4 w-4 text-label-quaternary shrink-0 mt-1 transition-transform",
+            expanded && "rotate-90",
+          )}
+        />
+      </button>
+      {expanded && <DeliverableVersionHistory deliverableId={d.id} />}
+    </div>
+  );
+}
+
+function DeliverablesTab({ projectId }: { projectId: string }) {
+  const { data, isLoading } = useDeliverables(projectId);
+  const items = data?.items ?? [];
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-6 w-6 animate-spin text-label-quaternary" />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {items.length === 0 && (
+        <div className="text-center py-8 text-label-quaternary text-callout">
+          No deliverables yet for this project.
+        </div>
+      )}
+      {items.map((d) => (
+        <DeliverableRow key={d.id} d={d} />
+      ))}
+    </>
+  );
+}
+
 // ── Links Tab ─────────────────────────────────────────────────────────────────
 
 function LinksTab({ projectId }: { projectId: string }) {
@@ -1380,6 +1494,7 @@ export default function ProjectDetailPage() {
         {activeTab === "milestones" && <MilestonesTab projectId={projectId} />}
         {activeTab === "log" && <LogTab projectId={projectId} />}
         {activeTab === "links" && <LinksTab projectId={projectId} />}
+        {activeTab === "deliverables" && <DeliverablesTab projectId={projectId} />}
       </div>
     </MobileShell>
   );
