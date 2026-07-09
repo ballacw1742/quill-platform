@@ -252,17 +252,25 @@ def _validate_prompt(system_prompt: str) -> str:
     return text
 
 
-def _validate_tools(tools: list[str]) -> list[str]:
+def _validate_tools(tools: list[str], *, agent_kind: str = "assistant") -> list[str]:
     if tools is None:
         return []
     if not isinstance(tools, list):
         raise AgentValidationError("tools must be a list of tool names")
+    # adk_task agents draw from the curated ADK tool registry (read/deliverable/
+    # memory/approval-gated-write); classic agents use the legacy REGISTRY.
+    if agent_kind == "adk_task":
+        from app.adk.registry import ADK_TOOL_REGISTRY
+
+        valid = ADK_TOOL_REGISTRY
+    else:
+        valid = REGISTRY
     out: list[str] = []
     seen: set[str] = set()
     for name in tools:
         if not isinstance(name, str):
             raise AgentValidationError("tools must be a list of tool names")
-        if name not in REGISTRY:
+        if name not in valid:
             raise AgentValidationError(f"unknown tool {name!r}")
         if name not in seen:
             seen.add(name)
@@ -454,15 +462,20 @@ async def create_agent(tenant_id: str, data: dict) -> dict:
         model = _validate_model(
             str(data.get("model") or seed_model_for_tenant(tenant_id))
         )
-        tools = _validate_tools(data.get("tools", []) or [])
-        memory_policy = _validate_memory_policy(str(data.get("memory_policy", "off")))
-        budget = await _validate_budget(
-            db,
-            tenant_id,
-            data.get("budget_monthly_usd", s.DEFAULT_BUDGET_MONTHLY_USD),
-        )
-        enabled = bool(data.get("enabled", True))
         agent_kind = _validate_agent_kind(str(data.get("agent_kind", "assistant")))
+        tools = _validate_tools(data.get("tools", []) or [], agent_kind=agent_kind)
+        memory_policy = _validate_memory_policy(str(data.get("memory_policy", "off")))
+        # When no explicit budget is given, default to the config default but
+        # never above the tenant's own cap (user-* tenants cap below the config
+        # default, so a fixed default would otherwise 400 every create).
+        if data.get("budget_monthly_usd") is not None:
+            budget = await _validate_budget(db, tenant_id, data["budget_monthly_usd"])
+        else:
+            tenant_cap, _ = await budget_mod.resolve_tenant_budget(db, tenant_id)
+            budget = await _validate_budget(
+                db, tenant_id, min(s.DEFAULT_BUDGET_MONTHLY_USD, tenant_cap)
+            )
+        enabled = bool(data.get("enabled", True))
         # An adk_task agent implies the adk runtime (and vice-versa default).
         default_runtime = "adk" if agent_kind == "adk_task" else "claude"
         runtime = _validate_runtime(str(data.get("runtime", default_runtime)))
@@ -511,8 +524,14 @@ async def update_agent(tenant_id: str, agent_id: str, patch: dict) -> dict:
         if "model" in patch:
             row.model = _validate_model(str(patch["model"]))
             changed.append("model")
+        if "agent_kind" in patch:
+            row.agent_kind = _validate_agent_kind(str(patch["agent_kind"]))
+            changed.append("agent_kind")
         if "tools" in patch:
-            row.tools = _validate_tools(patch["tools"])
+            # Validate against the registry implied by the effective kind
+            # (patched kind wins; else the row's current kind).
+            eff_kind = getattr(row, "agent_kind", "assistant") or "assistant"
+            row.tools = _validate_tools(patch["tools"], agent_kind=eff_kind)
             changed.append("tools")
         if "memory_policy" in patch:
             row.memory_policy = _validate_memory_policy(str(patch["memory_policy"]))
@@ -531,9 +550,6 @@ async def update_agent(tenant_id: str, agent_id: str, patch: dict) -> dict:
                 )
             row.enabled = enabled
             changed.append("enabled")
-        if "agent_kind" in patch:
-            row.agent_kind = _validate_agent_kind(str(patch["agent_kind"]))
-            changed.append("agent_kind")
         if "runtime" in patch:
             row.runtime = _validate_runtime(str(patch["runtime"]))
             changed.append("runtime")

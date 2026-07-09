@@ -47,6 +47,21 @@ def compute_sla_due(lane: int, priority: str, now: datetime | None = None) -> da
     return (now or _utcnow()) + timedelta(hours=base)
 
 
+def is_owner_only_workflow(workflow: str | None) -> bool:
+    """ADK_AGENTS_DESIGN.md §4 — workflow-assignment (and any future
+    live-workflow-mutating) approvals are owner-only and never auto-execute."""
+    return workflow in OWNER_ONLY_WORKFLOWS
+
+
+def owner_only_decide_allowed(workflow: str | None, role: str) -> bool:
+    """True iff `role` may DECIDE an approval of this workflow. For owner-only
+    workflows, only role=owner qualifies; all other workflows defer to the
+    normal required_approvers authority check."""
+    if is_owner_only_workflow(workflow):
+        return (role or "").lower() == UserRole.OWNER.value
+    return True
+
+
 def required_approvers_for_lane(lane: int, override: list[str] | None = None) -> list[str]:
     if override:
         return override
@@ -180,12 +195,11 @@ async def decide_approval(
     # OWNER-ONLY — only role=owner may decide (approve OR reject), regardless
     # of any agent trust tier or required_approvers list. This is the core
     # safety invariant: a non-owner can never change a live workflow.
-    if item.workflow in OWNER_ONLY_WORKFLOWS:
-        if approver.role.lower() != UserRole.OWNER.value:
-            raise PermissionError(
-                f"workflow {item.workflow!r} is owner-only; role "
-                f"{approver.role!r} cannot decide it"
-            )
+    if not owner_only_decide_allowed(item.workflow, approver.role):
+        raise PermissionError(
+            f"workflow {item.workflow!r} is owner-only; role "
+            f"{approver.role!r} cannot decide it"
+        )
 
     # Authority check: approver's role must be one of required_approvers (case-insensitive).
     needed = {r.lower() for r in (item.required_approvers or [])}
