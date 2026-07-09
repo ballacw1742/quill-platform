@@ -28,7 +28,15 @@ jobs:
           docker build -t gcr.io/totemic-formula-467102-s9/quill-web:${{ github.sha }} ./web
           docker push gcr.io/totemic-formula-467102-s9/quill-web:${{ github.sha }}
 
-      - name: Deploy to Cloud Run
+      # Deploy the SAME image to BOTH projects that run quill-web:
+      #  - totemic-formula-467102-s9: the platform/backend project
+      #  - studio-1771635593-6661e:   the project whose Firebase Hosting serves
+      #                               quillpm.com (rewrites ** -> its own quill-web)
+      # Firebase Hosting can only rewrite to a Cloud Run service in its OWN
+      # project, so studio MUST have an up-to-date quill-web or quillpm.com
+      # serves a stale build. (This is the drift that stranded studio on a
+      # July-7 image and 404'd /lifecycle + /assistant/builder.)
+      - name: Deploy to Cloud Run (totemic — platform project)
         run: |
           gcloud run deploy quill-web \
             --image gcr.io/totemic-formula-467102-s9/quill-web:${{ github.sha }} \
@@ -38,10 +46,28 @@ jobs:
             --set-env-vars "INTERNAL_API_URL=https://quill-agents-894031978246.us-central1.run.app,NODE_ENV=production" \
             --project totemic-formula-467102-s9
 
-      - name: Grant public access (re-apply after each deploy)
+      - name: Grant public access — totemic (re-apply after each deploy)
         run: |
           gcloud run services add-iam-policy-binding quill-web \
             --region us-central1 \
             --member="allUsers" \
             --role="roles/run.invoker" \
             --project totemic-formula-467102-s9
+
+      - name: Deploy to Cloud Run (studio — the project Firebase Hosting serves)
+        run: |
+          gcloud run deploy quill-web \
+            --image gcr.io/totemic-formula-467102-s9/quill-web:${{ github.sha }} \
+            --platform managed \
+            --region us-central1 \
+            --allow-unauthenticated \
+            --set-env-vars "INTERNAL_API_URL=https://quill-agents-894031978246.us-central1.run.app,NODE_ENV=production" \
+            --project studio-1771635593-6661e
+
+      - name: Grant public access — studio (re-apply after each deploy)
+        run: |
+          gcloud run services add-iam-policy-binding quill-web \
+            --region us-central1 \
+            --member="allUsers" \
+            --role="roles/run.invoker" \
+            --project studio-1771635593-6661e

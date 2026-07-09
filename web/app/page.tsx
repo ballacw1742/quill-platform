@@ -39,6 +39,7 @@ import {
   TrendingUp,
   User,
   Users,
+  Workflow,
   X,
 } from "lucide-react";
 import { MobileShell } from "@/components/layout/MobileShell";
@@ -152,6 +153,30 @@ function HomeScreen() {
           <span className="min-w-0">
             <span className="block text-title-3 leading-6 text-label-primary">{openRequests}</span>
             <span className="block text-footnote text-label-secondary">Open requests</span>
+          </span>
+        </Link>
+      </section>
+
+      {/* ── Quick access: Lifecycle + Assistant (not in the locked 15-tile roster) ── */}
+      <section aria-label="Quick access" className="mb-6 grid grid-cols-2 gap-3">
+        <Link
+          href="/lifecycle"
+          className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
+        >
+          <Workflow className="h-6 w-6 shrink-0 text-accent" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="block text-callout font-semibold leading-6 text-label-primary">Lifecycle</span>
+            <span className="block text-footnote text-label-secondary">Project journey map</span>
+          </span>
+        </Link>
+        <Link
+          href="/assistant"
+          className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
+        >
+          <Sparkles className="h-6 w-6 shrink-0 text-accent" aria-hidden="true" />
+          <span className="min-w-0">
+            <span className="block text-callout font-semibold leading-6 text-label-primary">Assistant</span>
+            <span className="block text-footnote text-label-secondary">Agents &amp; builder</span>
           </span>
         </Link>
       </section>
