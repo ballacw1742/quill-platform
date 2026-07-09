@@ -7,7 +7,10 @@
  *  - Greeting header ("Good morning, {name}") + date; avatar top-right opens
  *    a sheet with Profile / Settings / Dev Chat / Sign out.
  *  - Compact Today strip: pending approvals + open requests, tappable.
- *  - 3×5 grid of 15 squircle ModuleTiles (roster locked in brief §9.1).
+ *  - Responsive grid of 15 squircle ModuleTiles (roster locked in brief §9.1):
+ *    4-up on mobile so all tiles are visible without scrolling, scaling to
+ *    5/6/8 columns on sm/md/lg. Container widens on tablet/desktop rather
+ *    than staying phone-width.
  *
  * Auth-gated like every other page (MobileShell redirects to /login).
  * The FloatingHomeButton is hidden here (MobileShell hides it on "/").
@@ -119,7 +122,7 @@ function HomeScreen() {
     : "";
 
   return (
-    <div className="mx-auto w-full max-w-[708px] px-5 pt-safe">
+    <div className="mx-auto w-full max-w-[708px] px-5 pt-safe md:max-w-5xl lg:max-w-6xl xl:max-w-[1600px] md:px-8 lg:px-10">
       {/* ── Greeting header ── */}
       <header className="flex items-start justify-between pt-6 pb-4">
         <div className="min-w-0">
@@ -134,7 +137,7 @@ function HomeScreen() {
       </header>
 
       {/* ── Today strip ── */}
-      <section aria-label="Today" className="mb-6 grid grid-cols-2 gap-3">
+      <section aria-label="Today" className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Link
           href="/queue"
           className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
@@ -158,7 +161,7 @@ function HomeScreen() {
       </section>
 
       {/* ── Quick access: Lifecycle + Assistant (not in the locked 15-tile roster) ── */}
-      <section aria-label="Quick access" className="mb-6 grid grid-cols-2 gap-3">
+      <section aria-label="Quick access" className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Link
           href="/lifecycle"
           className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
@@ -181,8 +184,10 @@ function HomeScreen() {
         </Link>
       </section>
 
-      {/* ── 3×5 module grid ── */}
-      <section aria-label="Modules" className="grid grid-cols-3 gap-x-4 gap-y-6 pb-8 sm:gap-x-8">
+      {/* ── Module grid ── 4-up on mobile (all 15 visible without scrolling),
+          scaling to more columns on tablet/desktop so the wider container
+          stays filled instead of looking like a stretched phone layout. */}
+      <section aria-label="Modules" className="grid grid-cols-4 gap-x-4 gap-y-6 pb-8 sm:grid-cols-5 sm:gap-x-8 md:grid-cols-6 lg:grid-cols-8">
         {MODULES.map((m) => (
           <ModuleTile
             key={m.href}
