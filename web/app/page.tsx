@@ -121,14 +121,27 @@ function HomeScreen() {
   const visibleModules = React.useMemo(() => {
     const cfg = moduleConfig?.items;
     if (!cfg || cfg.length === 0) return MODULES;
-    const enabled = new Set(cfg.filter((c) => c.enabled).map((c) => c.key));
-    const orderOf = new Map(cfg.map((c) => [c.key, c.sort_order] as const));
-    return MODULES.filter((m) => enabled.has(m.key)).sort(
-      (a, b) =>
-        (orderOf.get(a.key) ?? ROSTER_ORDER[a.key]) -
-          (orderOf.get(b.key) ?? ROSTER_ORDER[b.key]) ||
-        ROSTER_ORDER[a.key] - ROSTER_ORDER[b.key],
-    );
+    const byKey = new Map(MODULES.map((m) => [m.key, m] as const));
+    // Walk the config in its (already-sorted) order; include enabled builtins
+    // and enabled custom modules (which aren't in the static MODULES array).
+    const out: typeof MODULES = [];
+    for (const c of cfg) {
+      if (!c.enabled) continue;
+      const builtin = byKey.get(c.key);
+      if (builtin) {
+        out.push(builtin);
+      } else if (c.custom) {
+        out.push({
+          key: c.key,
+          href: c.href ?? "/requests",
+          label: c.label,
+          gradient: c.gradient ?? "from-slate-400 to-slate-600",
+          icon: (c.icon && MODULE_ICONS[c.icon]) || Bot,
+          badge: undefined,
+        });
+      }
+    }
+    return out;
   }, [moduleConfig]);
 
   const [now, setNow] = React.useState<Date | null>(null);

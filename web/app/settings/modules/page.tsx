@@ -14,9 +14,13 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { ArrowLeft, ChevronDown, ChevronUp, GripVertical } from "lucide-react";
+import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2 } from "lucide-react";
 import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
+  useCreateCustomModule,
+  useDeleteCustomModule,
   useModuleConfig,
   useSession,
   useUpdateModuleConfig,
@@ -45,6 +49,50 @@ function ModulesManager() {
 
   const { data, isLoading, isError } = useModuleConfig();
   const update = useUpdateModuleConfig();
+  const createCustom = useCreateCustomModule();
+  const deleteCustom = useDeleteCustomModule();
+
+  const [showNew, setShowNew] = React.useState(false);
+  const [newKey, setNewKey] = React.useState("");
+  const [newLabel, setNewLabel] = React.useState("");
+
+  function createModule() {
+    const key = newKey.trim().toLowerCase();
+    const label = newLabel.trim();
+    if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(key)) {
+      toast.error("Key must be a lowercase slug (letters, digits, hyphens).");
+      return;
+    }
+    if (!label) {
+      toast.error("Give the module a name.");
+      return;
+    }
+    createCustom.mutate(
+      { key, label },
+      {
+        onSuccess: () => {
+          toast.success(`Created ${label}`);
+          setNewKey("");
+          setNewLabel("");
+          setShowNew(false);
+        },
+        onError: (e) =>
+          toast.error(e instanceof Error ? e.message : "Couldn't create module"),
+      },
+    );
+  }
+
+  function removeCustom(key: string, label: string) {
+    if (!window.confirm(`Delete the "${label}" module? This can't be undone.`)) return;
+    deleteCustom.mutate(
+      { key },
+      {
+        onSuccess: () => toast.success(`Deleted ${label}`),
+        onError: (e) =>
+          toast.error(e instanceof Error ? e.message : "Couldn't delete module"),
+      },
+    );
+  }
 
   // Local working copy so reordering feels instant; server is source of truth
   // and we re-sync from the mutation response.
@@ -163,7 +211,24 @@ function ModulesManager() {
 
             <span className="flex-1 text-body font-medium text-label-primary">
               {m.label}
+              {m.custom && (
+                <span className="ml-2 rounded bg-accent/10 px-1.5 py-0.5 text-caption-2 text-accent align-middle">
+                  custom
+                </span>
+              )}
             </span>
+
+            {isOwner && m.custom && (
+              <button
+                type="button"
+                aria-label={`Delete ${m.label}`}
+                onClick={() => removeCustom(m.key, m.label)}
+                disabled={deleteCustom.isPending}
+                className="text-danger/70 active:opacity-60 no-tap-highlight"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
 
             <Toggle
               checked={m.enabled}
@@ -196,6 +261,49 @@ function ModulesManager() {
           </li>
         ))}
       </ul>
+
+      {isOwner && (
+        <div className="mt-4">
+          {!showNew ? (
+            <Button size="sm" variant="secondary" onClick={() => setShowNew(true)}>
+              <Plus className="h-4 w-4" /> New module
+            </Button>
+          ) : (
+            <div className="flex flex-col gap-2 rounded-2xl border border-separator/40 bg-bg-elevated/40 p-3">
+              <p className="text-footnote text-label-secondary">
+                Create a custom module. Key is a lowercase slug (e.g.
+                &ldquo;permits&rdquo;); the name is what shows on the home grid.
+              </p>
+              <Input
+                placeholder="key (e.g. permits)"
+                value={newKey}
+                onChange={(e) => setNewKey(e.target.value)}
+              />
+              <Input
+                placeholder="Name (e.g. Permits)"
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={createModule} disabled={createCustom.isPending}>
+                  {createCustom.isPending ? "Creating…" : "Create"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setShowNew(false);
+                    setNewKey("");
+                    setNewLabel("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

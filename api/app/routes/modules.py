@@ -22,7 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.enums import UserRole
-from app.models_modules import ModuleConfig
+import re
+
+from app.models_modules import CustomModule, ModuleConfig
 from app.security import get_current_user
 
 router = APIRouter(prefix="/v1/modules", tags=["modules"])
@@ -155,12 +157,21 @@ class ModuleFeatureItem(BaseModel):
     enabled: bool
 
 
+_SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
+
+
 class ModuleConfigItem(BaseModel):
     key: str
     label: str
     enabled: bool
     sort_order: int
     features: list[ModuleFeatureItem] = Field(default_factory=list)
+    # Phase 3: presentation + provenance for the home grid. Builtins carry
+    # None for href/gradient/icon (web owns those); customs carry their own.
+    custom: bool = False
+    href: str | None = None
+    gradient: str | None = None
+    icon: str | None = None
 
 
 class ModuleConfigList(BaseModel):
@@ -206,8 +217,36 @@ def _feature_items(module_key: str, ov: ModuleConfig | None) -> list[ModuleFeatu
     ]
 
 
-def _merged(overrides: dict[str, ModuleConfig]) -> list[ModuleConfigItem]:
-    """Roster + overrides → the effective per-workspace module list, ordered."""
+async def _load_customs(db: AsyncSession, workspace: str) -> list[CustomModule]:
+    return list(
+        (
+            await db.execute(
+                select(CustomModule).where(CustomModule.workspace == workspace)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+def _custom_feature_items(
+    cm: CustomModule, ov: ModuleConfig | None
+) -> list[ModuleFeatureItem]:
+    saved = (ov.features if ov is not None else None) or {}
+    return [
+        ModuleFeatureItem(
+            key=f["key"], label=f["label"], enabled=bool(saved.get(f["key"], True))
+        )
+        for f in (cm.features or [])
+    ]
+
+
+def _merged(
+    overrides: dict[str, ModuleConfig], customs: list[CustomModule] | None = None
+) -> list[ModuleConfigItem]:
+    """Roster + custom modules + overrides → effective per-workspace list.
+    Builtins keep roster order (default); customs sort after builtins unless
+    an override pins them earlier."""
     items: list[ModuleConfigItem] = []
     for m in MODULE_ROSTER:
         ov = overrides.get(m["key"])
@@ -220,7 +259,26 @@ def _merged(overrides: dict[str, ModuleConfig]) -> list[ModuleConfigItem]:
                 features=_feature_items(m["key"], ov),
             )
         )
-    items.sort(key=lambda i: (i.sort_order, _ROSTER_ORDER[i.key]))
+    base_order: dict[str, int] = dict(_ROSTER_ORDER)
+    for idx, cm in enumerate(customs or []):
+        ov = overrides.get(cm.module_key)
+        # Customs default to sorting after all builtins, in creation order.
+        default_order = len(MODULE_ROSTER) + idx
+        base_order[cm.module_key] = default_order
+        items.append(
+            ModuleConfigItem(
+                key=cm.module_key,
+                label=cm.label,
+                enabled=ov.enabled if ov is not None else True,
+                sort_order=ov.sort_order if ov is not None else default_order,
+                features=_custom_feature_items(cm, ov),
+                custom=True,
+                href=cm.href,
+                gradient=cm.gradient,
+                icon=cm.icon,
+            )
+        )
+    items.sort(key=lambda i: (i.sort_order, base_order.get(i.key, 999)))
     return items
 
 
@@ -234,7 +292,8 @@ async def get_modules(
     Open to any authenticated member (read-only)."""
     ws = _resolve_workspace(user, workspace)
     overrides = await _load_overrides(db, ws)
-    return ModuleConfigList(items=_merged(overrides))
+    customs = await _load_customs(db, ws)
+    return ModuleConfigList(items=_merged(overrides, customs))
 
 
 @router.patch("", response_model=ModuleConfigList)
@@ -248,18 +307,24 @@ async def patch_modules(
     if user.role != UserRole.OWNER.value:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "owner role required")
 
+    ws = _resolve_workspace(user, body.workspace)
+    customs = await _load_customs(db, ws)
+    custom_keys = {c.module_key for c in customs}
+    custom_feature_keys = {
+        c.module_key: {f["key"] for f in (c.features or [])} for c in customs
+    }
+    valid_keys = _ROSTER_KEYS | custom_keys
     for u in body.updates:
-        if u.key not in _ROSTER_KEYS:
+        if u.key not in valid_keys:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, f"unknown module {u.key!r}")
 
-    ws = _resolve_workspace(user, body.workspace)
     overrides = await _load_overrides(db, ws)
     now = datetime.now(UTC)
 
-    # Validate any feature keys before mutating.
+    # Validate any feature keys before mutating (builtin or custom feature set).
     for u in body.updates:
         if u.features:
-            valid = _FEATURE_KEYS.get(u.key, set())
+            valid = _FEATURE_KEYS.get(u.key, set()) | custom_feature_keys.get(u.key, set())
             for fk in u.features:
                 if fk not in valid:
                     raise HTTPException(
@@ -274,7 +339,7 @@ async def patch_modules(
                 workspace=ws,
                 module_key=u.key,
                 enabled=True,
-                sort_order=_ROSTER_ORDER[u.key],
+                sort_order=_ROSTER_ORDER.get(u.key, len(MODULE_ROSTER)),
                 created_at=now,
                 updated_at=now,
             )
@@ -292,4 +357,167 @@ async def patch_modules(
 
     await db.commit()
     fresh = await _load_overrides(db, ws)
-    return ModuleConfigList(items=_merged(fresh))
+    return ModuleConfigList(items=_merged(fresh, customs))
+
+
+# ── Phase 3: Module Builder — create/edit/delete custom modules ──────────────
+
+
+class CustomFeatureIn(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=80)
+
+
+class CustomModuleIn(BaseModel):
+    """Create a workspace-authored module (owner-only)."""
+
+    key: str = Field(min_length=1, max_length=64)
+    label: str = Field(min_length=1, max_length=80)
+    href: str = Field(default="/requests", max_length=200)
+    gradient: str = Field(default="from-slate-400 to-slate-600", max_length=120)
+    icon: str | None = Field(default=None, max_length=60)
+    features: list[CustomFeatureIn] = Field(default_factory=list)
+    workspace: str = "personal"
+
+
+class CustomModulePatch(BaseModel):
+    """Edit an existing custom module. Absent fields unchanged."""
+
+    label: str | None = Field(default=None, min_length=1, max_length=80)
+    href: str | None = Field(default=None, max_length=200)
+    gradient: str | None = Field(default=None, max_length=120)
+    icon: str | None = Field(default=None, max_length=60)
+    features: list[CustomFeatureIn] | None = None
+    workspace: str = "personal"
+
+
+def _custom_out(cm: CustomModule) -> dict:
+    return {
+        "key": cm.module_key,
+        "label": cm.label,
+        "href": cm.href,
+        "gradient": cm.gradient,
+        "icon": cm.icon,
+        "features": cm.features or [],
+        "custom": True,
+    }
+
+
+@router.post("/custom", status_code=status.HTTP_201_CREATED)
+async def create_custom_module(
+    body: CustomModuleIn,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Create a custom module (OWNER-ONLY). Key must be a slug, must not collide
+    with a builtin roster key or an existing custom in the workspace."""
+    if user.role != UserRole.OWNER.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "owner role required")
+    if not _SLUG_RE.match(body.key):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "key must be a lowercase slug (letters/digits/internal hyphens)",
+        )
+    if body.key in _ROSTER_KEYS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            f"{body.key!r} collides with a built-in module",
+        )
+    ws = _resolve_workspace(user, body.workspace)
+    existing = (
+        await db.execute(
+            select(CustomModule).where(
+                CustomModule.workspace == ws, CustomModule.module_key == body.key
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"module {body.key!r} already exists")
+    now = datetime.now(UTC)
+    cm = CustomModule(
+        workspace=ws,
+        module_key=body.key,
+        label=body.label,
+        href=body.href,
+        gradient=body.gradient,
+        icon=body.icon,
+        features=[{"key": f.key, "label": f.label} for f in body.features],
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(cm)
+    await db.commit()
+    await db.refresh(cm)
+    return _custom_out(cm)
+
+
+@router.patch("/custom/{module_key}")
+async def edit_custom_module(
+    module_key: str,
+    body: CustomModulePatch,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Edit a custom module's presentation/features (OWNER-ONLY). 404 unknown."""
+    if user.role != UserRole.OWNER.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "owner role required")
+    ws = _resolve_workspace(user, body.workspace)
+    cm = (
+        await db.execute(
+            select(CustomModule).where(
+                CustomModule.workspace == ws, CustomModule.module_key == module_key
+            )
+        )
+    ).scalar_one_or_none()
+    if cm is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "custom module not found")
+    if body.label is not None:
+        cm.label = body.label
+    if body.href is not None:
+        cm.href = body.href
+    if body.gradient is not None:
+        cm.gradient = body.gradient
+    if body.icon is not None:
+        cm.icon = body.icon
+    if body.features is not None:
+        cm.features = [{"key": f.key, "label": f.label} for f in body.features]
+    cm.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(cm)
+    return _custom_out(cm)
+
+
+@router.delete("/custom/{module_key}")
+async def delete_custom_module(
+    module_key: str,
+    workspace: str = "personal",
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Delete a custom module (OWNER-ONLY). Also removes any config override
+    row for it so no orphan config lingers. 404 unknown."""
+    if user.role != UserRole.OWNER.value:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "owner role required")
+    ws = _resolve_workspace(user, workspace)
+    cm = (
+        await db.execute(
+            select(CustomModule).where(
+                CustomModule.workspace == ws, CustomModule.module_key == module_key
+            )
+        )
+    ).scalar_one_or_none()
+    if cm is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "custom module not found")
+    await db.delete(cm)
+    # Best-effort cleanup of any override row.
+    ov = (
+        await db.execute(
+            select(ModuleConfig).where(
+                ModuleConfig.workspace == ws, ModuleConfig.module_key == module_key
+            )
+        )
+    ).scalar_one_or_none()
+    if ov is not None:
+        await db.delete(ov)
+    await db.commit()
+    return {"key": module_key, "deleted": True}
