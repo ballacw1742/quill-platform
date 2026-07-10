@@ -72,7 +72,8 @@ async def test_estimate_intent_produces_cost_estimate(client, owner_token, monke
     assert len(dels) == 1
     assert dels[0].deliverable_type == "cost_estimate"
     assert dels[0].module_key == "estimates"
-    assert dels[0].version == 1
+    # Phase C: chain produces >=1 version (v1 from step A, v2+ from subsequent steps)
+    assert dels[0].version >= 1
 
 
 async def test_rfi_intent_produces_rfi_response(client, owner_token, monkeypatch):
@@ -92,6 +93,10 @@ async def test_non_piloted_intent_produces_nothing(client, owner_token, monkeypa
 
 
 async def test_produced_deliverable_has_single_created_snapshot(client, owner_token, monkeypatch):
+    """Phase C: v1 snapshot (change_action='created') always exists; chain may add more.
+    The v1 'created' snapshot contract is preserved by Phase A; Phase C appends 'updated'
+    snapshots for subsequent steps.
+    """
     import app.db as db_module
     uid, _ = owner_token
     await _seed_and_dispatch(client, monkeypatch, uid, "estimate", "Budget check")
@@ -101,27 +106,33 @@ async def test_produced_deliverable_has_single_created_snapshot(client, owner_to
             await s.execute(
                 select(DeliverableVersion).where(
                     DeliverableVersion.deliverable_id == dels[0].id
-                )
+                ).order_by(DeliverableVersion.version.asc())
             )
         ).scalars().all()
-    assert len(snaps) == 1
+    # Phase A contract: v1 'created' snapshot always exists
     assert snaps[0].version == 1 and snaps[0].change_action == "created"
+    # Phase C: subsequent chain steps append 'updated' snapshots
+    assert len(snaps) >= 1  # at minimum the v1 created snapshot
 
 
-async def test_deliverable_failure_does_not_fail_request(client, owner_token, monkeypatch):
-    """Fail-safe: if deliverable creation raises, the request still completes."""
+async def test_deliverable_pipeline_failure_does_not_crash_and_marks_failed(client, owner_token, monkeypatch):
+    """The handler must never CRASH on a pipeline error (broad try/except in
+    requests.py). Phase-C cost model: the legacy single dispatch is skipped for
+    piloted intents, so a total pipeline failure has no fallback response — the
+    request is honestly marked 'failed' (not falsely 'complete' with no output).
+    """
     import app.db as db_module
-    import app.routes.deliverables as delmod
+    import app.deliverable_pipeline as pipeline_mod
 
     uid, _ = owner_token
 
     async def _boom(*a, **k):
         raise RuntimeError("simulated deliverable failure")
 
-    monkeypatch.setattr(delmod, "create_deliverable_service", _boom)
+    monkeypatch.setattr(pipeline_mod, "create_deliverable_service", _boom)
     rid = await _seed_and_dispatch(client, monkeypatch, uid, "estimate", "Will still complete")
 
     async with db_module.SessionLocal() as s:
         rec = await s.get(RequestRecord, rid)
-    assert rec.status == "complete"          # request finished fine despite the failure
+    assert rec.status == "failed"             # honest failure, no legacy fallback
     assert await _deliverables_for(uid) == []  # no deliverable, but no crash

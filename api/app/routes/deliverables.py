@@ -181,6 +181,42 @@ async def create_deliverable_service(
     return row
 
 
+async def append_deliverable_version_service(
+    db: AsyncSession,
+    row: Deliverable,
+    *,
+    title: str | None = None,
+    status: str | None = None,
+    content: dict | None = None,
+    meta: dict | None = None,
+    change_action: str = "updated",
+) -> Deliverable:
+    """Append a new version to an existing Deliverable (the SINGLE shared path).
+
+    Used by the PATCH route, the pipeline orchestrator, and rollback. Applies
+    any provided fields, bumps the version, THEN snapshots the new state so the
+    snapshot's version number matches its content (one snapshot per version,
+    mirroring agent-cloud Phase 5). Never destructive. Commits + refreshes.
+    Only fields passed (not None) are changed; meta replaces when provided.
+    """
+    now = datetime.now(UTC)
+    if title is not None:
+        row.title = title
+    if status is not None:
+        row.status = status
+    if content is not None:
+        row.content = content
+    if meta is not None:
+        row.meta = meta
+    row.version = row.version + 1
+    row.updated_at = now
+    snap = _snapshot(row, change_action, now)
+    db.add(snap)
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
 # ── Routes ─────────────────────────────────────────────────────────────────────
 
 
@@ -245,26 +281,14 @@ async def update_deliverable(
             f"invalid status {body.status!r}; allowed: {sorted(ALLOWED_STATUSES)}",
         )
     row = await _get_own_deliverable(deliverable_id, user.id, db)
-
-    now = datetime.now(UTC)
-    # Apply changes and bump the version FIRST, then snapshot the NEW state so
-    # the snapshot's version number matches its content (one snapshot per
-    # version, mirroring agent-cloud Phase 5). v1's snapshot was written at
-    # create time; each PATCH writes the snapshot for the version it produces.
-    if body.title is not None:
-        row.title = body.title
-    if body.status is not None:
-        row.status = body.status
-    if body.content is not None:
-        row.content = body.content
-    row.version = row.version + 1
-    row.updated_at = now
-
-    snap = _snapshot(row, "updated", now)
-    db.add(snap)
-
-    await db.commit()
-    await db.refresh(row)
+    # Single shared version-append path (also used by the pipeline orchestrator).
+    row = await append_deliverable_version_service(
+        db, row,
+        title=body.title,
+        status=body.status,
+        content=body.content,
+        change_action="updated",
+    )
     return _deliverable_out(row)
 
 

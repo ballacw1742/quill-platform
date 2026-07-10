@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_db
 from app.deliverable_registry import INTENT_TO_DELIVERABLE
+from app.deliverable_pipeline import run_deliverable_chain
 from app.models_requests import RequestRecord
 from app.routes.modules import is_feature_enabled, is_module_enabled
 from app.rate_limit import DISPATCH_LIMIT, GET_LIMIT, limiter
@@ -570,16 +571,36 @@ async def _dispatch_to_agent(
     new_status = "failed"
     response_text: str | None = None
 
-    log.info(
-        "dispatch.adk request_id=%s intent=%s agent=%s",
-        request_id, intent, agent_name,
-    )
+    # Cost optimization (Phase C): for piloted intents, the deliverable pipeline
+    # below runs the full multi-step agent chain and produces the response. The
+    # legacy single dispatch would be a redundant 3rd agent call, so skip it for
+    # piloted intents and let the chain set status/response. Non-piloted intents
+    # keep the original single-dispatch path unchanged.
+    _piloted = intent in INTENT_TO_DELIVERABLE
+
+    if _piloted:
+        # The chain is the source of truth for piloted intents. Mark complete
+        # here; the producer block sets the real response_text from the chain
+        # (and flips to failed if the chain can't produce anything).
+        new_status = "complete"
+        log.info(
+            "dispatch.piloted request_id=%s intent=%s — skipping legacy single "
+            "dispatch; deliverable chain will run", request_id, intent,
+        )
 
     try:
-        resp = await _call_adk_with_retry(
-            adk_endpoint, adk_payload, agent_name, request_id
+        resp = (
+            None
+            if _piloted
+            else await _call_adk_with_retry(
+                adk_endpoint, adk_payload, agent_name, request_id
+            )
         )
-        if resp.status_code < 400:
+        if _piloted:
+            # status/response come from the deliverable chain below; no legacy
+            # single-dispatch response to parse.
+            pass
+        elif resp.status_code < 400:
             new_status = "complete"
             try:
                 body = resp.json()
@@ -631,58 +652,113 @@ async def _dispatch_to_agent(
     except Exception as exc:  # noqa: BLE001
         log.warning("dispatch.db_update_failed request_id=%s err=%s", request_id, exc)
 
-    # ── Deliverable producer (Phase B) ──────────────────────────────────────
+    # ── Deliverable producer (Phase C) ──────────────────────────────────────
     # Only for piloted intents (estimate / rfi) and only on success.
-    # Fail-safe: a deliverable-creation error must NOT fail the request.
+    # Fail-safe: a deliverable-pipeline error must NOT fail the request.
+    #
+    # Phase C: piloted intents run a multi-step agent chain via
+    # run_deliverable_chain. The chain reuses _call_adk_with_retry via the
+    # injected call_agent helper, building on each prior step's output and
+    # appending a new version to the same Deliverable row.
     if new_status == "complete" and intent in INTENT_TO_DELIVERABLE:
         reg = INTENT_TO_DELIVERABLE[intent]
-        # Build a sensible title: first ~60 chars of the original message.
-        short_message = message[:60].strip()
-        title = reg.title_template.format(message=short_message)
-        content: dict = {
-            "summary": response_text or "",
-            "request_id": request_id,
-        }
+
+        # Build a call_agent helper that reuses the existing retry-aware ADK
+        # dispatch path. The pipeline injects this so it can be monkeypatched
+        # in tests without touching HTTP.
+        async def _call_agent_for_pipeline(agent_name: str, msg: str) -> str:
+            adk_ep = f"{ADK_URL}/invoke"
+            adk_pl = {"agent": agent_name, "message": msg, "session_id": request_id}
+            resp = await _call_adk_with_retry(adk_ep, adk_pl, agent_name, request_id)
+            if resp.status_code < 400:
+                try:
+                    body = resp.json()
+                    return body.get("response", "") if isinstance(body, dict) else str(body)
+                except Exception:
+                    return resp.text[:2000]
+            return f"ADK agent returned {resp.status_code}: {resp.text[:500]}"
+
+        produced_deliverable_id: str | None = None
         try:
             from app.db import SessionLocal as _deliverable_session_maker  # noqa: N812
-            from app.routes.deliverables import create_deliverable_service
             async with _deliverable_session_maker() as del_session:
-                deliverable = await create_deliverable_service(
+                deliverable = await run_deliverable_chain(
                     del_session,
                     user_id=user_id,
-                    project_id=None,  # personal requests have no project in Phase B
-                    module_key=reg.module_key,
+                    project_id=None,  # personal requests have no project in Phase C
                     deliverable_type=reg.deliverable_type,
-                    title=title,
-                    content=content,
+                    seed_message=message,
+                    call_agent=_call_agent_for_pipeline,
                 )
-                produced_deliverable_id = deliverable.id
-            log.info(
-                "deliverable.produced deliverable_id=%s type=%s request_id=%s",
-                produced_deliverable_id, reg.deliverable_type, request_id,
-            )
-            # Link the deliverable back to the RequestRecord via output_module / output_id.
-            # We use the existing fields (no migration needed — they're already nullable
-            # String columns on RequestRecord; the PATCH route accepts them too).
-            try:
-                async with async_session_maker() as link_session:
-                    link_record = await link_session.get(RequestRecord, request_id)
-                    if link_record is not None:
-                        link_record.output_module = reg.module_key
-                        link_record.output_id = produced_deliverable_id
-                        link_record.updated_at = _utcnow()
-                        await link_session.commit()
-            except Exception as link_exc:  # noqa: BLE001
-                log.warning(
-                    "deliverable.link_failed deliverable_id=%s request_id=%s err=%s",
-                    produced_deliverable_id, request_id, link_exc,
+                produced_response: str | None = None
+                if deliverable is not None:
+                    produced_deliverable_id = deliverable.id
+                    # The chain's latest content becomes the request's response
+                    # (the legacy single dispatch was skipped for piloted intents).
+                    try:
+                        c = deliverable.content or {}
+                        produced_response = (
+                            c.get("summary") or c.get("response") or c.get("output")
+                            if isinstance(c, dict) else None
+                        )
+                    except Exception:  # noqa: BLE001
+                        produced_response = None
+            if produced_deliverable_id:
+                log.info(
+                    "deliverable.produced deliverable_id=%s type=%s request_id=%s",
+                    produced_deliverable_id, reg.deliverable_type, request_id,
                 )
+                # Link + set the response on the RequestRecord (piloted intents
+                # get their status/response from the chain, not a legacy dispatch).
+                try:
+                    async with async_session_maker() as link_session:
+                        link_record = await link_session.get(RequestRecord, request_id)
+                        if link_record is not None:
+                            link_record.output_module = reg.module_key
+                            link_record.output_id = produced_deliverable_id
+                            link_record.status = "complete"
+                            if produced_response:
+                                link_record.response = produced_response
+                            link_record.updated_at = _utcnow()
+                            await link_session.commit()
+                except Exception as link_exc:  # noqa: BLE001
+                    log.warning(
+                        "deliverable.link_failed deliverable_id=%s request_id=%s err=%s",
+                        produced_deliverable_id, request_id, link_exc,
+                    )
+            else:
+                # Piloted intent but the chain produced nothing (e.g. step A
+                # failed). Mark the request failed so it doesn't sit falsely
+                # 'complete' with no output.
+                try:
+                    async with async_session_maker() as fail_session:
+                        fr = await fail_session.get(RequestRecord, request_id)
+                        if fr is not None and fr.status != "failed":
+                            fr.status = "failed"
+                            fr.response = fr.response or (
+                                "Could not produce the deliverable. Please retry."
+                            )
+                            fr.updated_at = _utcnow()
+                            await fail_session.commit()
+                except Exception:  # noqa: BLE001
+                    pass
         except Exception as prod_exc:  # noqa: BLE001
-            # Deliverable creation failure must NOT fail the request.
+            # Deliverable pipeline failure must NOT fail the request hard, but
+            # record it as failed since the piloted path has no legacy fallback.
             log.warning(
-                "deliverable.produce_failed intent=%s request_id=%s err=%s",
+                "deliverable.pipeline_failed intent=%s request_id=%s err=%s",
                 intent, request_id, prod_exc,
             )
+            try:
+                async with async_session_maker() as ferr_session:
+                    fr = await ferr_session.get(RequestRecord, request_id)
+                    if fr is not None:
+                        fr.status = "failed"
+                        fr.response = fr.response or "Deliverable pipeline error."
+                        fr.updated_at = _utcnow()
+                        await ferr_session.commit()
+            except Exception:  # noqa: BLE001
+                pass
 
     # Fire-and-forget: update agent usage stats (never blocks or raises)
     asyncio.create_task(
