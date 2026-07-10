@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.db import get_db
+from app.deliverable_registry import INTENT_TO_DELIVERABLE
 from app.models_requests import RequestRecord
 from app.routes.modules import is_feature_enabled, is_module_enabled
 from app.rate_limit import DISPATCH_LIMIT, GET_LIMIT, limiter
@@ -612,6 +613,7 @@ async def _dispatch_to_agent(
         output_module = "sites"
 
     # Update the DB record (fire-and-forget — never blocks or raises)
+    produced_deliverable_id: str | None = None
     try:
         async with async_session_maker() as session:
             record = await session.get(RequestRecord, request_id)
@@ -628,6 +630,59 @@ async def _dispatch_to_agent(
                 )
     except Exception as exc:  # noqa: BLE001
         log.warning("dispatch.db_update_failed request_id=%s err=%s", request_id, exc)
+
+    # ── Deliverable producer (Phase B) ──────────────────────────────────────
+    # Only for piloted intents (estimate / rfi) and only on success.
+    # Fail-safe: a deliverable-creation error must NOT fail the request.
+    if new_status == "complete" and intent in INTENT_TO_DELIVERABLE:
+        reg = INTENT_TO_DELIVERABLE[intent]
+        # Build a sensible title: first ~60 chars of the original message.
+        short_message = message[:60].strip()
+        title = reg.title_template.format(message=short_message)
+        content: dict = {
+            "summary": response_text or "",
+            "request_id": request_id,
+        }
+        try:
+            from app.db import SessionLocal as _deliverable_session_maker  # noqa: N812
+            from app.routes.deliverables import create_deliverable_service
+            async with _deliverable_session_maker() as del_session:
+                deliverable = await create_deliverable_service(
+                    del_session,
+                    user_id=user_id,
+                    project_id=None,  # personal requests have no project in Phase B
+                    module_key=reg.module_key,
+                    deliverable_type=reg.deliverable_type,
+                    title=title,
+                    content=content,
+                )
+                produced_deliverable_id = deliverable.id
+            log.info(
+                "deliverable.produced deliverable_id=%s type=%s request_id=%s",
+                produced_deliverable_id, reg.deliverable_type, request_id,
+            )
+            # Link the deliverable back to the RequestRecord via output_module / output_id.
+            # We use the existing fields (no migration needed — they're already nullable
+            # String columns on RequestRecord; the PATCH route accepts them too).
+            try:
+                async with async_session_maker() as link_session:
+                    link_record = await link_session.get(RequestRecord, request_id)
+                    if link_record is not None:
+                        link_record.output_module = reg.module_key
+                        link_record.output_id = produced_deliverable_id
+                        link_record.updated_at = _utcnow()
+                        await link_session.commit()
+            except Exception as link_exc:  # noqa: BLE001
+                log.warning(
+                    "deliverable.link_failed deliverable_id=%s request_id=%s err=%s",
+                    produced_deliverable_id, request_id, link_exc,
+                )
+        except Exception as prod_exc:  # noqa: BLE001
+            # Deliverable creation failure must NOT fail the request.
+            log.warning(
+                "deliverable.produce_failed intent=%s request_id=%s err=%s",
+                intent, request_id, prod_exc,
+            )
 
     # Fire-and-forget: update agent usage stats (never blocks or raises)
     asyncio.create_task(
