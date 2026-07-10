@@ -1,10 +1,22 @@
-"""Deliverable HITL (Human-In-The-Loop) service — Phase D.
+"""Deliverable HITL (Human-In-The-Loop) service — Phase D / G1.
 
 When ``run_deliverable_chain`` completes and leaves a Deliverable at status
 ``awaiting_human``, the caller invokes ``create_deliverable_approval`` to
 create an ApprovalItem in the Approvals Queue.  The human then decides via the
 normal Approvals UI/API; on execution, ``finalize_deliverable_on_approval`` is
 called to transition the Deliverable to its final state.
+
+Phase G1 adds **hitl_kind** — a field stored in ``deliverable.meta`` that
+distinguishes two gate variants:
+
+  ``"decision"``      — binary approve/reject gate (Phase D, existing behavior).
+                        Routes to the Approvals Queue. ApprovalItem is created.
+  ``"co_development"`` — human contributes unique context via the co-dev UI.
+                         No ApprovalItem is created; resolved via
+                         ``POST /v1/deliverables/{id}/resume``.
+
+Backward compatibility: when ``hitl_kind`` is absent in meta, it defaults to
+``"decision"`` (existing behaviour unchanged).
 
 Design decisions:
   - Workflow: ``DELIVERABLE_ACCEPT_WORKFLOW`` (``"deliverable.accept"``)
@@ -19,6 +31,10 @@ Design decisions:
     the rejection note.
   - Idempotent on execute: if the deliverable has already left
     ``awaiting_human``, the hook logs and returns without re-applying.
+
+Public G1 helpers:
+  ``get_hitl_kind(deliverable)``  — read hitl_kind from meta; default "decision".
+  ``set_hitl_kind(meta, kind)``   — return updated meta dict with hitl_kind set.
 """
 
 from __future__ import annotations
@@ -43,6 +59,55 @@ _log = logging.getLogger("quill.deliverable_hitl")
 # agent_ids that aren't in AGENT_FLEET (it warns but doesn't raise).
 _DELIVERABLE_AGENT_ID = "deliverable-hitl"
 
+# ---------------------------------------------------------------------------
+# hitl_kind helpers (Phase G1)
+# ---------------------------------------------------------------------------
+
+#: The two recognised HITL gate kinds.
+HITL_KIND_DECISION = "decision"
+HITL_KIND_CO_DEVELOPMENT = "co_development"
+
+_VALID_HITL_KINDS = frozenset({HITL_KIND_DECISION, HITL_KIND_CO_DEVELOPMENT})
+
+
+def get_hitl_kind(deliverable: "Deliverable") -> str:
+    """Return the hitl_kind stored in deliverable.meta.
+
+    Defaults to ``"decision"`` when unset so existing deliverables are
+    unaffected (backward-compatible).
+    """
+    meta = deliverable.meta or {}
+    kind = meta.get("hitl_kind", HITL_KIND_DECISION)
+    if kind not in _VALID_HITL_KINDS:
+        _log.warning(
+            "deliverable_hitl.unknown_kind deliverable_id=%s kind=%r — defaulting to 'decision'",
+            deliverable.id, kind,
+        )
+        return HITL_KIND_DECISION
+    return kind  # type: ignore[return-value]
+
+
+def set_hitl_kind(meta: dict | None, kind: str) -> dict:
+    """Return a (shallow-copied) meta dict with hitl_kind set.
+
+    Parameters
+    ----------
+    meta:
+        Existing meta dict (or None).
+    kind:
+        Either ``"decision"`` or ``"co_development"``.
+
+    Returns
+    -------
+    dict
+        Updated copy of meta (the original is not mutated).
+    """
+    if kind not in _VALID_HITL_KINDS:
+        raise ValueError(f"hitl_kind must be one of {_VALID_HITL_KINDS!r}; got {kind!r}")
+    updated = dict(meta or {})
+    updated["hitl_kind"] = kind
+    return updated
+
 
 # ---------------------------------------------------------------------------
 # Create approval for a deliverable gate
@@ -54,7 +119,7 @@ async def create_deliverable_approval(
     *,
     actor: str,
     summary: str | None = None,
-) -> "ApprovalItem":
+) -> "ApprovalItem | None":
     """Create an ApprovalItem for a deliverable HITL gate.
 
     Parameters
@@ -73,8 +138,10 @@ async def create_deliverable_approval(
 
     Returns
     -------
-    ApprovalItem
-        The newly created (and committed) approval row.
+    ApprovalItem | None
+        The newly created (and committed) approval row, or ``None`` when the
+        gate is a **co_development** gate (those are resolved via
+        ``POST /v1/deliverables/{id}/resume``, not the Approvals Queue).
 
     Notes
     -----
@@ -83,7 +150,19 @@ async def create_deliverable_approval(
     - Payload carries ``deliverable_id``, ``deliverable_type``, ``title``,
       ``summary`` so the execute hook can resolve the deliverable without a
       separate query.
+    - Phase G1: if ``meta.hitl_kind == "co_development"``, this function logs
+      and returns ``None`` without creating an ApprovalItem.  Decision gates
+      (the default) are unchanged.
     """
+    # Phase G1: co_development gates do NOT create an ApprovalItem.
+    kind = get_hitl_kind(deliverable)
+    if kind == HITL_KIND_CO_DEVELOPMENT:
+        _log.info(
+            "deliverable_hitl.skip_approval_for_co_dev deliverable_id=%s — co_development gate",
+            deliverable.id,
+        )
+        return None
+
     from app.services.approvals import create_approval
 
     eff_summary = summary or (
