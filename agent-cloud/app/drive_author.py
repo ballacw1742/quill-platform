@@ -128,8 +128,25 @@ def _create_doc(title: str, content: str, folder_id: str) -> dict[str, Any]:
     drive_svc = _build_drive_service(credentials)
 
     # 1. Create an empty document.
-    doc = docs_svc.documents().create(body={"title": title}).execute()
-    doc_id: str = doc["documentId"]
+    #    When a target folder is set, create the file DIRECTLY in that folder
+    #    via the Drive API (parents=[folder_id]). This is required for
+    #    service accounts on personal Google accounts, which have no writable
+    #    "My Drive" root — calling docs.documents().create() there returns 403.
+    #    Creating inside a user-shared folder (owned by a real user) succeeds.
+    if folder_id:
+        file_meta = drive_svc.files().create(
+            body={
+                "name": title,
+                "mimeType": "application/vnd.google-apps.document",
+                "parents": [folder_id],
+            },
+            fields="id",
+            supportsAllDrives=True,
+        ).execute()
+        doc_id: str = file_meta["id"]
+    else:
+        doc = docs_svc.documents().create(body={"title": title}).execute()
+        doc_id = doc["documentId"]
     url: str = f"https://docs.google.com/document/d/{doc_id}/edit"
 
     # 2. Insert text content at the beginning of the document.
@@ -151,19 +168,9 @@ def _create_doc(title: str, content: str, folder_id: str) -> dict[str, Any]:
             },
         ).execute()
 
-    # 3. Optionally move the file to the target folder.
-    if folder_id:
-        # Retrieve the current parent(s) so we can remove them.
-        meta = drive_svc.files().get(
-            fileId=doc_id, fields="parents"
-        ).execute()
-        previous_parents = ",".join(meta.get("parents", []))
-        drive_svc.files().update(
-            fileId=doc_id,
-            addParents=folder_id,
-            removeParents=previous_parents,
-            fields="id, parents",
-        ).execute()
+    # (File was created directly in the target folder above when folder_id is
+    # set; no move step needed. Without a folder_id the doc lives in the SA's
+    # default location.)
 
     return {"doc_id": doc_id, "url": url}
 
@@ -179,12 +186,27 @@ def _create_sheet(title: str, rows: list[list[Any]], folder_id: str) -> dict[str
     drive_svc = _build_drive_service(credentials)
 
     # 1. Create an empty spreadsheet.
-    spreadsheet = (
-        sheets_svc.spreadsheets()
-        .create(body={"properties": {"title": title}})
-        .execute()
-    )
-    sheet_id: str = spreadsheet["spreadsheetId"]
+    #    As with docs: create directly in the target folder via the Drive API
+    #    when folder_id is set, so service accounts on personal Google accounts
+    #    (no writable My Drive root) can author into a user-shared folder.
+    if folder_id:
+        file_meta = drive_svc.files().create(
+            body={
+                "name": title,
+                "mimeType": "application/vnd.google-apps.spreadsheet",
+                "parents": [folder_id],
+            },
+            fields="id",
+            supportsAllDrives=True,
+        ).execute()
+        sheet_id: str = file_meta["id"]
+    else:
+        spreadsheet = (
+            sheets_svc.spreadsheets()
+            .create(body={"properties": {"title": title}})
+            .execute()
+        )
+        sheet_id = spreadsheet["spreadsheetId"]
     url: str = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
 
     # 2. Write rows if provided.
@@ -201,18 +223,7 @@ def _create_sheet(title: str, rows: list[list[Any]], folder_id: str) -> dict[str
             body={"values": normalized},
         ).execute()
 
-    # 3. Optionally move the file to the target folder.
-    if folder_id:
-        meta = drive_svc.files().get(
-            fileId=sheet_id, fields="parents"
-        ).execute()
-        previous_parents = ",".join(meta.get("parents", []))
-        drive_svc.files().update(
-            fileId=sheet_id,
-            addParents=folder_id,
-            removeParents=previous_parents,
-            fields="id, parents",
-        ).execute()
+    # (Created directly in the target folder above when folder_id is set.)
 
     return {"sheet_id": sheet_id, "url": url}
 
