@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.enums import (
     AGENT_FLEET,
+    DELIVERABLE_ACCEPT_WORKFLOW,
     OWNER_ONLY_WORKFLOWS,
     ApprovalStatus,
     AuthMethod,
@@ -365,6 +366,21 @@ async def decide_approval(
 
     if item.status == ApprovalStatus.REJECTED.value:
         await agentcloud_actions.notify_agentcloud_resolution(item)
+        # Phase D — deliverable HITL: finalize rejected deliverable.
+        if item.workflow == DELIVERABLE_ACCEPT_WORKFLOW:
+            try:
+                from app.services.deliverable_hitl import finalize_deliverable_on_approval
+                await finalize_deliverable_on_approval(
+                    session, item, actor=approver.id,
+                    approved=False,
+                    rejection_reason=rejection_reason,
+                )
+            except Exception as _d_exc:  # noqa: BLE001
+                import logging as _logging
+                _logging.getLogger("quill.approvals").warning(
+                    "approvals.deliverable_reject_hook_failed approval_id=%s err=%s",
+                    item.id, _d_exc,
+                )
 
     if item.status == ApprovalStatus.APPROVED.value:
         await execute_approval(session, item.id, actor=approver.id)
@@ -730,7 +746,27 @@ async def execute_approval(
                 contract_upload_id, exc,
             )
 
-    if document_id is not None:
+    # Phase D — deliverable HITL: finalize approved deliverable.
+    deliverable_ref: str | None = None
+    if item.workflow == DELIVERABLE_ACCEPT_WORKFLOW:
+        try:
+            from app.services.deliverable_hitl import finalize_deliverable_on_approval
+            finalized = await finalize_deliverable_on_approval(
+                session, item, actor=actor, approved=True
+            )
+            if finalized is not None:
+                deliverable_ref = f"deliverable:{finalized.id}"
+        except Exception as _d_exc:  # noqa: BLE001
+            import logging as _logging
+            _logging.getLogger("quill.approvals").warning(
+                "approvals.deliverable_approve_hook_failed approval_id=%s err=%s",
+                item.id, _d_exc,
+            )
+
+    if deliverable_ref is not None:
+        item.execution_result = ExecutionResult.SUCCESS.value
+        item.external_ref = deliverable_ref
+    elif document_id is not None:
         item.execution_result = ExecutionResult.SUCCESS.value
         item.external_ref = f"document:{document_id}"
     elif project_id is not None:
@@ -756,6 +792,8 @@ async def execute_approval(
     if project_id is not None:
         audit_payload["project_id"] = project_id
         audit_payload["site_id"] = (item.payload or {}).get("site_id")
+    if deliverable_ref is not None:
+        audit_payload["deliverable_ref"] = deliverable_ref
 
     entry = await audit_svc.record_event(
         session,

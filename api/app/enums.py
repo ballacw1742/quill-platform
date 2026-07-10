@@ -45,6 +45,11 @@ class TargetSystem(str, Enum):
 WORKFLOW_ASSIGNMENT_WORKFLOW = "agentcloud.workflow_assignment"
 OWNER_ONLY_WORKFLOWS = frozenset({WORKFLOW_ASSIGNMENT_WORKFLOW})
 
+# Phase D — Deliverable HITL gate: approval workflow constant.
+# A deliverable-acceptance decision is a normal owner single-sig (Lane SINGLE).
+# NEVER auto-execute (Lane AUTO is expressly prohibited for deliverable gates).
+DELIVERABLE_ACCEPT_WORKFLOW = "deliverable.accept"
+
 
 class ApprovalStatus(str, Enum):
     PENDING = "pending"
