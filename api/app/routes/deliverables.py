@@ -32,6 +32,9 @@ from app.db import get_db
 from app.models_deliverables import Deliverable, DeliverableVersion
 from app.security import get_current_user
 
+import logging
+_log = logging.getLogger("quill.deliverables")
+
 router = APIRouter(prefix="/v1/deliverables", tags=["deliverables"])
 
 # ── Allowed status values (free-string validation) ─────────────────────────────
@@ -128,26 +131,39 @@ def _snapshot(
     )
 
 
-# ── Routes ─────────────────────────────────────────────────────────────────────
+# ── Service function (shared by route + deliverable producer) ─────────────────
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
-async def create_deliverable(
-    body: DeliverableCreate,
-    db: AsyncSession = Depends(get_db),
-    user=Depends(get_current_user),
-) -> dict:
-    """Create a new deliverable (any authenticated member). Returns v1."""
+async def create_deliverable_service(
+    db: AsyncSession,
+    *,
+    user_id: str,
+    project_id: str | None,
+    module_key: str,
+    deliverable_type: str,
+    title: str,
+    content: dict | None,
+) -> Deliverable:
+    """Create a Deliverable (v1) + its initial 'created' snapshot.
+
+    This is the single code path for deliverable creation used by both the
+    POST /v1/deliverables route and the background deliverable producer in
+    routes/requests.py. Do NOT duplicate this logic elsewhere.
+
+    Callers are responsible for supplying a valid db session and committing
+    if they need to confirm persistence (this function commits internally).
+    Returns the refreshed Deliverable ORM row.
+    """
     now = datetime.now(UTC)
     row = Deliverable(
-        user_id=user.id,
-        project_id=body.project_id,
-        module_key=body.module_key,
-        deliverable_type=body.deliverable_type,
-        title=body.title,
+        user_id=user_id,
+        project_id=project_id,
+        module_key=module_key,
+        deliverable_type=deliverable_type,
+        title=title,
         status="draft",
         version=1,
-        content=body.content,
+        content=content,
         meta=None,
         created_at=now,
         updated_at=now,
@@ -158,6 +174,32 @@ async def create_deliverable(
     db.add(snap)
     await db.commit()
     await db.refresh(row)
+    _log.info(
+        "deliverable.created id=%s type=%s module=%s user=%s",
+        row.id, deliverable_type, module_key, user_id,
+    )
+    return row
+
+
+# ── Routes ─────────────────────────────────────────────────────────────────────
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def create_deliverable(
+    body: DeliverableCreate,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+) -> dict:
+    """Create a new deliverable (any authenticated member). Returns v1."""
+    row = await create_deliverable_service(
+        db,
+        user_id=user.id,
+        project_id=body.project_id,
+        module_key=body.module_key,
+        deliverable_type=body.deliverable_type,
+        title=body.title,
+        content=body.content,
+    )
     return _deliverable_out(row)
 
 
