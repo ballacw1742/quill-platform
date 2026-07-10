@@ -75,6 +75,12 @@ class ChatIn(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     session_id: uuid.UUID | None = None
     stream: bool = False
+    # Optional per-project Drive subfolder (Phase H).
+    # When set, deliverables authored in this chat turn are written to
+    # ``<DRIVE_FOLDER_ID>/<drive_subfolder>/`` instead of the flat root.
+    # Typically the project display name (or project_id as fallback).
+    # Backward-compatible: absent/null → flat root, unchanged from Phase F.
+    drive_subfolder: str | None = None
 
 
 class SubagentIn(BaseModel):

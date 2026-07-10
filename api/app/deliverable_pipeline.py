@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from typing import Any, Awaitable, Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,6 +47,76 @@ from app.routes.deliverables import (
 )
 
 _log = logging.getLogger("quill.deliverable_pipeline")
+
+# ---------------------------------------------------------------------------
+# Drive authoring helper
+# ---------------------------------------------------------------------------
+
+
+async def _author_deliverable_to_drive(
+    row: Deliverable,
+    *,
+    drive_subfolder: str | None,
+    _author_fn: Callable[..., Awaitable[dict[str, Any]]] | None = None,
+) -> dict[str, Any] | None:
+    """Attempt to author the finalized deliverable content to Google Drive.
+
+    Called after the chain reaches its terminal ``awaiting_human`` state.
+    Returns a drive_block dict on success, or a local-fallback dict on any error.
+    NEVER raises — all errors are caught and logged (fail-safe contract).
+
+    Parameters
+    ----------
+    row:
+        The finalized Deliverable row (chain complete, status=awaiting_human).
+    drive_subfolder:
+        Optional project name for per-project subfolder routing.
+    _author_fn:
+        Injectable replacement for ``author_to_drive`` (used in tests to avoid
+        real Drive calls). When None, the real ``author_to_drive`` is used.
+    """
+    from app.config import get_settings
+    s = get_settings()
+
+    if _author_fn is None:
+        # No injected test fn — use the real author only when DRIVE_ENABLED=True.
+        if not s.DRIVE_ENABLED:
+            return None  # Drive authoring disabled — skip silently.
+        from app.services.drive_author import author_to_drive as _real_author
+        _author_fn = _real_author
+    # If _author_fn is explicitly provided (test injection), proceed regardless
+    # of DRIVE_ENABLED. This keeps tests clean without patching env vars.
+
+    # Extract the final content text.
+    content = row.content or {}
+    summary = (
+        content.get("summary") or content.get("response") or content.get("output") or ""
+        if isinstance(content, dict) else str(content)
+    )
+    title = row.title or "Untitled Deliverable"
+
+    try:
+        drive_block = await _author_fn(
+            "doc",
+            title,
+            str(summary),
+            subfolder=drive_subfolder,
+        )
+        _log.info(
+            "pipeline.drive_authored deliverable_id=%s url=%s subfolder=%r",
+            row.id, drive_block.get("url"), drive_subfolder,
+        )
+        return drive_block
+    except Exception as exc:  # noqa: BLE001
+        _log.warning(
+            "pipeline.drive_author_failed deliverable_id=%s err=%s "
+            "— deliverable left as local/text record",
+            row.id, exc,
+        )
+        return {
+            "mode": "local",
+            "reason": str(exc),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +179,8 @@ async def run_deliverable_chain(
     call_agent: "AsyncCallable[[str, str], str]",  # type: ignore[type-arg]
     start_step_index: int = 0,
     existing_row: Deliverable | None = None,
+    drive_subfolder: str | None = None,
+    _drive_author_fn: "Callable[..., Awaitable[dict[str, Any]]] | None" = None,
 ) -> Deliverable | None:
     """Run the ordered deliverable chain for a piloted deliverable type.
 
@@ -137,6 +210,13 @@ async def run_deliverable_chain(
         ``start_step_index > 0``. Its accumulated meta (chain_steps,
         steps_completed) is preserved and extended. **Never re-creates the
         deliverable.**
+    drive_subfolder:
+        Phase H: optional Drive subfolder name (project display name). When
+        set AND ``DRIVE_ENABLED=True``, the finalized Doc is authored into
+        ``<DRIVE_FOLDER_ID>/<drive_subfolder>/``. None → root folder.
+    _drive_author_fn:
+        Injectable replacement for ``author_to_drive`` (tests only). When None
+        the real ``app.services.drive_author.author_to_drive`` is used.
 
     Returns
     -------
@@ -332,4 +412,33 @@ async def run_deliverable_chain(
             "pipeline.chain_complete type=%s deliverable_id=%s version=%d status=%s steps=%d",
             deliverable_type, row.id, row.version, row.status, len(reg.steps),
         )
+
+        # Phase H — Drive authoring: author the finalized deliverable to a real
+        # Google Doc when DRIVE_ENABLED=True. Fail-safe: any Drive error leaves
+        # the deliverable as a text/local record; the chain is NOT failed.
+        # We reach this point only when all requested steps ran successfully.
+        drive_block = await _author_deliverable_to_drive(
+            row,
+            drive_subfolder=drive_subfolder,
+            _author_fn=_drive_author_fn,
+        )
+        if drive_block is not None and drive_block.get("mode") == "drive":
+            # Store the drive block in content so _deliverable_out surfaces drive_url.
+            updated_content = dict(row.content or {})
+            updated_content["drive"] = drive_block
+            try:
+                row.content = updated_content
+                row.updated_at = _utcnow()
+                await db.commit()
+                await db.refresh(row)
+                _log.info(
+                    "pipeline.drive_stored deliverable_id=%s url=%s",
+                    row.id, drive_block.get("url"),
+                )
+            except Exception as exc:  # noqa: BLE001
+                _log.warning(
+                    "pipeline.drive_store_failed deliverable_id=%s err=%s",
+                    row.id, exc,
+                )
+
     return row

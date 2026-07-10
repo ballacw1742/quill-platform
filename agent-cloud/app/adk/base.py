@@ -44,6 +44,10 @@ class TaskContext:
     tools: list[str] = field(default_factory=list)
     model: str = ""
     system_prompt: str = ""
+    # Optional project context — used by generate_deliverable to route
+    # deliverables into per-project Drive subfolders.
+    project_id: str | None = None
+    project_name: str | None = None
 
 
 @dataclass

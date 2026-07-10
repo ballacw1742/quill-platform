@@ -551,6 +551,7 @@ async def _dispatch_to_agent(
     filenames: list[str],
     drive_url: str | None,
     user_id: str,
+    project_id: str | None = None,
 ) -> None:
     """Async HTTP dispatcher — routes all intents through ADK /invoke.
 
@@ -669,12 +670,36 @@ async def _dispatch_to_agent(
     if new_status == "complete" and intent in INTENT_TO_DELIVERABLE:
         reg = INTENT_TO_DELIVERABLE[intent]
 
+        # Phase H: resolve project display name for Drive subfolder routing.
+        # When project_id is set, look up the project name from the DB so
+        # deliverables land in <root>/<project_name>/ on Drive.
+        # When project_id is None (personal requests), no subfolder is used
+        # and behavior is byte-for-byte identical to Phase C (flat root).
+        _drive_subfolder: str | None = None
+        if project_id:
+            try:
+                from app.db import SessionLocal as _proj_session  # noqa: N812
+                from app.models_projects import Project as _Project  # noqa: N812
+                async with _proj_session() as _ps:
+                    _proj = await _ps.get(_Project, project_id)
+                    if _proj is not None:
+                        _drive_subfolder = _proj.name or project_id
+                    else:
+                        _drive_subfolder = project_id  # fallback: use id as name
+            except Exception as _pe:  # noqa: BLE001
+                log.warning(
+                    "dispatch.project_lookup_failed project_id=%s err=%s "
+                    "— continuing without subfolder", project_id, _pe,
+                )
+
         # Build a call_agent helper that reuses the existing retry-aware ADK
         # dispatch path. The pipeline injects this so it can be monkeypatched
         # in tests without touching HTTP.
         async def _call_agent_for_pipeline(agent_name: str, msg: str) -> str:
             adk_ep = f"{ADK_URL}/invoke"
-            adk_pl = {"agent": agent_name, "message": msg, "session_id": request_id}
+            adk_pl: dict = {"agent": agent_name, "message": msg, "session_id": request_id}
+            if _drive_subfolder:
+                adk_pl["drive_subfolder"] = _drive_subfolder
             resp = await _call_adk_with_retry(adk_ep, adk_pl, agent_name, request_id)
             if resp.status_code < 400:
                 try:
@@ -691,10 +716,11 @@ async def _dispatch_to_agent(
                 deliverable = await run_deliverable_chain(
                     del_session,
                     user_id=user_id,
-                    project_id=None,  # personal requests have no project in Phase C
+                    project_id=project_id,  # Phase H: pass through (may be None)
                     deliverable_type=reg.deliverable_type,
                     seed_message=message,
                     call_agent=_call_agent_for_pipeline,
+                    drive_subfolder=_drive_subfolder,  # Phase H: per-project Drive subfolder
                 )
                 produced_response: str | None = None
                 if deliverable is not None:

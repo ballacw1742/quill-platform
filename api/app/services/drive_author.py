@@ -1,8 +1,32 @@
-"""Google Drive / Docs / Sheets authoring for Quill deliverables (Phase F, H).
+"""Google Drive / Docs / Sheets authoring for Quill deliverables — API-side.
 
-Called by app/adk/registry.py `_author_to_drive` when DRIVE_ENABLED=true.
-The caller already wraps us in a try/except and falls back to a local record on
-any exception — so we MUST raise on failure and NEVER fake success.
+This module is a mirror of ``agent-cloud/app/drive_author.py`` adapted to use
+the API's config (``api/app/config.py``).  It exposes the same public interface
+(``author_to_drive``) so the deliverable pipeline can author finalized content
+to a real Google Doc without depending on the agent-cloud service.
+
+**Design rationale — why mirror rather than share a package?**
+
+The api (``quill-agents``) and agent-cloud (``quill-agent-orchestrator``) are
+deployed as separate Cloud Run services with separate Python venvs and separate
+``requirements.txt`` files.  There is no shared internal package infrastructure
+in this mono-repo.  Extracting a shared package would require new packaging
+scaffolding (pyproject.toml, editable installs across both services) and
+touching both deployment pipelines — out of scope for this integration.
+
+The canonical, documented implementation is:
+  ``agent-cloud/app/drive_author.py``
+
+This file is a DERIVATIVE mirror.  Any logic change (subfolder resolution,
+credential building, Doc/Sheet authoring) MUST be applied to BOTH files.
+This is documented in DRIVE_SETUP.md and enforced by code review.
+
+The only intentional divergence is the config import:
+  - agent-cloud: ``from app.config import get_settings`` (agent-cloud Settings)
+  - api (this file): ``from app.config import get_settings`` (api Settings)
+
+Both Settings classes expose the same three Drive fields:
+  DRIVE_ENABLED, DRIVE_SERVICE_ACCOUNT_JSON, DRIVE_FOLDER_ID
 
 Import guard: the google libraries are optional (not installed in dev/test
 unless the operator explicitly adds them). If they are absent every public
@@ -27,7 +51,7 @@ from typing import Any
 
 from app.config import get_settings
 
-log = logging.getLogger("agentcloud.drive_author")
+log = logging.getLogger("quill.api.drive_author")
 
 # ---------------------------------------------------------------------------
 # Lazy-import guard — keep the module importable even without google libs.
@@ -152,22 +176,7 @@ def _resolve_or_create_subfolder(
     3. Creates a new folder if not found and returns the new id.
     4. If creation races (another caller created concurrently), re-queries
        once and returns the winner's id.
-
-    Parameters
-    ----------
-    drive_svc:
-        An authenticated ``googleapiclient`` Drive v3 service object.
-    parent_folder_id:
-        The Drive folder id of the root (parent) folder.
-    subfolder_name:
-        Display name for the subfolder (must already be sanitized/non-empty).
-
-    Returns
-    -------
-    str
-        The Drive folder id of the resolved (or freshly created) subfolder.
     """
-    # Shared Drive-aware list query.
     drive_id = _get_drive_id(drive_svc, parent_folder_id)
 
     def _query_existing() -> str | None:
@@ -207,7 +216,6 @@ def _resolve_or_create_subfolder(
         ).execute()
         return created["id"]
     except Exception:  # noqa: BLE001 — race: another caller created it first
-        # Re-query once; if still not found, let the exception propagate.
         winner_id = _query_existing()
         if winner_id:
             return winner_id
@@ -215,7 +223,7 @@ def _resolve_or_create_subfolder(
 
 
 # ---------------------------------------------------------------------------
-# Doc authoring
+# Doc / Sheet service builders
 # ---------------------------------------------------------------------------
 
 def _build_docs_service(credentials):
@@ -236,6 +244,10 @@ def _build_sheets_service(credentials):
     return build("sheets", "v4", credentials=credentials, cache_discovery=False)
 
 
+# ---------------------------------------------------------------------------
+# Doc authoring
+# ---------------------------------------------------------------------------
+
 def _create_doc(title: str, content: str, folder_id: str) -> dict[str, Any]:
     """Create a Google Doc and insert plain-text content.
 
@@ -246,12 +258,9 @@ def _create_doc(title: str, content: str, folder_id: str) -> dict[str, Any]:
     docs_svc = _build_docs_service(credentials)
     drive_svc = _build_drive_service(credentials)
 
-    # 1. Create an empty document.
-    #    When a target folder is set, create the file DIRECTLY in that folder
-    #    via the Drive API (parents=[folder_id]). This is required for
-    #    service accounts on personal Google accounts, which have no writable
-    #    "My Drive" root — calling docs.documents().create() there returns 403.
-    #    Creating inside a user-shared folder (owned by a real user) succeeds.
+    # Create the file directly in the target folder via the Drive API when
+    # folder_id is set (required for service accounts on personal Google
+    # accounts which have no writable My Drive root).
     if folder_id:
         file_meta = drive_svc.files().create(
             body={
@@ -268,10 +277,7 @@ def _create_doc(title: str, content: str, folder_id: str) -> dict[str, Any]:
         doc_id = doc["documentId"]
     url: str = f"https://docs.google.com/document/d/{doc_id}/edit"
 
-    # 2. Insert text content at the beginning of the document.
-    #    We use a simple batchUpdate with a single insertText request.
-    #    The body always starts with a single paragraph; index 1 is the
-    #    insertion point right after the start-of-body structural element.
+    # Insert text content at index 1 (right after the start-of-body element).
     if content:
         docs_svc.documents().batchUpdate(
             documentId=doc_id,
@@ -287,10 +293,6 @@ def _create_doc(title: str, content: str, folder_id: str) -> dict[str, Any]:
             },
         ).execute()
 
-    # (File was created directly in the target folder above when folder_id is
-    # set; no move step needed. Without a folder_id the doc lives in the SA's
-    # default location.)
-
     return {"doc_id": doc_id, "url": url}
 
 
@@ -304,10 +306,6 @@ def _create_sheet(title: str, rows: list[list[Any]], folder_id: str) -> dict[str
     sheets_svc = _build_sheets_service(credentials)
     drive_svc = _build_drive_service(credentials)
 
-    # 1. Create an empty spreadsheet.
-    #    As with docs: create directly in the target folder via the Drive API
-    #    when folder_id is set, so service accounts on personal Google accounts
-    #    (no writable My Drive root) can author into a user-shared folder.
     if folder_id:
         file_meta = drive_svc.files().create(
             body={
@@ -328,27 +326,20 @@ def _create_sheet(title: str, rows: list[list[Any]], folder_id: str) -> dict[str
         sheet_id = spreadsheet["spreadsheetId"]
     url: str = f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit"
 
-    # 2. Write rows if provided.
     if rows:
-        # Normalize every cell to str so the Sheets API is happy.
-        normalized = [
-            [str(cell) for cell in row] for row in rows
-        ]
-        range_notation = "Sheet1"
+        normalized = [[str(cell) for cell in row] for row in rows]
         sheets_svc.spreadsheets().values().update(
             spreadsheetId=sheet_id,
-            range=range_notation,
+            range="Sheet1",
             valueInputOption="RAW",
             body={"values": normalized},
         ).execute()
-
-    # (Created directly in the target folder above when folder_id is set.)
 
     return {"sheet_id": sheet_id, "url": url}
 
 
 # ---------------------------------------------------------------------------
-# Public async entry-point (called by registry._author_to_drive)
+# Public async entry-point
 # ---------------------------------------------------------------------------
 
 async def author_to_drive(
@@ -374,20 +365,20 @@ async def author_to_drive(
         DRIVE_FOLDER_ID.  When set AND DRIVE_FOLDER_ID is configured the file
         is created inside ``<root>/<subfolder>/`` rather than directly in the
         root.  The subfolder is created on first use (idempotent; safe for
-        concurrent calls).  When None (default) behaviour is byte-for-byte
-        identical to the previous flat-root behaviour.
+        concurrent calls).
 
     Returns
     -------
-    drive_block dict:
+    drive_block dict::
+
         {
             "mode":    "drive",
             "kind":    "doc" | "sheet",
-            "doc_id":  "<google-doc-id>",   # doc only
-            "sheet_id":"<google-sheet-id>", # sheet only
+            "doc_id":  "<google-doc-id>",
+            "sheet_id":"<google-sheet-id>",
             "url":     "https://docs.google.com/...",
             "title":   "<title>",
-            "subfolder": "<name>",          # only when subfolder was used
+            "subfolder": "<name>",   # only when subfolder was used
         }
 
     Raises
@@ -396,16 +387,15 @@ async def author_to_drive(
     ValueError   — bad config (empty SA JSON, bad JSON, etc.)
     Exception    — any Google API error
 
-    The caller in registry.py catches ALL exceptions and degrades to a local
-    deliverable record, so we must NEVER swallow errors here.
+    The caller catches ALL exceptions and degrades to a local deliverable record.
+    We must NEVER swallow errors here.
     """
     s = get_settings()
     root_folder_id = (s.DRIVE_FOLDER_ID or "").strip()
 
-    # Resolve effective folder: root → subfolder (when provided and root exists).
     safe_sub = _sanitize_subfolder(subfolder or "")
     if safe_sub and root_folder_id:
-        _check_google_libs()  # ensure libs available before building service
+        _check_google_libs()
         credentials = _build_credentials()
         drive_svc = _build_drive_service(credentials)
         folder_id = _resolve_or_create_subfolder(drive_svc, root_folder_id, safe_sub)
@@ -414,7 +404,7 @@ async def author_to_drive(
         )
     else:
         folder_id = root_folder_id
-        safe_sub = None  # no subfolder used
+        safe_sub = None
 
     safe_title = str(title)[:255]
 

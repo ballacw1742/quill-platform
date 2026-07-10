@@ -428,6 +428,11 @@ async def rollback_deliverable(
 # Phase G1: injectable ADK call helper (monkeypatchable in tests)
 # ---------------------------------------------------------------------------
 
+# Module-level injectable for Drive authoring — monkeypatchable in tests.
+# Default None means the real author_to_drive from app.services.drive_author is used.
+_drive_author_fn = None  # type: ignore[assignment]
+
+
 async def _call_codev_agent(
     endpoint: str,
     payload: dict,
@@ -715,6 +720,12 @@ async def resume_deliverable(
                             )
                         ).scalar_one_or_none()
                         if chain_row is not None:
+                            # Suppress Drive authoring inside the chain — the resume
+                            # endpoint handles Drive authoring in its own block below
+                            # to avoid double-authoring the same deliverable.
+                            async def _noop_drive_author(*_a, **_kw) -> dict:
+                                return {"mode": "local", "reason": "suppressed-by-resume"}
+
                             resumed_row = await run_deliverable_chain(
                                 chain_session,
                                 user_id=chain_row.user_id,
@@ -724,6 +735,7 @@ async def resume_deliverable(
                                 call_agent=_chain_call_agent,
                                 start_step_index=steps_completed,
                                 existing_row=chain_row,
+                                _drive_author_fn=_noop_drive_author,
                             )
                             if resumed_row is not None:
                                 # Reload the head row in the original session for the response.
@@ -752,5 +764,79 @@ async def resume_deliverable(
         await db.refresh(row)
     except Exception:  # noqa: BLE001
         pass  # If refresh fails, return the last known state.
+
+    # Phase H — Drive authoring on co-dev resume/finalization.
+    # Author to Drive when:
+    #   - resume_chain=False (human accepted final content; status → approved), OR
+    #   - resume_chain=True  (chain resumed; author if chain ran to completion).
+    # In both cases, only author when the deliverable now has a Drive-authorable
+    # final status (approved or awaiting_human = all chain steps done).
+    # Fail-safe: any Drive error is logged and the endpoint still returns 200.
+    _should_drive_author = (
+        not body.resume_chain  # explicit accept — always author
+        or row.status in ("approved", "awaiting_human")  # chain finished
+    )
+    if _should_drive_author:
+        try:
+            from app.deliverable_pipeline import _author_deliverable_to_drive
+            from app.config import get_settings as _get_settings
+            # Bypass DRIVE_ENABLED check when _drive_author_fn is injected (tests).
+            _drive_enabled_or_injected = _get_settings().DRIVE_ENABLED or (_drive_author_fn is not None)
+            if _drive_enabled_or_injected:
+                # Resolve project name for Drive subfolder.
+                _resume_subfolder: str | None = None
+                if row.project_id:
+                    try:
+                        from app.models_projects import Project as _ResumeProject
+                        _rproj = await db.get(_ResumeProject, row.project_id)
+                        if _rproj is not None:
+                            _resume_subfolder = _rproj.name or row.project_id
+                        else:
+                            _resume_subfolder = row.project_id
+                    except Exception as _rpe:  # noqa: BLE001
+                        _log.warning(
+                            "resume.drive_project_lookup_failed deliverable_id=%s err=%s",
+                            deliverable_id, _rpe,
+                        )
+
+                drive_block = await _author_deliverable_to_drive(
+                    row,
+                    drive_subfolder=_resume_subfolder,
+                    _author_fn=_drive_author_fn,
+                )
+                if drive_block is not None and drive_block.get("mode") == "drive":
+                    import app.db as _db_module
+                    async with _db_module.SessionLocal() as _drive_session:
+                        from sqlalchemy import select as _drive_select
+                        from app.models_deliverables import Deliverable as _Deliverable
+                        _drive_row = (
+                            await _drive_session.execute(
+                                _drive_select(_Deliverable).where(
+                                    _Deliverable.id == deliverable_id
+                                )
+                            )
+                        ).scalar_one_or_none()
+                        if _drive_row is not None:
+                            _updated = dict(_drive_row.content or {})
+                            _updated["drive"] = drive_block
+                            _drive_row.content = _updated
+                            from datetime import UTC, datetime
+                            _drive_row.updated_at = datetime.now(UTC)
+                            await _drive_session.commit()
+                            _log.info(
+                                "resume.drive_authored deliverable_id=%s url=%s",
+                                deliverable_id, drive_block.get("url"),
+                            )
+                    # Refresh so _deliverable_out sees the drive URL.
+                    try:
+                        await db.refresh(row)
+                    except Exception:  # noqa: BLE001
+                        pass
+        except Exception as _drive_exc:  # noqa: BLE001
+            _log.warning(
+                "resume.drive_author_error deliverable_id=%s err=%s "
+                "— deliverable left as text/local record",
+                deliverable_id, _drive_exc,
+            )
 
     return _deliverable_out(row)

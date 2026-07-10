@@ -140,6 +140,19 @@ class Settings(BaseSettings):
         description="Touch-file feature flag: presence freezes audit writes.",
     )
 
+    # Google Drive / Docs / Sheets authoring (Phase F/H — api-side pipeline)
+    # -----------------------------------------------------------------
+    # Master flag. False (default) ⇒ Drive authoring is skipped; deliverable
+    # stays as a text/local record. Flip to True only once the service account
+    # + folder are configured on the quill-agents Cloud Run service.
+    DRIVE_ENABLED: bool = Field(default=False)
+    # Full JSON key of the Drive service account (single-line string).
+    # Mirrors DRIVE_SERVICE_ACCOUNT_JSON in agent-cloud's config exactly.
+    DRIVE_SERVICE_ACCOUNT_JSON: str = Field(default="")
+    # Drive folder ID where new Docs/Sheets are created.
+    # Leave empty to create in the service account's My Drive root.
+    DRIVE_FOLDER_ID: str = Field(default="")
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

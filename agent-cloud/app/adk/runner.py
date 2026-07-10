@@ -267,7 +267,9 @@ class AdkAgentRunner(TaskAgentRunner):
             for block in resp.tool_uses:
                 name = block.get("name", "")
                 tool_calls.append(name)
-                out = await self._exec_tool(name, block.get("input") or {}, allow)
+                out = await self._exec_tool(
+                    name, block.get("input") or {}, allow, context
+                )
                 # Collect structured side-effects for the TaskResult.
                 self._collect_side_effects(name, out, deliverables, proposals)
                 results.append(
@@ -296,7 +298,11 @@ class AdkAgentRunner(TaskAgentRunner):
         )
 
     async def _exec_tool(
-        self, name: str, args: dict[str, Any], allow: list[str]
+        self,
+        name: str,
+        args: dict[str, Any],
+        allow: list[str],
+        context: "TaskContext | None" = None,
     ) -> str:
         # Governance belt #2: even if a write tool leaked into the spec, an
         # off-allow-list name (writes filtered out for read-only) is denied.
@@ -307,8 +313,16 @@ class AdkAgentRunner(TaskAgentRunner):
         tool = ADK_TOOL_REGISTRY.get(name)
         if tool is None:
             return json.dumps({"error": f"unknown tool {name!r}"})
+        # Inject project context for generate_deliverable so it can route
+        # deliverables into the correct per-project Drive subfolder.
+        # The underscore-prefixed key is internal and ignored by the model.
+        effective_args = dict(args or {})
+        if name == "generate_deliverable" and context is not None:
+            drive_subfolder = context.project_name or context.project_id or None
+            if drive_subfolder:
+                effective_args.setdefault("_drive_subfolder", drive_subfolder)
         try:
-            return await tool.handler(args or {})
+            return await tool.handler(effective_args)
         except Exception as exc:  # noqa: BLE001 \u2014 tool errors go back to the model
             log.exception("adk tool %s failed", name)
             return json.dumps({"error": f"tool {name} failed: {exc}"})

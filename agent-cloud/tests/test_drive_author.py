@@ -20,7 +20,7 @@ import sys
 import types
 import unittest.mock as mock
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -509,3 +509,441 @@ def test_local_fallback_block_contract():
     # local block must NOT have doc_id/sheet_id
     assert "doc_id" not in block
     assert "sheet_id" not in block
+
+
+# ===========================================================================
+# Phase H — per-project Drive subfolder tests
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# _sanitize_subfolder — pure unit tests (no google libs needed)
+# ---------------------------------------------------------------------------
+
+def test_sanitize_subfolder_strips_whitespace():
+    from app.drive_author import _sanitize_subfolder
+    assert _sanitize_subfolder("  My Project  ") == "My Project"
+
+
+def test_sanitize_subfolder_removes_slashes():
+    from app.drive_author import _sanitize_subfolder
+    assert _sanitize_subfolder("path/to/folder") == "pathtofolder"
+    assert _sanitize_subfolder("a\\b") == "ab"
+
+
+def test_sanitize_subfolder_caps_length():
+    from app.drive_author import _sanitize_subfolder
+    long_name = "A" * 200
+    result = _sanitize_subfolder(long_name)
+    assert len(result) == 100
+
+
+def test_sanitize_subfolder_empty_returns_none():
+    from app.drive_author import _sanitize_subfolder
+    assert _sanitize_subfolder("") is None
+    assert _sanitize_subfolder("   ") is None
+    assert _sanitize_subfolder("//\\\\") is None
+
+
+def test_sanitize_subfolder_collapses_spaces():
+    from app.drive_author import _sanitize_subfolder
+    assert _sanitize_subfolder("A  B   C") == "A B C"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_or_create_subfolder — mock drive_svc
+# ---------------------------------------------------------------------------
+
+def _make_drive_svc_with_existing(folder_id: str = "existing-sub-id", drive_id: str = "shared-drive-id"):
+    """Return a mock drive service that finds an existing folder on list()."""
+    svc = MagicMock()
+    # files().get() returns the parent's driveId
+    svc.files.return_value.get.return_value.execute.return_value = {"driveId": drive_id}
+    # files().list() returns the existing folder
+    svc.files.return_value.list.return_value.execute.return_value = {
+        "files": [{"id": folder_id}]
+    }
+    return svc
+
+
+def _make_drive_svc_no_existing(new_folder_id: str = "new-sub-id", drive_id: str = ""):
+    """Return a mock drive service that finds nothing and creates a new folder."""
+    svc = MagicMock()
+    # files().get() returns the parent's driveId (empty = personal drive)
+    svc.files.return_value.get.return_value.execute.return_value = {"driveId": drive_id}
+    # files().list() returns nothing
+    svc.files.return_value.list.return_value.execute.return_value = {"files": []}
+    # files().create() returns the new folder
+    svc.files.return_value.create.return_value.execute.return_value = {"id": new_folder_id}
+    return svc
+
+
+def test_resolve_or_create_subfolder_returns_existing_id():
+    """When the subfolder already exists, return its id without creating."""
+    from app.drive_author import _resolve_or_create_subfolder
+
+    svc = _make_drive_svc_with_existing("existing-id-abc")
+    result = _resolve_or_create_subfolder(svc, "parent-folder-id", "My Project")
+    assert result == "existing-id-abc"
+    # list was called; create was NOT called
+    svc.files.return_value.create.assert_not_called()
+
+
+def test_resolve_or_create_subfolder_creates_when_not_found():
+    """When no existing subfolder, create one and return the new id."""
+    from app.drive_author import _resolve_or_create_subfolder
+
+    svc = _make_drive_svc_no_existing("brand-new-id")
+    result = _resolve_or_create_subfolder(svc, "parent-folder-id", "My Project")
+    assert result == "brand-new-id"
+    # create WAS called
+    svc.files.return_value.create.assert_called_once()
+    call_kwargs = svc.files.return_value.create.call_args
+    body = call_kwargs[1]["body"] if "body" in call_kwargs[1] else call_kwargs[0][0]
+    assert body.get("name") == "My Project"
+    assert body.get("mimeType") == "application/vnd.google-apps.folder"
+    assert "parent-folder-id" in body.get("parents", [])
+
+
+def test_resolve_or_create_subfolder_race_rerquery():
+    """If create() raises (race condition), re-query and return the winner's id."""
+    from app.drive_author import _resolve_or_create_subfolder
+
+    svc = MagicMock()
+    # get() returns the driveId
+    svc.files.return_value.get.return_value.execute.return_value = {"driveId": ""}
+    # list() returns nothing on first call, then returns the winner on re-query
+    list_results = [{"files": []}, {"files": [{"id": "winner-id"}]}]
+    call_count = [0]
+    def _list_execute():
+        r = list_results[min(call_count[0], len(list_results) - 1)]
+        call_count[0] += 1
+        return r
+    svc.files.return_value.list.return_value.execute.side_effect = _list_execute
+    # create() raises to simulate race
+    svc.files.return_value.create.return_value.execute.side_effect = Exception("already exists")
+
+    result = _resolve_or_create_subfolder(svc, "parent-id", "Raced Project")
+    assert result == "winner-id"
+
+
+def test_resolve_or_create_subfolder_shared_drive_uses_corpora():
+    """When parent is in a Shared Drive, the list query uses corpora='drive'."""
+    from app.drive_author import _resolve_or_create_subfolder
+
+    svc = _make_drive_svc_with_existing("existing-id", drive_id="shared-drive-xyz")
+    _resolve_or_create_subfolder(svc, "parent-id", "Project A")
+
+    # Verify the list call included corpora + driveId
+    call_kwargs = svc.files.return_value.list.call_args[1]
+    assert call_kwargs.get("corpora") == "drive"
+    assert call_kwargs.get("driveId") == "shared-drive-xyz"
+
+
+def test_resolve_or_create_subfolder_personal_drive_no_corpora():
+    """When parent is on a personal Drive (no driveId), no corpora is set."""
+    from app.drive_author import _resolve_or_create_subfolder
+
+    svc = _make_drive_svc_with_existing("existing-id", drive_id="")
+    _resolve_or_create_subfolder(svc, "parent-id", "Project B")
+
+    call_kwargs = svc.files.return_value.list.call_args[1]
+    assert "corpora" not in call_kwargs
+    assert "driveId" not in call_kwargs
+
+
+# ---------------------------------------------------------------------------
+# author_to_drive — subfolder param integration (mocked google libs)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_author_to_drive_with_subfolder_routes_into_subfolder():
+    """When subfolder is set and DRIVE_FOLDER_ID is set, file is created in
+    the resolved subfolder id, not the root folder id."""
+    import app.drive_author as da
+
+    fake_google, fake_oauth2, fake_gc, fake_disc, fake_creds = _make_fake_google_libs()
+
+    sa_json = json.dumps({"type": "service_account", "project_id": "test"})
+    mock_settings = _settings_with(
+        DRIVE_ENABLED=True,
+        DRIVE_SERVICE_ACCOUNT_JSON=sa_json,
+        DRIVE_FOLDER_ID="root-folder-id",
+    )
+
+    # Patch _resolve_or_create_subfolder to return a known subfolder id.
+    with patch.object(da, "_GOOGLE_AVAILABLE", True), \
+         patch("app.drive_author.get_settings", return_value=mock_settings), \
+         patch("app.drive_author._build_credentials", return_value=fake_creds), \
+         patch("app.drive_author._build_drive_service", return_value=MagicMock()), \
+         patch("app.drive_author._resolve_or_create_subfolder", return_value="sub-folder-id") as mock_resolve, \
+         patch.dict(sys.modules, {
+             "google": fake_google,
+             "google.oauth2": fake_oauth2,
+             "google.oauth2.service_account": fake_oauth2.service_account,
+             "googleapiclient": fake_gc,
+             "googleapiclient.discovery": fake_disc,
+         }):
+        block = await da.author_to_drive(
+            "doc", "Project Report", "content here", subfolder="Acme Bridge"
+        )
+
+    # Subfolder resolver was called
+    mock_resolve.assert_called_once_with(ANY, "root-folder-id", "Acme Bridge")
+    # The returned block notes the subfolder
+    assert block["subfolder"] == "Acme Bridge"
+    assert block["mode"] == "drive"
+    assert block["kind"] == "doc"
+
+
+@pytest.mark.asyncio
+async def test_author_to_drive_without_subfolder_unchanged():
+    """When subfolder is None, behavior is byte-for-byte identical to Phase F
+    (no _resolve_or_create_subfolder call, no 'subfolder' in block)."""
+    import app.drive_author as da
+
+    fake_google, fake_oauth2, fake_gc, fake_disc, fake_creds = _make_fake_google_libs()
+
+    sa_json = json.dumps({"type": "service_account", "project_id": "test"})
+    mock_settings = _settings_with(
+        DRIVE_ENABLED=True,
+        DRIVE_SERVICE_ACCOUNT_JSON=sa_json,
+        DRIVE_FOLDER_ID="root-folder-id",
+    )
+
+    with patch.object(da, "_GOOGLE_AVAILABLE", True), \
+         patch("app.drive_author.get_settings", return_value=mock_settings), \
+         patch("app.drive_author._resolve_or_create_subfolder") as mock_resolve, \
+         patch.dict(sys.modules, {
+             "google": fake_google,
+             "google.oauth2": fake_oauth2,
+             "google.oauth2.service_account": fake_oauth2.service_account,
+             "googleapiclient": fake_gc,
+             "googleapiclient.discovery": fake_disc,
+         }):
+        block = await da.author_to_drive("doc", "Flat Doc", "content", subfolder=None)
+
+    # No subfolder resolution
+    mock_resolve.assert_not_called()
+    # No subfolder key in block
+    assert "subfolder" not in block
+    assert block["mode"] == "drive"
+
+
+@pytest.mark.asyncio
+async def test_author_to_drive_subfolder_only_when_drive_folder_id_set():
+    """When subfolder is provided but DRIVE_FOLDER_ID is empty, no subfolder resolution
+    occurs (can't create subfolder with no root) — writes to flat root (empty folder_id)."""
+    import app.drive_author as da
+
+    fake_google, fake_oauth2, fake_gc, fake_disc, fake_creds = _make_fake_google_libs()
+
+    sa_json = json.dumps({"type": "service_account", "project_id": "test"})
+    mock_settings = _settings_with(
+        DRIVE_ENABLED=True,
+        DRIVE_SERVICE_ACCOUNT_JSON=sa_json,
+        DRIVE_FOLDER_ID="",  # no root folder
+    )
+
+    with patch.object(da, "_GOOGLE_AVAILABLE", True), \
+         patch("app.drive_author.get_settings", return_value=mock_settings), \
+         patch("app.drive_author._resolve_or_create_subfolder") as mock_resolve, \
+         patch.dict(sys.modules, {
+             "google": fake_google,
+             "google.oauth2": fake_oauth2,
+             "google.oauth2.service_account": fake_oauth2.service_account,
+             "googleapiclient": fake_gc,
+             "googleapiclient.discovery": fake_disc,
+         }):
+        block = await da.author_to_drive(
+            "doc", "No-Root Doc", "content", subfolder="Any Project"
+        )
+
+    # No subfolder resolution — no root folder to resolve under
+    mock_resolve.assert_not_called()
+    # No subfolder key (it was cleared to None)
+    assert "subfolder" not in block
+
+
+# ---------------------------------------------------------------------------
+# TaskContext — project_id and project_name fields
+# ---------------------------------------------------------------------------
+
+def test_task_context_has_project_fields():
+    """TaskContext must expose project_id and project_name (both optional)."""
+    from app.adk.base import TaskContext
+
+    ctx = TaskContext(tenant_id="t1", agent_id="a1")
+    assert hasattr(ctx, "project_id")
+    assert hasattr(ctx, "project_name")
+    assert ctx.project_id is None
+    assert ctx.project_name is None
+
+
+def test_task_context_accepts_project_fields():
+    """TaskContext can be constructed with project_id and project_name."""
+    from app.adk.base import TaskContext
+
+    ctx = TaskContext(
+        tenant_id="t1",
+        agent_id="a1",
+        project_id="proj-abc",
+        project_name="Acme Bridge",
+    )
+    assert ctx.project_id == "proj-abc"
+    assert ctx.project_name == "Acme Bridge"
+
+
+# ---------------------------------------------------------------------------
+# runner._exec_tool — project context injection into generate_deliverable
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_exec_tool_injects_drive_subfolder_for_generate_deliverable():
+    """runner._exec_tool merges _drive_subfolder into args for generate_deliverable
+    when the context has project_name set."""
+    from unittest.mock import AsyncMock
+    from app.adk.runner import AdkAgentRunner
+    from app.adk.base import TaskContext
+
+    runner = AdkAgentRunner.__new__(AdkAgentRunner)
+
+    captured_args: list[dict] = []
+
+    async def _fake_handler(args):
+        captured_args.append(dict(args))
+        return '{"status": "generated", "deliverable": {"drive": {"mode": "local"}}}'
+
+    ctx = TaskContext(tenant_id="t", agent_id="a", project_name="Bridge Proj")
+
+    with patch("app.adk.runner.ADK_TOOL_REGISTRY", {
+        "generate_deliverable": MagicMock(handler=_fake_handler)
+    }):
+        await runner._exec_tool(
+            "generate_deliverable",
+            {"kind": "doc", "title": "T", "content": "c"},
+            ["generate_deliverable"],
+            ctx,
+        )
+
+    assert len(captured_args) == 1
+    assert captured_args[0]["_drive_subfolder"] == "Bridge Proj"
+
+
+@pytest.mark.asyncio
+async def test_exec_tool_no_injection_when_no_project():
+    """runner._exec_tool does NOT inject _drive_subfolder when context has no project."""
+    from app.adk.runner import AdkAgentRunner
+    from app.adk.base import TaskContext
+
+    runner = AdkAgentRunner.__new__(AdkAgentRunner)
+
+    captured_args: list[dict] = []
+
+    async def _fake_handler(args):
+        captured_args.append(dict(args))
+        return '{"status": "generated", "deliverable": {"drive": {"mode": "local"}}}'
+
+    ctx = TaskContext(tenant_id="t", agent_id="a")  # no project_name/project_id
+
+    with patch("app.adk.runner.ADK_TOOL_REGISTRY", {
+        "generate_deliverable": MagicMock(handler=_fake_handler)
+    }):
+        await runner._exec_tool(
+            "generate_deliverable",
+            {"kind": "doc", "title": "T", "content": "c"},
+            ["generate_deliverable"],
+            ctx,
+        )
+
+    assert len(captured_args) == 1
+    assert "_drive_subfolder" not in captured_args[0]
+
+
+@pytest.mark.asyncio
+async def test_exec_tool_no_injection_for_other_tools():
+    """runner._exec_tool does NOT inject _drive_subfolder for non-deliverable tools."""
+    from app.adk.runner import AdkAgentRunner
+    from app.adk.base import TaskContext
+
+    runner = AdkAgentRunner.__new__(AdkAgentRunner)
+
+    captured_args: list[dict] = []
+
+    async def _fake_handler(args):
+        captured_args.append(dict(args))
+        return '{"result": "ok"}'
+
+    ctx = TaskContext(tenant_id="t", agent_id="a", project_name="Some Project")
+
+    with patch("app.adk.runner.ADK_TOOL_REGISTRY", {
+        "web_fetch": MagicMock(handler=_fake_handler)
+    }):
+        await runner._exec_tool(
+            "web_fetch",
+            {"url": "https://example.com"},
+            ["web_fetch"],
+            ctx,
+        )
+
+    assert len(captured_args) == 1
+    assert "_drive_subfolder" not in captured_args[0]
+
+
+# ---------------------------------------------------------------------------
+# _generate_deliverable — reads _drive_subfolder from args
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_generate_deliverable_passes_subfolder_to_author():
+    """When _drive_subfolder is in args, _generate_deliverable passes it to
+    _author_to_drive as the subfolder keyword arg."""
+    mock_drive_block = {
+        "mode": "drive",
+        "kind": "doc",
+        "doc_id": "sub-doc-id",
+        "url": "https://docs.google.com/document/d/sub-doc-id/edit",
+        "title": "Project Doc",
+        "subfolder": "Acme Bridge",
+    }
+
+    with patch("app.adk.registry.get_settings", return_value=_settings_with(DRIVE_ENABLED=True)):
+        with patch("app.adk.registry._author_to_drive", new=AsyncMock(return_value=mock_drive_block)) as mock_author:
+            from app.adk.registry import _generate_deliverable
+
+            await _generate_deliverable({
+                "kind": "doc",
+                "title": "Project Doc",
+                "content": "Content.",
+                "_drive_subfolder": "Acme Bridge",
+            })
+
+    mock_author.assert_called_once_with(
+        "doc", "Project Doc", "Content.", subfolder="Acme Bridge"
+    )
+
+
+@pytest.mark.asyncio
+async def test_generate_deliverable_no_subfolder_when_key_absent():
+    """When _drive_subfolder is absent, _author_to_drive is called with subfolder=None."""
+    mock_drive_block = {
+        "mode": "drive",
+        "kind": "doc",
+        "doc_id": "flat-doc-id",
+        "url": "https://docs.google.com/document/d/flat-doc-id/edit",
+        "title": "Flat Doc",
+    }
+
+    with patch("app.adk.registry.get_settings", return_value=_settings_with(DRIVE_ENABLED=True)):
+        with patch("app.adk.registry._author_to_drive", new=AsyncMock(return_value=mock_drive_block)) as mock_author:
+            from app.adk.registry import _generate_deliverable
+
+            await _generate_deliverable({
+                "kind": "doc",
+                "title": "Flat Doc",
+                "content": "Content.",
+                # no _drive_subfolder key
+            })
+
+    mock_author.assert_called_once_with(
+        "doc", "Flat Doc", "Content.", subfolder=None
+    )
