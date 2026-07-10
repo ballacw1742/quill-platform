@@ -34,6 +34,7 @@ function moduleHref(module: string | null | undefined, outputId: string | null |
     schedules: "/estimates",  // schedules live under estimates
     rfi: "/queue",
     contracts: "/contracts",
+    projects: "/projects",
   };
   const base = routes[module];
   if (!base) return null;
