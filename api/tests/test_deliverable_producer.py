@@ -115,12 +115,11 @@ async def test_produced_deliverable_has_single_created_snapshot(client, owner_to
     assert len(snaps) >= 1  # at minimum the v1 created snapshot
 
 
-async def test_deliverable_failure_does_not_fail_request(client, owner_token, monkeypatch):
-    """Fail-safe: if deliverable pipeline raises entirely, the request still completes.
-
-    Phase C note: The fail-safe is implemented in requests.py which wraps
-    run_deliverable_chain in a broad try/except. We patch run_deliverable_chain
-    in the pipeline module to simulate a total pipeline failure.
+async def test_deliverable_pipeline_failure_does_not_crash_and_marks_failed(client, owner_token, monkeypatch):
+    """The handler must never CRASH on a pipeline error (broad try/except in
+    requests.py). Phase-C cost model: the legacy single dispatch is skipped for
+    piloted intents, so a total pipeline failure has no fallback response — the
+    request is honestly marked 'failed' (not falsely 'complete' with no output).
     """
     import app.db as db_module
     import app.deliverable_pipeline as pipeline_mod
@@ -135,5 +134,5 @@ async def test_deliverable_failure_does_not_fail_request(client, owner_token, mo
 
     async with db_module.SessionLocal() as s:
         rec = await s.get(RequestRecord, rid)
-    assert rec.status == "complete"          # request finished fine despite the failure
+    assert rec.status == "failed"             # honest failure, no legacy fallback
     assert await _deliverables_for(uid) == []  # no deliverable, but no crash

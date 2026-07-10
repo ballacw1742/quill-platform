@@ -39,8 +39,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.deliverable_registry import DELIVERABLE_REGISTRY, DeliverableRegistryEntry
-from app.models_deliverables import Deliverable, DeliverableVersion
-from app.routes.deliverables import create_deliverable_service
+from app.models_deliverables import Deliverable
+from app.routes.deliverables import (
+    append_deliverable_version_service,
+    create_deliverable_service,
+)
 
 _log = logging.getLogger("quill.deliverable_pipeline")
 
@@ -78,35 +81,16 @@ async def _append_version(
     new_status: str,
     new_meta: dict,
 ) -> None:
-    """Append a new version to an existing Deliverable row.
-
-    Mirrors the PATCH route in routes/deliverables.py:
-      - Applies new content/status/meta to the live head.
-      - Increments version by 1.
-      - Writes an 'updated' DeliverableVersion snapshot.
-      - Commits and refreshes the row.
-
-    Never destructive — the prior version snapshot is preserved.
-    """
-    now = _utcnow()
-    row.content = new_content
-    row.status = new_status
-    row.meta = new_meta
-    row.version = row.version + 1
-    row.updated_at = now
-
-    snap = DeliverableVersion(
-        deliverable_id=row.id,
-        version=row.version,
-        title=row.title,
-        status=row.status,
-        content=row.content,
+    """Append a new version via the SHARED service in routes/deliverables.py
+    (append_deliverable_version_service) so there is one version-bump+snapshot
+    code path. Never destructive."""
+    await append_deliverable_version_service(
+        db, row,
+        content=new_content,
+        status=new_status,
+        meta=new_meta,
         change_action="updated",
-        created_at=now,
     )
-    db.add(snap)
-    await db.commit()
-    await db.refresh(row)
 
 
 # ---------------------------------------------------------------------------

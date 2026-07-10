@@ -217,7 +217,6 @@ async def test_estimate_chain_step_b_builds_on_step_a(client, owner_token, monke
 
     # 3 responses: [initial dispatch, chain step A, chain step B]
     responses = [
-        "initial dispatch response",
         "Step A: takeoff with quantities",
         "Step B: ROM estimate using Step A output",
     ]
@@ -247,14 +246,14 @@ async def test_estimate_chain_step_b_builds_on_step_a(client, owner_token, monke
         filenames=[], drive_url=None, user_id=uid,
     )
 
-    # Should have captured 3 messages (initial dispatch + chain step A + chain step B)
-    assert call_count[0] >= 3, (
-        f"Expected >=3 ADK calls (initial + 2 chain steps), got {call_count[0]}"
+    # Phase-C cost model: NO initial dispatch for piloted intents — exactly the
+    # 2 chain calls (step A, step B).
+    assert call_count[0] == 2, (
+        f"Expected exactly 2 ADK calls (2 chain steps, no legacy dispatch), got {call_count[0]}"
     )
 
-    # Verify step B's message includes step A's output ('Prior step output' prefix)
-    # call 2 is chain step B — its message should have the step A output as context
-    step_b_msg = captured_messages[2][1] if len(captured_messages) >= 3 else ""
+    # call 1 is chain step B — its message should include step A's output.
+    step_b_msg = captured_messages[1][1] if len(captured_messages) >= 2 else ""
 
     assert "Prior step output" in step_b_msg, (
         f"Step B message should contain 'Prior step output'. "
@@ -334,14 +333,12 @@ async def test_mid_chain_failure_leaves_last_good_version(client, owner_token, m
     call_count = [0]
 
     async def _fake_adk(*a, **k):
+        # Phase-C cost model: 2 chain calls, no legacy dispatch.
         call_count[0] += 1
         if call_count[0] == 1:
-            # Step A succeeds (initial dispatch call)
-            return _Resp("Step A output")
-        if call_count[0] == 2:
-            # Step A of chain succeeds
+            # Chain step A succeeds
             return _Resp("Chain step A output")
-        # Step B (chain) fails
+        # Chain step B fails
         raise RuntimeError("simulated step B network failure")
 
     monkeypatch.setattr(reqmod, "_call_adk_with_retry", _fake_adk)
@@ -361,7 +358,8 @@ async def test_mid_chain_failure_leaves_last_good_version(client, owner_token, m
         filenames=[], drive_url=None, user_id=uid,
     )
 
-    # Request itself should be complete (dispatch succeeded)
+    # Step A produced a v1 deliverable, so the request is complete (partial
+    # deliverable exists); step B failure just stopped the chain.
     async with db_module.SessionLocal() as s:
         rec = await s.get(RequestRecord, rid)
     assert rec.status == "complete", f"Expected request 'complete', got {rec.status!r}"
@@ -389,8 +387,9 @@ async def test_mid_chain_failure_deliverable_at_v1_has_step_a_meta(client, owner
     call_count = [0]
 
     async def _fake_adk(*a, **k):
+        # 2-call model: step A (call 1) succeeds, step B (call 2) fails.
         call_count[0] += 1
-        if call_count[0] <= 2:
+        if call_count[0] <= 1:
             return _Resp("step A output")
         raise RuntimeError("step B failure")
 
@@ -446,22 +445,18 @@ async def test_non_piloted_intent_produces_nothing(client, owner_token, monkeypa
 # ---------------------------------------------------------------------------
 
 
-async def test_step_a_failure_no_deliverable_request_still_completes(client, owner_token, monkeypatch):
-    """If step A (first agent call in the chain) fails, no deliverable is created.
-    The enclosing request must still complete (fail-safe)."""
+async def test_step_a_failure_no_deliverable_request_marked_failed(client, owner_token, monkeypatch):
+    """Phase-C cost model: the legacy single dispatch is SKIPPED for piloted
+    intents, so the chain is the request's only work. If step A (the FIRST
+    agent call) fails, no deliverable is created AND the request is marked
+    failed (there is no legacy fallback response). The handler must not crash."""
     import app.db as db_module
     import app.routes.requests as reqmod
 
     uid, _ = owner_token
 
-    call_count = [0]
-
     async def _fake_adk(*a, **k):
-        call_count[0] += 1
-        if call_count[0] == 1:
-            # Initial dispatch (request-level ADK call) succeeds
-            return _Resp("request-level response")
-        # All chain calls fail
+        # First (and every) chain call fails — step A cannot produce output.
         raise RuntimeError("simulated chain step A failure")
 
     monkeypatch.setattr(reqmod, "_call_adk_with_retry", _fake_adk)
@@ -475,17 +470,16 @@ async def test_step_a_failure_no_deliverable_request_still_completes(client, own
         await s.refresh(rec)
         rid = rec.id
 
+    # Must not raise despite step A failing.
     await reqmod._dispatch_to_agent(
         request_id=rid, intent="estimate", message="Estimate foundation cost",
         filenames=[], drive_url=None, user_id=uid,
     )
 
-    # Request must complete
     async with db_module.SessionLocal() as s:
         rec = await s.get(RequestRecord, rid)
-    assert rec.status == "complete", f"Expected 'complete', got {rec.status!r}"
-
-    # No deliverable created (step A of chain failed before create_deliverable_service)
+    # No legacy fallback → the request honestly reflects failure.
+    assert rec.status == "failed", f"Expected 'failed', got {rec.status!r}"
     dels = await _deliverables_for(uid)
     assert dels == [], f"Expected no deliverables on step A failure, got {dels}"
 
