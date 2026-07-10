@@ -39,7 +39,7 @@ router = APIRouter(prefix="/v1/deliverables", tags=["deliverables"])
 
 # ── Allowed status values (free-string validation) ─────────────────────────────
 ALLOWED_STATUSES = frozenset(
-    {"draft", "in_progress", "awaiting_human", "approved", "published", "superseded"}
+    {"draft", "in_progress", "awaiting_human", "approved", "rejected", "published", "superseded"}
 )
 
 # ── Pydantic schemas ───────────────────────────────────────────────────────────

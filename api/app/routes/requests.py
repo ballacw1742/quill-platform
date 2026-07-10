@@ -726,6 +726,42 @@ async def _dispatch_to_agent(
                         "deliverable.link_failed deliverable_id=%s request_id=%s err=%s",
                         produced_deliverable_id, request_id, link_exc,
                     )
+                # Phase D — HITL gate: create an approval item for the
+                # deliverable that the chain just left at 'awaiting_human'.
+                # Fail-safe: an approval-creation error must NOT fail the
+                # request (log + continue) but we leave the deliverable at
+                # 'awaiting_human' so it can be retried.
+                if deliverable is not None and getattr(deliverable, 'status', None) == 'awaiting_human':
+                    try:
+                        from app.services.deliverable_hitl import create_deliverable_approval
+                        async with async_session_maker() as appr_session:
+                            del_row = await appr_session.get(
+                                __import__('app.models_deliverables', fromlist=['Deliverable']).Deliverable,
+                                produced_deliverable_id,
+                            )
+                            if del_row is not None:
+                                await create_deliverable_approval(
+                                    appr_session,
+                                    del_row,
+                                    actor=user_id,
+                                    summary=(
+                                        f"Review and accept the AI-produced "
+                                        f"{reg.deliverable_type} deliverable: "
+                                        f"{del_row.title}. "
+                                        f"Approve to finalize or reject to discard."
+                                    ),
+                                )
+                                log.info(
+                                    "deliverable_hitl.approval_queued "
+                                    "deliverable_id=%s type=%s request_id=%s",
+                                    produced_deliverable_id, reg.deliverable_type, request_id,
+                                )
+                    except Exception as appr_exc:  # noqa: BLE001
+                        log.warning(
+                            "deliverable_hitl.approval_create_failed "
+                            "deliverable_id=%s request_id=%s err=%s",
+                            produced_deliverable_id, request_id, appr_exc,
+                        )
             else:
                 # Piloted intent but the chain produced nothing (e.g. step A
                 # failed). Mark the request failed so it doesn't sit falsely
