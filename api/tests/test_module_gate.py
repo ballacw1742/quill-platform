@@ -168,3 +168,29 @@ async def test_other_feature_of_same_module_still_runs(client, owner_token, monk
     )
     assert r.status_code == 201
     assert r.json()["status"] == "processing"
+
+
+async def test_phase_e_intent_skipped_when_its_module_disabled(client, owner_token, monkeypatch):
+    """Phase E made all modules deliverable-producing. Verify the upstream
+    module gate still short-circuits a now-piloted intent (finance) BEFORE any
+    dispatch/chain when its own module is disabled."""
+    import app.routes.requests as reqmod
+
+    _, token = owner_token
+    called = {"dispatch": False}
+
+    async def _no_dispatch(*a, **k):
+        called["dispatch"] = True
+
+    monkeypatch.setattr(reqmod, "_dispatch_to_agent", _no_dispatch)
+
+    await _disable_module(client, token, "finance")
+
+    r = await client.post(
+        "/v1/requests",
+        headers=auth_h(token),
+        data={"message": "Roll up this month's capex", "intent": "finance"},
+    )
+    assert r.status_code == 201
+    assert r.json()["status"] == "skipped"
+    assert called["dispatch"] is False

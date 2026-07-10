@@ -87,8 +87,9 @@ async def test_rfi_intent_produces_rfi_response(client, owner_token, monkeypatch
 
 async def test_non_piloted_intent_produces_nothing(client, owner_token, monkeypatch):
     uid, _ = owner_token
-    assert "contract" not in INTENT_TO_DELIVERABLE
-    await _seed_and_dispatch(client, monkeypatch, uid, "contract", "Review CO #12")
+    # Phase E: 'contract' is now piloted. Use 'general' which is intentionally un-piloted.
+    assert "general" not in INTENT_TO_DELIVERABLE
+    await _seed_and_dispatch(client, monkeypatch, uid, "general", "What is the project status?")
     assert await _deliverables_for(uid) == []
 
 

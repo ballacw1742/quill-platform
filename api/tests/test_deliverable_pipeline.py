@@ -427,17 +427,23 @@ async def test_mid_chain_failure_deliverable_at_v1_has_step_a_meta(client, owner
 
 
 async def test_non_piloted_intent_produces_nothing(client, owner_token, monkeypatch):
-    """'contract' is not a piloted intent — no deliverable, no chain."""
+    """'general' is not a piloted intent — no deliverable, no chain.
+
+    Note: Phase E promoted 'contract' to a piloted intent. This test now uses
+    'general' which is intentionally un-piloted (the coordinator/catch-all path
+    is never deliverable-driven).
+    """
     uid, _ = owner_token
-    assert "contract" not in INTENT_TO_DELIVERABLE
+    # Phase E: 'contract' is now piloted. 'general' remains un-piloted by design.
+    assert "general" not in INTENT_TO_DELIVERABLE
 
     await _seed_and_dispatch(
-        client, monkeypatch, uid, "contract", "Review CO #12",
-        adk_responses=["contract review output"],
+        client, monkeypatch, uid, "general", "What is the project status?",
+        adk_responses=["general coordinator response"],
     )
 
     dels = await _deliverables_for(uid)
-    assert dels == [], f"Expected no deliverables for non-piloted intent, got {dels}"
+    assert dels == [], f"Expected no deliverables for 'general' intent, got {dels}"
 
 
 # ---------------------------------------------------------------------------
