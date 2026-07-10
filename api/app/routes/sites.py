@@ -64,7 +64,30 @@ async def create_site(
     body: dict,
     user=Depends(get_current_user),
 ):
-    """Create a new site evaluation."""
+    """Create a new site evaluation.
+
+    Validation: body must contain either a non-empty 'address' field OR both
+    'latitude' and 'longitude' fields. Providing neither returns 400.
+    Providing both is allowed (coordinates take precedence for geocoding).
+    """
+    # Light server-side validation: address OR (latitude AND longitude)
+    address = body.get("address", "")
+    latitude = body.get("latitude")
+    longitude = body.get("longitude")
+
+    has_address = bool(address and str(address).strip())
+    has_coords = latitude is not None and longitude is not None
+
+    if not has_address and not has_coords:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Either 'address' or both 'latitude' and 'longitude' must be provided. "
+                "Providing neither is not allowed."
+            ),
+        )
+
+    # Thin proxy — DataSite enforces full validation (types, ranges, etc.)
     return await _datasite_request("post", "/sites", json=body)
 
 
@@ -208,21 +231,45 @@ async def get_site_drive_intake(
 
 @router.post("/evaluate")
 async def evaluate_site(
-    address: str = Form(...),
+    address: str = Form(default=""),
     workload: str = Form("ai_hpc"),
     target_mw: float = Form(100),
+    latitude: float | None = Form(default=None),
+    longitude: float | None = Form(default=None),
     drive_folder_url: str = Form(default=""),
     files: list[UploadFile] = File(default=[]),
     stub: bool = Form(default=False),
     user=Depends(get_current_user),
 ):
-    """Run a full site evaluation pipeline."""
-    data = {
-        "address": address,
+    """Run a full site evaluation pipeline.
+
+    Accepts either address OR latitude+longitude (or both; coords take precedence).
+    Returns 400 if neither address nor coordinates are provided.
+    """
+    # Validate at-least-one rule before forwarding to DataSite
+    has_address = bool(address and address.strip())
+    has_coords = latitude is not None and longitude is not None
+
+    if not has_address and not has_coords:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Either 'address' or both 'latitude' and 'longitude' must be provided. "
+                "Providing neither is not allowed."
+            ),
+        )
+
+    data: dict = {
         "workload": workload,
         "target_mw": str(target_mw),
         "stub": str(stub).lower(),
     }
+    if address.strip():
+        data["address"] = address.strip()
+    if latitude is not None:
+        data["latitude"] = str(latitude)
+    if longitude is not None:
+        data["longitude"] = str(longitude)
     if drive_folder_url:
         data["drive_folder_url"] = drive_folder_url
 

@@ -89,6 +89,8 @@ interface FormState {
   city: string;
   state: string;
   zip: string;
+  latitude: string;
+  longitude: string;
   acres: string;
   target_workload: string;
   target_mw: string;
@@ -104,6 +106,8 @@ const INITIAL_STATE: FormState = {
   city: "",
   state: "",
   zip: "",
+  latitude: "",
+  longitude: "",
   acres: "",
   target_workload: "ai_hpc",
   target_mw: "",
@@ -207,10 +211,34 @@ export default function NewSitePage() {
 
   function validate(): boolean {
     const e: Partial<Record<keyof FormState, string>> = {};
-    if (!form.address.trim()) e.address = "Address is required";
-    if (!form.city.trim()) e.city = "City is required";
-    if (!form.state.trim()) e.state = "State is required";
-    if (!form.zip.trim()) e.zip = "ZIP is required";
+
+    // At-least-one rule: address OR (latitude AND longitude)
+    const hasAddress = form.address.trim().length > 0;
+    const latStr = form.latitude.trim();
+    const lonStr = form.longitude.trim();
+    const hasLat = latStr.length > 0;
+    const hasLon = lonStr.length > 0;
+    const hasCoords = hasLat && hasLon;
+
+    if (!hasAddress && !hasCoords) {
+      e.address = "Provide a street address or GPS coordinates (latitude + longitude)";
+    }
+    // Partial coords: one without the other
+    if (hasLat && !hasLon) e.longitude = "Longitude is required when latitude is provided";
+    if (hasLon && !hasLat) e.latitude = "Latitude is required when longitude is provided";
+
+    // Range validation for coordinates
+    if (hasLat) {
+      const lat = parseFloat(latStr);
+      if (isNaN(lat) || lat < -90 || lat > 90)
+        e.latitude = "Latitude must be a number between -90 and 90";
+    }
+    if (hasLon) {
+      const lon = parseFloat(lonStr);
+      if (isNaN(lon) || lon < -180 || lon > 180)
+        e.longitude = "Longitude must be a number between -180 and 180";
+    }
+
     if (!form.target_workload) e.target_workload = "Workload type is required";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -222,13 +250,17 @@ export default function NewSitePage() {
 
     setSubmitStep("Creating site record…");
     const payload: Record<string, any> = {
-      address: form.address.trim(),
-      city: form.city.trim(),
-      state: form.state.toUpperCase(),
-      zip: form.zip.trim(),
       target_workload: form.target_workload,
       lead_source: "internal",
     };
+    // Include address fields only if provided
+    if (form.address.trim()) payload.address = form.address.trim();
+    if (form.city.trim()) payload.city = form.city.trim();
+    if (form.state.trim()) payload.state = form.state.toUpperCase();
+    if (form.zip.trim()) payload.zip = form.zip.trim();
+    // Include coordinates if provided
+    if (form.latitude.trim()) payload.latitude = parseFloat(form.latitude.trim());
+    if (form.longitude.trim()) payload.longitude = parseFloat(form.longitude.trim());
     if (form.acres) payload.acres = parseFloat(form.acres);
     if (form.target_mw) payload.target_mw = parseFloat(form.target_mw);
     // Store extras in a notes-like field; DataSite's CreateSiteRequest is lean
@@ -266,19 +298,22 @@ export default function NewSitePage() {
           <p className="text-callout font-semibold text-label-primary mb-4">Location</p>
 
           <div className="mb-4">
-            <FieldLabel>Street Address *</FieldLabel>
+            <FieldLabel>Street Address</FieldLabel>
             <FieldInput
               placeholder="3990 E Broad Street"
               value={form.address}
               onChange={set("address")}
               autoComplete="street-address"
             />
-            {errors.address && <p className="text-caption-1 text-red-400 mt-1">{errors.address}</p>}
+            {/* Address error shown in coords section below when combined with coords */}
+            {errors.address && form.address.trim() && (
+              <p className="text-caption-1 text-red-400 mt-1">{errors.address}</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 mb-4">
             <div>
-              <FieldLabel>City *</FieldLabel>
+              <FieldLabel>City</FieldLabel>
               <FieldInput
                 placeholder="Columbus"
                 value={form.city}
@@ -287,7 +322,7 @@ export default function NewSitePage() {
               {errors.city && <p className="text-caption-1 text-red-400 mt-1">{errors.city}</p>}
             </div>
             <div>
-              <FieldLabel>State *</FieldLabel>
+              <FieldLabel>State</FieldLabel>
               <FieldSelect value={form.state} onChange={set("state")}>
                 <option value="">Select</option>
                 {US_STATES.map((s) => (
@@ -299,7 +334,7 @@ export default function NewSitePage() {
           </div>
 
           <div>
-            <FieldLabel>ZIP Code *</FieldLabel>
+            <FieldLabel>ZIP Code</FieldLabel>
             <FieldInput
               placeholder="43213"
               value={form.zip}
@@ -308,6 +343,49 @@ export default function NewSitePage() {
               maxLength={10}
             />
             {errors.zip && <p className="text-caption-1 text-red-400 mt-1">{errors.zip}</p>}
+          </div>
+
+          {/* Coordinate entry (alternative to address) */}
+          <div className="mt-4 pt-4 border-t border-separator/30">
+            <p className="text-caption-1 text-label-tertiary mb-3">
+              <strong className="text-label-secondary">Or enter GPS coordinates</strong>
+              {" "}— provide latitude + longitude instead of (or in addition to) an address.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel>Latitude</FieldLabel>
+                <FieldInput
+                  placeholder="39.9612"
+                  type="number"
+                  step="any"
+                  min="-90"
+                  max="90"
+                  value={form.latitude}
+                  onChange={set("latitude")}
+                />
+                {errors.latitude && (
+                  <p className="text-caption-1 text-red-400 mt-1">{errors.latitude}</p>
+                )}
+              </div>
+              <div>
+                <FieldLabel>Longitude</FieldLabel>
+                <FieldInput
+                  placeholder="-82.9988"
+                  type="number"
+                  step="any"
+                  min="-180"
+                  max="180"
+                  value={form.longitude}
+                  onChange={set("longitude")}
+                />
+                {errors.longitude && (
+                  <p className="text-caption-1 text-red-400 mt-1">{errors.longitude}</p>
+                )}
+              </div>
+            </div>
+            {errors.address && !form.address.trim() && (
+              <p className="text-caption-1 text-red-400 mt-2">{errors.address}</p>
+            )}
           </div>
         </FormCard>
 
