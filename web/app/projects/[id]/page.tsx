@@ -59,6 +59,7 @@ import {
   type Deliverable,
 } from "@/lib/api";
 import { LifecycleTracker } from "@/components/lifecycle/LifecycleTracker";
+import { DeliverableDetailSheet } from "@/components/deliverables/DeliverableDetailSheet";
 import type {
   QuillProject,
   ProjectMilestone,
@@ -1100,14 +1101,19 @@ function DeliverableVersionHistory({ deliverableId }: { deliverableId: string })
   );
 }
 
-function DeliverableRow({ d }: { d: Deliverable }) {
-  const [expanded, setExpanded] = React.useState(false);
+function DeliverableRow({
+  d,
+  onOpen,
+}: {
+  d: Deliverable;
+  onOpen: (id: string) => void;
+}) {
   const { label, cls } = deliverableStatusCfg(d.status);
   return (
     <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-4 mb-3">
       <button
         type="button"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={() => onOpen(d.id)}
         className="w-full flex items-start gap-3 text-left"
       >
         <div className="flex-1 min-w-0">
@@ -1126,13 +1132,9 @@ function DeliverableRow({ d }: { d: Deliverable }) {
           <p className="text-caption-1 text-label-tertiary mt-0.5">{d.module_key}</p>
         </div>
         <ChevronRight
-          className={cn(
-            "h-4 w-4 text-label-quaternary shrink-0 mt-1 transition-transform",
-            expanded && "rotate-90",
-          )}
+          className="h-4 w-4 text-label-quaternary shrink-0 mt-1"
         />
       </button>
-      {expanded && <DeliverableVersionHistory deliverableId={d.id} />}
     </div>
   );
 }
@@ -1140,6 +1142,7 @@ function DeliverableRow({ d }: { d: Deliverable }) {
 function DeliverablesTab({ projectId }: { projectId: string }) {
   const { data, isLoading } = useDeliverables(projectId);
   const items = data?.items ?? [];
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -1157,8 +1160,12 @@ function DeliverablesTab({ projectId }: { projectId: string }) {
         </div>
       )}
       {items.map((d) => (
-        <DeliverableRow key={d.id} d={d} />
+        <DeliverableRow key={d.id} d={d} onOpen={setSelectedId} />
       ))}
+      <DeliverableDetailSheet
+        deliverableId={selectedId}
+        onClose={() => setSelectedId(null)}
+      />
     </>
   );
 }

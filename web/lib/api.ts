@@ -4170,6 +4170,12 @@ export const DeliverableSchema = z.object({
    * Code-only metadata — derived from the registry at query time; no DB column.
    */
   stage_key: z.string().default(""),
+  /**
+   * Google Drive URL for this deliverable (Phase F drive authoring).
+   * Surfaced from content.drive.url by the G1 backend. Null when Drive is
+   * not enabled or the deliverable hasn't been authored to Drive yet.
+   */
+  drive_url: z.string().nullable().default(null),
   created_at: z.string(),
   updated_at: z.string(),
 });
@@ -4210,6 +4216,27 @@ export type DeliverablePatchPayload = {
   title?: string;
   status?: string;
   content?: Record<string, unknown> | null;
+  /** G2/G3: record how this version was produced */
+  change_action?: "updated" | "human_edited" | "co_developed";
+};
+
+/** Returned by POST /v1/deliverables/{id}/codev — a proposal, not yet committed */
+export type CodevProposal = {
+  proposed_content: Record<string, unknown>;
+  proposed_summary: string | null;
+  based_on_version: number;
+};
+
+/** Body for POST /v1/deliverables/{id}/codev */
+export type CodevPayload = {
+  prompt: string;
+  current_content?: Record<string, unknown>;
+};
+
+/** Body for POST /v1/deliverables/{id}/resume */
+export type ResumePayload = {
+  content: Record<string, unknown>;
+  resume_chain?: boolean;
 };
 
 /** GET /v1/deliverables — list own deliverables; optionally filter by project_id */
@@ -4301,6 +4328,54 @@ export function useRollbackDeliverable() {
       (await apiFetch(`/api/v1/deliverables/${encodeURIComponent(id)}/rollback`, {
         method: "POST",
         body: JSON.stringify({ to_version }),
+        schema: DeliverableSchema,
+      })) as Deliverable,
+    onSuccess: (data) => {
+      void qc.invalidateQueries({ queryKey: ["deliverable", data.id] });
+      void qc.invalidateQueries({ queryKey: ["deliverables"] });
+      void qc.invalidateQueries({ queryKey: ["deliverable-versions", data.id] });
+    },
+  });
+}
+
+// ─── G3 Co-development hooks ──────────────────────────────────────────────────
+
+const CodevProposalSchema = z.object({
+  proposed_content: z.record(z.unknown()),
+  proposed_summary: z.string().nullable().default(null),
+  based_on_version: z.number().int(),
+});
+
+/**
+ * POST /v1/deliverables/{id}/codev
+ * Dispatches the agent to produce a proposed revision. Does NOT commit.
+ * On agent error the API returns 502 — the mutationFn lets that surface as an
+ * Error so callers can toast appropriately.
+ */
+export function useCodevDeliverable() {
+  return useMutation<CodevProposal, Error, { id: string } & CodevPayload>({
+    mutationFn: async ({ id, prompt, current_content }) =>
+      (await apiFetch(`/api/v1/deliverables/${encodeURIComponent(id)}/codev`, {
+        method: "POST",
+        body: JSON.stringify({ prompt, current_content }),
+        schema: CodevProposalSchema,
+      })) as CodevProposal,
+    // No cache invalidation — proposal is held in local state, not committed.
+  });
+}
+
+/**
+ * POST /v1/deliverables/{id}/resume
+ * Accepts a co-dev proposal: commits the content as a new version
+ * (change_action co_developed) and moves status off awaiting_human.
+ */
+export function useResumeDeliverable() {
+  const qc = useQueryClient();
+  return useMutation<Deliverable, Error, { id: string } & ResumePayload>({
+    mutationFn: async ({ id, content, resume_chain }) =>
+      (await apiFetch(`/api/v1/deliverables/${encodeURIComponent(id)}/resume`, {
+        method: "POST",
+        body: JSON.stringify({ content, resume_chain: resume_chain ?? true }),
         schema: DeliverableSchema,
       })) as Deliverable,
     onSuccess: (data) => {
