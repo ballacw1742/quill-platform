@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.deliverable_registry import DELIVERABLE_REGISTRY
 from app.models_deliverables import Deliverable, DeliverableVersion
 from app.security import get_current_user
 
@@ -67,6 +68,9 @@ class RollbackIn(BaseModel):
 
 
 def _deliverable_out(d: Deliverable) -> dict:
+    # Look up the stage_key from the registry (code-only metadata; no DB column).
+    reg = DELIVERABLE_REGISTRY.get(d.deliverable_type)
+    stage_key = reg.stage_key if reg is not None else ""
     return {
         "id": d.id,
         "user_id": d.user_id,
@@ -78,6 +82,7 @@ def _deliverable_out(d: Deliverable) -> dict:
         "version": d.version,
         "content": d.content,
         "meta": d.meta,
+        "stage_key": stage_key,
         "created_at": d.created_at.isoformat(),
         "updated_at": d.updated_at.isoformat(),
     }

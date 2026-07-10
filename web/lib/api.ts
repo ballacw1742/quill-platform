@@ -4162,6 +4162,14 @@ export const DeliverableSchema = z.object({
   version: z.number().int(),
   content: z.record(z.unknown()).nullable().default(null),
   meta: z.record(z.unknown()).nullable().default(null),
+  /**
+   * Lifecycle stage this deliverable belongs to (from the registry).
+   * One of: origination | site_control | permitting | design | construction |
+   *         commissioning | turnover | operations
+   * Empty string when the type is unknown or not registered.
+   * Code-only metadata — derived from the registry at query time; no DB column.
+   */
+  stage_key: z.string().default(""),
   created_at: z.string(),
   updated_at: z.string(),
 });
