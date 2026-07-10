@@ -55,10 +55,10 @@ import {
   useDeployCampusFromTemplate,
   useApprovals,
   useDeliverables,
-  useDeliverableVersions,
   type Deliverable,
 } from "@/lib/api";
 import { LifecycleTracker } from "@/components/lifecycle/LifecycleTracker";
+import { DeliverableDetailSheet } from "@/components/deliverables/DeliverableDetailSheet";
 import type {
   QuillProject,
   ProjectMilestone,
@@ -1068,46 +1068,22 @@ function deliverableStatusCfg(status: string): { label: string; cls: string } {
   return DELIVERABLE_STATUS_CONFIG[status] ?? { label: status, cls: "text-label-secondary bg-bg-elevated" };
 }
 
-function DeliverableVersionHistory({ deliverableId }: { deliverableId: string }) {
-  const { data, isLoading } = useDeliverableVersions(deliverableId);
-  if (isLoading) {
-    return <div className="px-4 pb-3"><Loader2 className="h-4 w-4 animate-spin text-label-quaternary" /></div>;
-  }
-  const items = data?.items ?? [];
-  if (items.length === 0) return null;
-  return (
-    <div className="mt-2 border-t border-separator/20 pt-2">
-      <p className="text-caption-2 font-semibold text-label-tertiary uppercase tracking-wide mb-2 px-1">Version History</p>
-      <div className="space-y-1">
-        {items.map((v) => (
-          <div key={v.id} className="flex items-center gap-2 rounded-lg bg-bg-elevated px-3 py-1.5">
-            <span className="text-caption-2 font-bold text-label-tertiary tabular-nums w-4">v{v.version}</span>
-            <span className={cn(
-              "text-caption-2 font-semibold rounded-full px-1.5 py-0.5",
-              deliverableStatusCfg(v.status).cls,
-            )}>
-              {deliverableStatusCfg(v.status).label}
-            </span>
-            <span className="text-caption-2 text-label-tertiary flex-1 truncate">{v.title}</span>
-            <span className="text-caption-2 text-label-quaternary shrink-0 capitalize">{v.change_action}</span>
-            <span className="text-caption-2 text-label-quaternary shrink-0">
-              {new Date(v.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+// DeliverableVersionHistory removed in Phase G4 — superseded by the
+// in-sheet version panel in DeliverableDetailSheet (G2/G3).
 
-function DeliverableRow({ d }: { d: Deliverable }) {
-  const [expanded, setExpanded] = React.useState(false);
+function DeliverableRow({
+  d,
+  onOpen,
+}: {
+  d: Deliverable;
+  onOpen: (id: string) => void;
+}) {
   const { label, cls } = deliverableStatusCfg(d.status);
   return (
     <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-4 mb-3">
       <button
         type="button"
-        onClick={() => setExpanded((e) => !e)}
+        onClick={() => onOpen(d.id)}
         className="w-full flex items-start gap-3 text-left"
       >
         <div className="flex-1 min-w-0">
@@ -1126,13 +1102,9 @@ function DeliverableRow({ d }: { d: Deliverable }) {
           <p className="text-caption-1 text-label-tertiary mt-0.5">{d.module_key}</p>
         </div>
         <ChevronRight
-          className={cn(
-            "h-4 w-4 text-label-quaternary shrink-0 mt-1 transition-transform",
-            expanded && "rotate-90",
-          )}
+          className="h-4 w-4 text-label-quaternary shrink-0 mt-1"
         />
       </button>
-      {expanded && <DeliverableVersionHistory deliverableId={d.id} />}
     </div>
   );
 }
@@ -1140,6 +1112,7 @@ function DeliverableRow({ d }: { d: Deliverable }) {
 function DeliverablesTab({ projectId }: { projectId: string }) {
   const { data, isLoading } = useDeliverables(projectId);
   const items = data?.items ?? [];
+  const [selectedId, setSelectedId] = React.useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -1157,8 +1130,12 @@ function DeliverablesTab({ projectId }: { projectId: string }) {
         </div>
       )}
       {items.map((d) => (
-        <DeliverableRow key={d.id} d={d} />
+        <DeliverableRow key={d.id} d={d} onOpen={setSelectedId} />
       ))}
+      <DeliverableDetailSheet
+        deliverableId={selectedId}
+        onClose={() => setSelectedId(null)}
+      />
     </>
   );
 }

@@ -115,6 +115,23 @@ class DeliverableRegistryEntry:
     a new version to the same Deliverable row, building on prior output.
     """
 
+    terminal_hitl: str = "decision"
+    """
+    Phase G4: what kind of HITL gate the chain terminates at.
+
+    ``"decision"``       — binary approve/reject gate (Phase D default).
+                           Routes to the Approvals Queue (creates ApprovalItem).
+    ``"co_development"`` — human contributes unique context the AI cannot source.
+                           No ApprovalItem is created; resolved via
+                           ``POST /v1/deliverables/{id}/resume``.
+
+    Set to ``"co_development"`` for any deliverable type whose terminal step
+    genuinely needs human-supplied information (RFI answers, field context,
+    scope assumptions, drawing interpretations) rather than a simple approve/
+    reject decision on an AI-produced artifact.
+    """
+
+
 
 # ---------------------------------------------------------------------------
 # Registry — Phase E: full 15-module spine.
@@ -165,6 +182,13 @@ DELIVERABLE_REGISTRY: dict[str, DeliverableRegistryEntry] = {
         produced_by_intent="rfi",
         title_template="RFI response — {message}",
         stage_key="construction",
+        # G4: RFI responses are a canonical co-development gate — the human
+        # (EOR, PM, design lead) must supply the actual technical answer to
+        # the field question; the AI can only draft structure and context.
+        # A binary approve/reject decision gate is insufficient here: the
+        # human isn't just approving AI output, they're contributing the
+        # information the AI cannot source from available documents.
+        terminal_hitl="co_development",
         steps=[
             ChainStep(
                 key="rfi_intake",

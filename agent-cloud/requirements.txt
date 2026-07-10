@@ -16,3 +16,8 @@ google-cloud-run>=0.10
 # Optional — only needed for the age backend; lazy-imported inside app/secrets.py
 # via _load_pyrage(). All other backends work without it.
 pyrage>=0.2
+# Phase F: Google Drive/Docs/Sheets deliverable authoring (DRIVE_ENABLED).
+# Optional — lazy-imported inside app/drive_author.py; all other backends work
+# without them. Install these alongside requirements.txt to enable live Drive authoring.
+google-api-python-client>=2.100
+google-auth>=2.23

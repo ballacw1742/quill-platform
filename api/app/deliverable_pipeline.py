@@ -106,6 +106,8 @@ async def run_deliverable_chain(
     deliverable_type: str,
     seed_message: str,
     call_agent: "AsyncCallable[[str, str], str]",  # type: ignore[type-arg]
+    start_step_index: int = 0,
+    existing_row: Deliverable | None = None,
 ) -> Deliverable | None:
     """Run the ordered deliverable chain for a piloted deliverable type.
 
@@ -124,6 +126,17 @@ async def run_deliverable_chain(
     call_agent:
         Async callable ``(agent_name: str, message: str) -> str``.
         Injected by the caller so the orchestrator is testable without HTTP.
+    start_step_index:
+        Phase G4: index into ``reg.steps`` to begin from (default 0 = normal
+        start). When > 0 the chain resumes from this step using ``existing_row``
+        rather than creating a new Deliverable. Must be in range
+        ``[0, len(steps)]``; if equal to ``len(steps)`` the chain is a no-op
+        (all steps already completed) and ``existing_row`` is returned as-is.
+    existing_row:
+        Phase G4: the live Deliverable row to resume onto. Required when
+        ``start_step_index > 0``. Its accumulated meta (chain_steps,
+        steps_completed) is preserved and extended. **Never re-creates the
+        deliverable.**
 
     Returns
     -------
@@ -133,14 +146,19 @@ async def run_deliverable_chain(
 
     Notes
     -----
-    - Step A creates v1; each subsequent step appends a version.
-    - ``deliverable.meta`` records lineage: ``steps_completed``, ``steps``,
+    - Step A (index 0) creates v1; each subsequent step appends a version.
+    - When ``start_step_index > 0``, Step A creation is skipped and the chain
+      operates directly on ``existing_row``. ``prior_output`` is seeded from
+      ``existing_row.content["summary"]`` (the last completed step's output).
+    - ``deliverable.meta`` records lineage: ``steps_completed``, ``chain_steps``,
       and ``produced_by`` for each completed step.
     - Fail-safe: a step failure leaves the deliverable at its last good version
       with ``status='in_progress'`` and stops the chain without raising.
     - The caller must wrap this function in try/except if they want to suppress
       ALL errors (including unexpected ones); step-level agent errors are
       already swallowed internally.
+    - The default path (``start_step_index=0``, ``existing_row=None``) is
+      byte-for-byte behaviorally identical to pre-G4 behaviour.
     """
     reg: DeliverableRegistryEntry | None = DELIVERABLE_REGISTRY.get(deliverable_type)
     if reg is None or not reg.steps:
@@ -150,22 +168,57 @@ async def run_deliverable_chain(
         )
         return None
 
+    # Phase G4: validate resume parameters.
+    if start_step_index < 0 or start_step_index > len(reg.steps):
+        _log.warning(
+            "pipeline.invalid_start_step type=%s start=%d total=%d — clamping to 0",
+            deliverable_type, start_step_index, len(reg.steps),
+        )
+        start_step_index = 0
+        existing_row = None
+
+    # If all steps already done, return existing row as-is (no-op resume).
+    if start_step_index >= len(reg.steps):
+        _log.info(
+            "pipeline.resume_noop type=%s start=%d total=%d — all steps already complete",
+            deliverable_type, start_step_index, len(reg.steps),
+        )
+        return existing_row
+
     short_message = seed_message[:60].strip()
     title = reg.title_template.format(message=short_message)
 
-    # Accumulated meta across all steps — built up as steps complete.
-    meta: dict = {
-        "chain_steps": [],      # [{key, agent_name, role, version}] per completed step
-        "steps_completed": 0,
-    }
+    # Phase G4: mid-chain resume vs fresh start.
+    is_resume = start_step_index > 0 and existing_row is not None
 
-    # Track the prior step's output so subsequent steps can build on it.
-    prior_output: str | None = None
+    if is_resume:
+        # Preserve accumulated meta from the existing row; don't reset it.
+        meta: dict = dict(existing_row.meta or {})
+        if "chain_steps" not in meta:
+            meta["chain_steps"] = []
+        if "steps_completed" not in meta:
+            meta["steps_completed"] = start_step_index
+        # Seed prior_output from the last completed step's stored summary.
+        prior_output: str | None = (
+            (existing_row.content or {}).get("summary") if existing_row.content else None
+        )
+        row: Deliverable | None = existing_row
+        _log.info(
+            "pipeline.resume_start type=%s deliverable_id=%s from_step=%d total=%d prior_version=%d",
+            deliverable_type, existing_row.id, start_step_index, len(reg.steps), existing_row.version,
+        )
+    else:
+        # Fresh chain: accumulated meta starts empty.
+        meta = {
+            "chain_steps": [],      # [{key, agent_name, role, version}] per completed step
+            "steps_completed": 0,
+        }
+        # Track the prior step's output so subsequent steps can build on it.
+        prior_output = None
+        # The live Deliverable row (set after step A creates it).
+        row = None
 
-    # The live Deliverable row (set after step A creates it).
-    row: Deliverable | None = None
-
-    for step_index, step in enumerate(reg.steps):
+    for step_index, step in enumerate(reg.steps[start_step_index:], start=start_step_index):
         step_message = _build_step_message(seed_message, step.prompt_suffix, prior_output)
 
         _log.info(

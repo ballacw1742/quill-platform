@@ -175,16 +175,19 @@ async def _generate_deliverable(args: dict[str, Any]) -> str:
 
 
 async def _author_to_drive(kind: str, title: str, content: Any) -> dict[str, Any]:
-    """Author to real Google Drive. Placeholder for the live Drive wiring.
+    """Delegate to the real Drive authoring module (Phase F).
 
-    Raising here is caught by the caller and degrades to a local deliverable
-    (so the feature never fakes success). Live install/wiring is tracked as a
-    follow-up (see app/adk/runner.py module docstring).
+    app.drive_author.author_to_drive raises on any failure (import error,
+    config error, API error). The caller in _generate_deliverable already
+    catches ALL exceptions and degrades to a local record -- so this function
+    must NEVER swallow errors or fake success.
+
+    Import is deferred so the module loads cleanly even when google libs are
+    not installed; the ImportError propagates to the caller's except clause.
     """
-    raise NotImplementedError(
-        "live Drive authoring not yet wired \u2014 set DRIVE_ENABLED only once the "
-        "platform Drive service is available to agent-cloud"
-    )
+    from app.drive_author import author_to_drive  # deferred -- google libs optional
+
+    return await author_to_drive(kind, title, content)
 
 
 generate_deliverable_tool = AdkTool(

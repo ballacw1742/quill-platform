@@ -207,6 +207,17 @@ class Settings(BaseSettings):
     # Safety gate: quill_web_fetch only executes when this is True.
     ALLOW_WEB_FETCH: bool = Field(default=False)
 
+    # --- Google Drive / Docs / Sheets authoring (Phase F) ----------------
+    # Master flag. False (default) ⇒ _author_to_drive raises → local record.
+    # Flip to True only once the service account + folder are configured.
+    DRIVE_ENABLED: bool = Field(default=False)
+    # Full JSON key of the Drive service account (copy of the downloaded
+    # credentials JSON as a single-line string). Mirrors GOOGLECHAT_SERVICE_ACCOUNT_JSON.
+    DRIVE_SERVICE_ACCOUNT_JSON: str = Field(default="")
+    # Optional Drive folder ID (the folder where new Docs/Sheets are created).
+    # Leave empty to create files in the service-account's My Drive root.
+    DRIVE_FOLDER_ID: str = Field(default="")
+
     # --- Triage webhook event source (§9 Wave 2, prod ingress) ----------
     # HTTP port the WebhookEventSource listens on (TRIAGE_EVENT_SOURCE=webhook).
     TRIAGE_WEBHOOK_PORT: int = Field(default=8765)
