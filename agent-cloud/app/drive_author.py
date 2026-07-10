@@ -1,4 +1,4 @@
-"""Google Drive / Docs / Sheets authoring for Quill deliverables (Phase F).
+"""Google Drive / Docs / Sheets authoring for Quill deliverables (Phase F, H).
 
 Called by app/adk/registry.py `_author_to_drive` when DRIVE_ENABLED=true.
 The caller already wraps us in a try/except and falls back to a local record on
@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from app.config import get_settings
@@ -54,6 +55,31 @@ def _check_google_libs() -> None:
             "google-api-python-client and/or google-auth are not installed. "
             "Run: pip install google-api-python-client google-auth"
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Subfolder name sanitization
+# ---------------------------------------------------------------------------
+
+_SUBFOLDER_MAX_LEN = 100
+
+
+def _sanitize_subfolder(name: str) -> str | None:
+    """Sanitize a subfolder display name for safe use as a Drive folder name.
+
+    Rules:
+    - Strip leading/trailing whitespace.
+    - Remove path separators (/ and \\) to prevent traversal.
+    - Collapse repeated spaces to a single space.
+    - Truncate to _SUBFOLDER_MAX_LEN characters.
+    - Return None if the result is empty (callers treat None as "no subfolder").
+    """
+    if not name:
+        return None
+    cleaned = re.sub(r"[/\\]", "", name)  # strip slashes
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = cleaned[:_SUBFOLDER_MAX_LEN]
+    return cleaned or None
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +119,99 @@ def _build_credentials():
     return service_account.Credentials.from_service_account_info(
         sa_info, scopes=_SCOPES
     )
+
+
+# ---------------------------------------------------------------------------
+# Shared Drive subfolder resolution
+# ---------------------------------------------------------------------------
+
+
+def _get_drive_id(drive_svc, parent_folder_id: str) -> str:
+    """Return the Shared Drive ID that owns parent_folder_id.
+
+    Needed for corpora='drive' queries which require an explicit driveId.
+    Falls back to an empty string when the parent is on a personal Drive
+    (no driveId field in the file metadata).
+    """
+    meta = drive_svc.files().get(
+        fileId=parent_folder_id,
+        fields="driveId",
+        supportsAllDrives=True,
+    ).execute()
+    return meta.get("driveId", "")
+
+
+def _resolve_or_create_subfolder(
+    drive_svc, parent_folder_id: str, subfolder_name: str
+) -> str:
+    """Return the Drive folder id for ``<parent>/<subfolder_name>``.
+
+    1. Queries for an existing non-trashed folder with the given name
+       under ``parent_folder_id`` (Shared Drive-aware query).
+    2. Returns its id if found.
+    3. Creates a new folder if not found and returns the new id.
+    4. If creation races (another caller created concurrently), re-queries
+       once and returns the winner's id.
+
+    Parameters
+    ----------
+    drive_svc:
+        An authenticated ``googleapiclient`` Drive v3 service object.
+    parent_folder_id:
+        The Drive folder id of the root (parent) folder.
+    subfolder_name:
+        Display name for the subfolder (must already be sanitized/non-empty).
+
+    Returns
+    -------
+    str
+        The Drive folder id of the resolved (or freshly created) subfolder.
+    """
+    # Shared Drive-aware list query.
+    drive_id = _get_drive_id(drive_svc, parent_folder_id)
+
+    def _query_existing() -> str | None:
+        q = (
+            f"mimeType='application/vnd.google-apps.folder'"
+            f" and name={json.dumps(subfolder_name)}"
+            f" and '{parent_folder_id}' in parents"
+            f" and trashed=false"
+        )
+        kwargs: dict[str, Any] = {
+            "q": q,
+            "fields": "files(id)",
+            "supportsAllDrives": True,
+            "includeItemsFromAllDrives": True,
+        }
+        if drive_id:
+            kwargs["corpora"] = "drive"
+            kwargs["driveId"] = drive_id
+        res = drive_svc.files().list(**kwargs).execute()
+        files = res.get("files", [])
+        return files[0]["id"] if files else None
+
+    existing_id = _query_existing()
+    if existing_id:
+        return existing_id
+
+    # Not found — create it.
+    try:
+        created = drive_svc.files().create(
+            body={
+                "name": subfolder_name,
+                "mimeType": "application/vnd.google-apps.folder",
+                "parents": [parent_folder_id],
+            },
+            fields="id",
+            supportsAllDrives=True,
+        ).execute()
+        return created["id"]
+    except Exception:  # noqa: BLE001 — race: another caller created it first
+        # Re-query once; if still not found, let the exception propagate.
+        winner_id = _query_existing()
+        if winner_id:
+            return winner_id
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +351,13 @@ def _create_sheet(title: str, rows: list[list[Any]], folder_id: str) -> dict[str
 # Public async entry-point (called by registry._author_to_drive)
 # ---------------------------------------------------------------------------
 
-async def author_to_drive(kind: str, title: str, content: Any) -> dict[str, Any]:
+async def author_to_drive(
+    kind: str,
+    title: str,
+    content: Any,
+    *,
+    subfolder: str | None = None,
+) -> dict[str, Any]:
     """Author a deliverable to Google Drive.
 
     Parameters
@@ -244,6 +369,13 @@ async def author_to_drive(kind: str, title: str, content: Any) -> dict[str, Any]
     content:
         For 'doc': a str (plain text / markdown).
         For 'sheet': a list of rows (each row a list of cell values).
+    subfolder:
+        Optional display name for a per-project subfolder under the root
+        DRIVE_FOLDER_ID.  When set AND DRIVE_FOLDER_ID is configured the file
+        is created inside ``<root>/<subfolder>/`` rather than directly in the
+        root.  The subfolder is created on first use (idempotent; safe for
+        concurrent calls).  When None (default) behaviour is byte-for-byte
+        identical to the previous flat-root behaviour.
 
     Returns
     -------
@@ -255,6 +387,7 @@ async def author_to_drive(kind: str, title: str, content: Any) -> dict[str, Any]
             "sheet_id":"<google-sheet-id>", # sheet only
             "url":     "https://docs.google.com/...",
             "title":   "<title>",
+            "subfolder": "<name>",          # only when subfolder was used
         }
 
     Raises
@@ -267,34 +400,58 @@ async def author_to_drive(kind: str, title: str, content: Any) -> dict[str, Any]
     deliverable record, so we must NEVER swallow errors here.
     """
     s = get_settings()
-    folder_id = (s.DRIVE_FOLDER_ID or "").strip()
+    root_folder_id = (s.DRIVE_FOLDER_ID or "").strip()
+
+    # Resolve effective folder: root → subfolder (when provided and root exists).
+    safe_sub = _sanitize_subfolder(subfolder or "")
+    if safe_sub and root_folder_id:
+        _check_google_libs()  # ensure libs available before building service
+        credentials = _build_credentials()
+        drive_svc = _build_drive_service(credentials)
+        folder_id = _resolve_or_create_subfolder(drive_svc, root_folder_id, safe_sub)
+        log.info(
+            "drive_author: resolved subfolder %r → folder_id=%s", safe_sub, folder_id
+        )
+    else:
+        folder_id = root_folder_id
+        safe_sub = None  # no subfolder used
+
     safe_title = str(title)[:255]
 
-    log.info("drive_author: creating %s %r (folder=%r)", kind, safe_title, folder_id or "<root>")
+    log.info(
+        "drive_author: creating %s %r (folder=%r subfolder=%r)",
+        kind, safe_title, folder_id or "<root>", safe_sub,
+    )
 
     if kind == "doc":
         if not isinstance(content, str):
             raise TypeError(f"doc content must be a str, got {type(content)!r}")
         partial = _create_doc(safe_title, content, folder_id)
-        return {
+        block: dict[str, Any] = {
             "mode": "drive",
             "kind": "doc",
             "doc_id": partial["doc_id"],
             "url": partial["url"],
             "title": safe_title,
         }
+        if safe_sub:
+            block["subfolder"] = safe_sub
+        return block
 
     elif kind == "sheet":
         if not isinstance(content, list):
             raise TypeError(f"sheet content must be a list of rows, got {type(content)!r}")
         partial = _create_sheet(safe_title, content, folder_id)
-        return {
+        block = {
             "mode": "drive",
             "kind": "sheet",
             "sheet_id": partial["sheet_id"],
             "url": partial["url"],
             "title": safe_title,
         }
+        if safe_sub:
+            block["subfolder"] = safe_sub
+        return block
 
     else:
         raise ValueError(f"unsupported kind {kind!r}; must be 'doc' or 'sheet'")

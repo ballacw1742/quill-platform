@@ -143,6 +143,11 @@ async def _generate_deliverable(args: dict[str, Any]) -> str:
             {"error": "sheet content must be a list of rows (list of lists)"}
         )
 
+    # _drive_subfolder is injected by the runner from TaskContext.project_name
+    # (or project_id as fallback). The underscore prefix keeps it out of the
+    # model-visible tool schema (it is not in input_schema.properties).
+    drive_subfolder: str | None = args.get("_drive_subfolder") or None  # type: ignore[assignment]
+
     deliverable_id = str(uuid.uuid4())
     s = get_settings()
     drive_enabled = bool(getattr(s, "DRIVE_ENABLED", False))
@@ -154,7 +159,9 @@ async def _generate_deliverable(args: dict[str, Any]) -> str:
         # live-authoring wiring is documented as a follow-up in the ADK
         # runtime module. We still return a well-formed deliverable.
         try:
-            drive_block = await _author_to_drive(kind, title, content)
+            drive_block = await _author_to_drive(
+                kind, title, content, subfolder=drive_subfolder
+            )
         except Exception as exc:  # noqa: BLE001 \u2014 never break the task on Drive I/O
             log.warning("drive authoring failed, falling back to local: %s", exc)
             drive_block = {"mode": "local", "reason": f"drive error: {exc}"}
@@ -174,8 +181,14 @@ async def _generate_deliverable(args: dict[str, Any]) -> str:
     return json.dumps({"status": "generated", "deliverable": record}, default=str)
 
 
-async def _author_to_drive(kind: str, title: str, content: Any) -> dict[str, Any]:
-    """Delegate to the real Drive authoring module (Phase F).
+async def _author_to_drive(
+    kind: str,
+    title: str,
+    content: Any,
+    *,
+    subfolder: str | None = None,
+) -> dict[str, Any]:
+    """Delegate to the real Drive authoring module (Phase F/H).
 
     app.drive_author.author_to_drive raises on any failure (import error,
     config error, API error). The caller in _generate_deliverable already
@@ -187,7 +200,7 @@ async def _author_to_drive(kind: str, title: str, content: Any) -> dict[str, Any
     """
     from app.drive_author import author_to_drive  # deferred -- google libs optional
 
-    return await author_to_drive(kind, title, content)
+    return await author_to_drive(kind, title, content, subfolder=subfolder)
 
 
 generate_deliverable_tool = AdkTool(
