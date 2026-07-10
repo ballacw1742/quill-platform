@@ -55,7 +55,6 @@ import {
   useDeployCampusFromTemplate,
   useApprovals,
   useDeliverables,
-  useDeliverableVersions,
   type Deliverable,
 } from "@/lib/api";
 import { LifecycleTracker } from "@/components/lifecycle/LifecycleTracker";
@@ -1069,37 +1068,8 @@ function deliverableStatusCfg(status: string): { label: string; cls: string } {
   return DELIVERABLE_STATUS_CONFIG[status] ?? { label: status, cls: "text-label-secondary bg-bg-elevated" };
 }
 
-function DeliverableVersionHistory({ deliverableId }: { deliverableId: string }) {
-  const { data, isLoading } = useDeliverableVersions(deliverableId);
-  if (isLoading) {
-    return <div className="px-4 pb-3"><Loader2 className="h-4 w-4 animate-spin text-label-quaternary" /></div>;
-  }
-  const items = data?.items ?? [];
-  if (items.length === 0) return null;
-  return (
-    <div className="mt-2 border-t border-separator/20 pt-2">
-      <p className="text-caption-2 font-semibold text-label-tertiary uppercase tracking-wide mb-2 px-1">Version History</p>
-      <div className="space-y-1">
-        {items.map((v) => (
-          <div key={v.id} className="flex items-center gap-2 rounded-lg bg-bg-elevated px-3 py-1.5">
-            <span className="text-caption-2 font-bold text-label-tertiary tabular-nums w-4">v{v.version}</span>
-            <span className={cn(
-              "text-caption-2 font-semibold rounded-full px-1.5 py-0.5",
-              deliverableStatusCfg(v.status).cls,
-            )}>
-              {deliverableStatusCfg(v.status).label}
-            </span>
-            <span className="text-caption-2 text-label-tertiary flex-1 truncate">{v.title}</span>
-            <span className="text-caption-2 text-label-quaternary shrink-0 capitalize">{v.change_action}</span>
-            <span className="text-caption-2 text-label-quaternary shrink-0">
-              {new Date(v.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
+// DeliverableVersionHistory removed in Phase G4 — superseded by the
+// in-sheet version panel in DeliverableDetailSheet (G2/G3).
 
 function DeliverableRow({
   d,

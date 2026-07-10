@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CheckCircle, XCircle, Loader2, Paperclip, MinusCircle } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Paperclip, MinusCircle, GitPullRequest } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ProjectRequest } from "@/lib/schemas";
 
@@ -40,11 +40,13 @@ function moduleHref(module: string | null | undefined, outputId: string | null |
   return outputId ? `${base}/${outputId}` : base;
 }
 
-function StatusBadge({ status, intent, outputModule, outputId }: {
+function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKind, deliverableStatus }: {
   status: string;
   intent: string;
   outputModule?: string | null;
   outputId?: string | null;
+  deliverableHitlKind?: string | null;
+  deliverableStatus?: string | null;
 }) {
   if (status === "processing") {
     return (
@@ -56,6 +58,25 @@ function StatusBadge({ status, intent, outputModule, outputId }: {
   }
 
   if (status === "complete") {
+    // Phase G4: co-development gate — deliverable is awaiting_human with a
+    // co_development hitl kind. Show a distinct badge pointing to the
+    // Deliverables tab (where the DeliverableDetailSheet can be opened).
+    if (
+      deliverableHitlKind === "co_development" &&
+      deliverableStatus === "awaiting_human"
+    ) {
+      return (
+        <Link
+          href="/projects"
+          className="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2 py-0.5 text-caption-2 text-purple-600 dark:text-purple-400 underline-offset-2 hover:underline"
+          title="Open your project’s Deliverables tab to co-develop this item with AI"
+        >
+          <GitPullRequest className="h-3 w-3" />
+          Awaiting your input — co-develop
+        </Link>
+      );
+    }
+
     const href = moduleHref(outputModule, outputId);
     const label = outputModule
       ? `Complete — view in ${outputModule.charAt(0).toUpperCase() + outputModule.slice(1)}`
@@ -144,6 +165,8 @@ export function RequestBubble({ request }: { request: ProjectRequest }) {
             intent={request.intent}
             outputModule={request.output_module}
             outputId={request.output_id}
+            deliverableHitlKind={request.deliverable_hitl_kind}
+            deliverableStatus={request.deliverable_status}
           />
         </div>
       </div>

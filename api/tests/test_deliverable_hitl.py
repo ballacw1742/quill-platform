@@ -179,10 +179,21 @@ async def test_estimate_chain_creates_approval_at_awaiting_human(
     assert approval.status == "pending", f"Expected 'pending', got {approval.status!r}"
 
 
-async def test_rfi_chain_creates_approval_at_awaiting_human(
+async def test_rfi_chain_awaiting_human_is_co_dev_gate(
     client, owner_token, monkeypatch
 ):
-    """RFI chain also produces an approval item at awaiting_human."""
+    """Phase G4: RFI chain reaches awaiting_human as a co-development gate.
+
+    rfi_response has terminal_hitl='co_development', so:
+      - deliverable.status == 'awaiting_human' (same as before)
+      - deliverable.meta['hitl_kind'] == 'co_development'
+      - NO ApprovalItem is created (resolved via /resume, not /approvals)
+
+    This test replaces the old test_rfi_chain_creates_approval_at_awaiting_human
+    which expected a decision gate (Phase D behaviour). Phase G4 promotes rfi_response
+    to a co-development gate because the human must supply the actual technical
+    answer to the RFI question, not just approve/reject an AI-produced draft.
+    """
     uid, _ = owner_token
 
     await _seed_and_dispatch(
@@ -196,10 +207,23 @@ async def test_rfi_chain_creates_approval_at_awaiting_human(
     assert d.status == "awaiting_human"
     assert d.deliverable_type == "rfi_response"
 
+    # Phase G4: hitl_kind must be co_development.
+    meta = d.meta or {}
+    assert meta.get("hitl_kind") == "co_development", (
+        f"Expected hitl_kind='co_development' in meta, got: {meta.get('hitl_kind')!r}. "
+        f"Full meta: {meta}"
+    )
+
+    # Phase G4: NO approval item should be created for a co-development gate.
     approvals = await _get_approvals_for_workflow(DELIVERABLE_ACCEPT_WORKFLOW)
-    assert len(approvals) >= 1
-    approval = approvals[0]
-    assert (approval.payload or {}).get("deliverable_id") == d.id
+    delivery_approvals = [
+        a for a in approvals
+        if (a.payload or {}).get("deliverable_id") == d.id
+    ]
+    assert len(delivery_approvals) == 0, (
+        f"Co-development gate must NOT create an ApprovalItem, "
+        f"but found {len(delivery_approvals)}: {delivery_approvals}"
+    )
 
 
 # ---------------------------------------------------------------------------

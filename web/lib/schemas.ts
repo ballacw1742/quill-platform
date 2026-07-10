@@ -1381,6 +1381,10 @@ export const ProjectRequestSchema = z.object({
   filenames: z.string().nullable().optional(), // comma-separated
   created_at: z.string(),
   updated_at: z.string(),
+  // Phase G4: linked deliverable gate kind and status (for co-dev routing).
+  // "decision" | "co_development" | null — null when no deliverable linked.
+  deliverable_hitl_kind: z.string().nullable().optional(),
+  deliverable_status: z.string().nullable().optional(),
 });
 export type ProjectRequest = z.infer<typeof ProjectRequestSchema>;
 

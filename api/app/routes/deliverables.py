@@ -594,26 +594,22 @@ async def resume_deliverable(
 ) -> dict:
     """Apply human-accepted content and optionally resume the pipeline chain.
 
-    Phase G1 resume endpoint — resolves a co-development ``awaiting_human`` gate.
+    Phase G1/G4 resume endpoint — resolves a co-development ``awaiting_human`` gate.
 
     1. Applies ``body.content`` via ``append_deliverable_version_service`` with
        ``change_action="co_developed"``.
     2. Status transition:
        - If ``resume_chain=True``: status → ``in_progress`` (chain continues).
        - If ``resume_chain=False``: status → ``approved`` (human accepted; done).
-    3. If ``resume_chain=True`` AND the deliverable_type has remaining chain
-       steps after the current step, re-invokes ``run_deliverable_chain`` from
-       the beginning.
+    3. Phase G4: if ``resume_chain=True`` AND the deliverable_type has remaining
+       chain steps after the current ``steps_completed`` count, re-invokes
+       ``run_deliverable_chain`` with ``start_step_index=steps_completed`` and
+       ``existing_row`` set to the live deliverable. The chain runs remaining
+       steps on the existing row without re-creating it.
 
-    **Phase G1 limitation (mid-chain resume):** ``run_deliverable_chain`` does
-    not yet support resuming from a specific step index.  When ``resume_chain``
-    is True, this endpoint sets the status to ``in_progress`` (signalling the
-    chain may continue) but does NOT re-invoke the chain automatically —
-    the caller must trigger a new chain run if desired.  A full mid-chain resume
-    (passing a ``start_step_index`` to ``run_deliverable_chain``) is deferred to
-    Phase G4.  This is documented here explicitly; no silent fake behaviour.
-
-    Fail-safe: on error the deliverable is left at its last-good version.
+    Fail-safe: a chain error during resume leaves the deliverable at its last-good
+    version (the human-accepted content already appended). The endpoint returns 200
+    with the current deliverable state regardless of chain outcome.
     """
     row = await _get_own_deliverable(deliverable_id, user.id, db)
 
@@ -653,18 +649,108 @@ async def resume_deliverable(
         deliverable_id, row.version, new_status, body.resume_chain,
     )
 
-    # Phase G1 limitation: mid-chain auto-resume is NOT implemented.
-    # When resume_chain=True the status is set to 'in_progress' but no
-    # run_deliverable_chain call is made here.  See docstring.
+    # Phase G4: mid-chain resume — actually resume the chain from the next step.
     if body.resume_chain:
         reg = DELIVERABLE_REGISTRY.get(row.deliverable_type)
-        has_chain = reg is not None and len(reg.steps) > 1
-        if has_chain:
-            _log.info(
-                "resume.mid_chain_deferred deliverable_id=%s type=%s — "
-                "mid-chain auto-resume not yet implemented (Phase G4). "
-                "Status set to in_progress; caller must trigger chain.",
-                deliverable_id, row.deliverable_type,
-            )
+        if reg is not None and reg.steps:
+            steps_completed = (row.meta or {}).get("steps_completed", 0)
+            remaining = len(reg.steps) - steps_completed
+            if remaining > 0:
+                _log.info(
+                    "resume.chain_continue deliverable_id=%s type=%s steps_completed=%d/%d — "
+                    "invoking run_deliverable_chain from step %d",
+                    deliverable_id, row.deliverable_type, steps_completed, len(reg.steps),
+                    steps_completed,
+                )
+                # Build the ADK call_agent helper using the same pattern as routes/requests.py.
+                seed_message: str = (
+                    (row.content or {}).get("seed_message", row.title)
+                    if isinstance(row.content, dict) else row.title
+                ) or row.title
+
+                async def _chain_call_agent(agent_name: str, msg: str) -> str:
+                    adk_ep = f"{ADK_URL}/invoke"
+                    adk_pl = {
+                        "agent": agent_name,
+                        "message": msg,
+                        "session_id": f"resume-{deliverable_id}",
+                    }
+                    try:
+                        resp = await _call_codev_agent(
+                            adk_ep, adk_pl, agent_name, deliverable_id
+                        )
+                        if resp.status_code < 400:
+                            try:
+                                b = resp.json()
+                                return (
+                                    b.get("response", "") if isinstance(b, dict) else str(b)
+                                )
+                            except Exception:  # noqa: BLE001
+                                return resp.text[:2000]
+                        return f"ADK agent returned {resp.status_code}: {resp.text[:500]}"
+                    except Exception as exc:  # noqa: BLE001
+                        raise RuntimeError(f"Agent call failed: {exc}") from exc
+
+                # Import here to avoid circular import at module level.
+                from app.deliverable_pipeline import run_deliverable_chain
+                from app.db import SessionLocal as _resume_session_maker  # noqa: N812
+
+                try:
+                    async with _resume_session_maker() as chain_session:
+                        # Reload the row in the new session to avoid detached-instance errors.
+                        from sqlalchemy import select as _select
+                        chain_row = (
+                            await chain_session.execute(
+                                _select(
+                                    __import__(
+                                        'app.models_deliverables',
+                                        fromlist=['Deliverable'],
+                                    ).Deliverable
+                                ).where(
+                                    __import__(
+                                        'app.models_deliverables',
+                                        fromlist=['Deliverable'],
+                                    ).Deliverable.id == deliverable_id
+                                )
+                            )
+                        ).scalar_one_or_none()
+                        if chain_row is not None:
+                            resumed_row = await run_deliverable_chain(
+                                chain_session,
+                                user_id=chain_row.user_id,
+                                project_id=chain_row.project_id,
+                                deliverable_type=chain_row.deliverable_type,
+                                seed_message=seed_message,
+                                call_agent=_chain_call_agent,
+                                start_step_index=steps_completed,
+                                existing_row=chain_row,
+                            )
+                            if resumed_row is not None:
+                                # Reload the head row in the original session for the response.
+                                await db.refresh(row)
+                                _log.info(
+                                    "resume.chain_done deliverable_id=%s new_version=%d new_status=%s",
+                                    deliverable_id, resumed_row.version, resumed_row.status,
+                                )
+                except Exception as chain_exc:  # noqa: BLE001
+                    # Chain error: leave the deliverable at its last-good version.
+                    # Fail-safe: endpoint still returns 200 with current state.
+                    _log.warning(
+                        "resume.chain_error deliverable_id=%s err=%s — "
+                        "deliverable left at last-good version; returning 200",
+                        deliverable_id, chain_exc,
+                    )
+            else:
+                _log.info(
+                    "resume.no_remaining_steps deliverable_id=%s type=%s steps_completed=%d/%d — "
+                    "no more steps to run",
+                    deliverable_id, row.deliverable_type, steps_completed, len(reg.steps),
+                )
+
+    # Refresh to get latest state (chain may have appended versions).
+    try:
+        await db.refresh(row)
+    except Exception:  # noqa: BLE001
+        pass  # If refresh fails, return the last known state.
 
     return _deliverable_out(row)

@@ -186,6 +186,12 @@ class RequestOut(BaseModel):
     filenames: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    # Phase G4: hitl kind of the linked deliverable's gate, if any.
+    # Populated via _request_out() helper — NOT from the ORM row directly.
+    # Values: "decision" | "co_development" | None (when no deliverable linked).
+    deliverable_hitl_kind: Optional[str] = None
+    # Phase G4: status of the linked deliverable (awaiting_human etc.)
+    deliverable_status: Optional[str] = None
 
 
 class RequestListResponse(BaseModel):
@@ -726,20 +732,46 @@ async def _dispatch_to_agent(
                         "deliverable.link_failed deliverable_id=%s request_id=%s err=%s",
                         produced_deliverable_id, request_id, link_exc,
                     )
-                # Phase D — HITL gate: create an approval item for the
-                # deliverable that the chain just left at 'awaiting_human'.
-                # Fail-safe: an approval-creation error must NOT fail the
-                # request (log + continue) but we leave the deliverable at
+                # Phase D / G4 — HITL gate: determine gate kind and create
+                # an approval item for decision gates, or mark co_development
+                # gates (which create no approval item but surface via UI banner).
+                # Fail-safe: gate-kind logic and approval-creation errors must NOT
+                # fail the request (log + continue); deliverable stays at
                 # 'awaiting_human' so it can be retried.
                 if deliverable is not None and getattr(deliverable, 'status', None) == 'awaiting_human':
                     try:
-                        from app.services.deliverable_hitl import create_deliverable_approval
+                        from app.services.deliverable_hitl import (
+                            create_deliverable_approval,
+                            set_hitl_kind,
+                        )
+                        # Phase G4: determine gate kind from registry.
+                        # Fail-safe: any error defaults to "decision" (no regression).
+                        _gate_kind = "decision"
+                        try:
+                            _gate_kind = getattr(reg, "terminal_hitl", "decision") or "decision"
+                        except Exception:  # noqa: BLE001
+                            _gate_kind = "decision"
+
                         async with async_session_maker() as appr_session:
                             del_row = await appr_session.get(
                                 __import__('app.models_deliverables', fromlist=['Deliverable']).Deliverable,
                                 produced_deliverable_id,
                             )
                             if del_row is not None:
+                                # Phase G4: set hitl_kind in meta BEFORE calling
+                                # create_deliverable_approval so it can read the kind.
+                                if _gate_kind != "decision":
+                                    from app.routes.deliverables import append_deliverable_version_service
+                                    _updated_meta = set_hitl_kind(del_row.meta, _gate_kind)
+                                    del_row.meta = _updated_meta
+                                    await appr_session.commit()
+                                    await appr_session.refresh(del_row)
+                                    log.info(
+                                        "deliverable_hitl.gate_kind_set "
+                                        "deliverable_id=%s type=%s gate_kind=%s",
+                                        produced_deliverable_id, reg.deliverable_type, _gate_kind,
+                                    )
+
                                 await create_deliverable_approval(
                                     appr_session,
                                     del_row,
@@ -751,11 +783,19 @@ async def _dispatch_to_agent(
                                         f"Approve to finalize or reject to discard."
                                     ),
                                 )
-                                log.info(
-                                    "deliverable_hitl.approval_queued "
-                                    "deliverable_id=%s type=%s request_id=%s",
-                                    produced_deliverable_id, reg.deliverable_type, request_id,
-                                )
+                                if _gate_kind == "co_development":
+                                    log.info(
+                                        "deliverable_hitl.co_dev_gate "
+                                        "deliverable_id=%s type=%s request_id=%s — "
+                                        "no approval item created; awaiting co-dev contribution",
+                                        produced_deliverable_id, reg.deliverable_type, request_id,
+                                    )
+                                else:
+                                    log.info(
+                                        "deliverable_hitl.approval_queued "
+                                        "deliverable_id=%s type=%s request_id=%s",
+                                        produced_deliverable_id, reg.deliverable_type, request_id,
+                                    )
                     except Exception as appr_exc:  # noqa: BLE001
                         log.warning(
                             "deliverable_hitl.approval_create_failed "
@@ -1182,6 +1222,32 @@ async def update_request(
 
 
 # ---------------------------------------------------------------------------
+# Phase G4: request serializer that enriches with linked deliverable meta
+# ---------------------------------------------------------------------------
+
+
+async def _request_out(record: "RequestRecord", db: AsyncSession) -> RequestOut:
+    """Serialize a RequestRecord to RequestOut, enriching with the linked
+    deliverable's hitl_kind and status (Phase G4: co-dev gate routing).
+
+    Fail-safe: any error during the deliverable lookup just leaves the
+    deliverable_hitl_kind / deliverable_status fields as None.
+    """
+    out = RequestOut.model_validate(record)
+    if record.output_id:
+        try:
+            from app.models_deliverables import Deliverable as _Deliverable
+            del_row = await db.get(_Deliverable, str(record.output_id))
+            if del_row is not None:
+                out.deliverable_status = del_row.status
+                meta = del_row.meta or {}
+                out.deliverable_hitl_kind = meta.get("hitl_kind") or None
+        except Exception:  # noqa: BLE001
+            pass  # fail-safe: enrichment never blocks the request
+    return out
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/requests
 # ---------------------------------------------------------------------------
 
@@ -1216,8 +1282,12 @@ async def list_requests(
     )
     records = result.scalars().all()
 
+    # Phase G4: enrich each record with linked deliverable meta.
+    import asyncio as _asyncio
+    enriched = await _asyncio.gather(*[_request_out(r, db) for r in records])
+
     return RequestListResponse(
-        items=[RequestOut.model_validate(r) for r in records],
+        items=list(enriched),
         total=total,
         limit=limit,
         offset=offset,
@@ -1245,4 +1315,5 @@ async def get_request(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "request not found")
     if record.user_id != str(user.id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "not your request")
-    return RequestOut.model_validate(record)
+    # Phase G4: enrich with linked deliverable meta.
+    return await _request_out(record, db)
