@@ -720,6 +720,7 @@ async def _dispatch_to_agent(
                     deliverable_type=reg.deliverable_type,
                     seed_message=message,
                     call_agent=_call_agent_for_pipeline,
+                    drive_subfolder=_drive_subfolder,  # Phase H: per-project Drive subfolder
                 )
                 produced_response: str | None = None
                 if deliverable is not None:
