@@ -45,7 +45,7 @@ jobs:
           docker build -t gcr.io/totemic-formula-467102-s9/quill-agent-orchestrator:${{ github.sha }} agent-cloud/
           docker push gcr.io/totemic-formula-467102-s9/quill-agent-orchestrator:${{ github.sha }}
 
-      - name: Deploy to Cloud Run (multi-container: app + Tailscale sidecar)
+      - name: Deploy to Cloud Run (app + Tailscale sidecar)
         run: |
           # §8 model-lane router: the orchestrator reaches on-prem ollama
           # (Mac Studio) over a private tailnet via a Tailscale userspace
