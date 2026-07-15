@@ -44,7 +44,7 @@ from app.config import get_settings
 from app.db import tenant_session
 from app.logging_setup import agent_id_var, session_id_var, tenant_id_var
 from app.models import AgentDef, Session
-from app.providers import get_provider
+from app.providers import get_provider, get_provider_for_lane, model_for_lane
 from app.providers.pricing import cost_usd as pricing_cost_usd
 
 log = logging.getLogger("agentcloud.adk.runner")
@@ -221,8 +221,16 @@ class AdkAgentRunner(TaskAgentRunner):
         under google.adk.runners.Runner; the loop body is identical because
         the tool handlers and the pricing table are shared."""
         s = get_settings()
-        prov = self._provider or get_provider()
-        model = context.model or s.MODEL_DEFAULT
+        # Per-agent lane routing (§8): a local-lane task-agent runs on on-prem
+        # inference (data stays on the box), a frontier agent on the Claude
+        # API. An injected provider (tests) always wins. When routing is
+        # disabled, get_provider_for_lane falls back to the global provider
+        # and the agent's own model is used unchanged.
+        prov = self._provider or get_provider_for_lane(context.model_lane)
+        if self._provider is None and s.MODEL_LANE_ROUTING_ENABLED:
+            model = model_for_lane(context.model_lane, context.model)
+        else:
+            model = context.model or s.MODEL_DEFAULT
 
         allow = effective_allowlist(context.tools, allow_writes=context.allow_writes)
         tools_spec_full = adk_tool_specs(context.tools, allow_writes=context.allow_writes)

@@ -43,11 +43,15 @@ async def test_list_agents_seeds_fresh_tenant(client):
     personal = body["items"][0]
     # WEBCHAT.md §3.1 field set
     assert set(personal) == {
-        "agent_id", "model", "enabled", "memory_policy",
+        "agent_id", "model", "enabled", "memory_policy", "model_lane",
         "budget_monthly_usd", "created_at",
     }
     assert personal["enabled"] is True
     assert personal["memory_policy"] == "auto_recall"
+    # §8 Hybrid Sensitivity Router: personal has no Quill business-data tools
+    # → frontier lane; quill reads finance/cost → local lane.
+    assert personal["model_lane"] == "frontier"
+    assert body["items"][1]["model_lane"] == "local"
     # smoke- prefix seeds the cheap tier
     assert personal["model"] == "claude-haiku-4-5"
 

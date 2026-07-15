@@ -48,6 +48,12 @@ class SeedAgent:
     tools: tuple[str, ...]
     # off | tools_only | auto_recall (A2 memory subsystem)
     memory_policy: str = "off"
+    # Hybrid Sensitivity Router (§8): the seed's model lane.
+    #   local    — handles sensitive Quill business data (finance/cost numbers,
+    #              quantities, operations): inference MUST stay on-prem.
+    #   frontier — no sensitive-data exposure: safe to use the Claude API for
+    #              higher quality.
+    model_lane: str = "local"
 
 
 SEED_AGENTS = (
@@ -57,6 +63,10 @@ SEED_AGENTS = (
         tools=tuple(t.name for t in BUILTIN_TOOLS)
         + tuple(t.name for t in MEMORY_TOOLS),
         memory_policy="auto_recall",  # design §3.3: personal agent, memory on
+        # The personal agent has NO Quill business-data tools (it explicitly
+        # defers Quill financials/operations to the 'quill' agent), so it does
+        # not process sensitive cost/quantity data → frontier lane (Claude).
+        model_lane="frontier",
     ),
     SeedAgent(
         agent_id="quill",
@@ -65,6 +75,10 @@ SEED_AGENTS = (
         + tuple(t.name for t in QUILL_TOOLS)
         + tuple(t.name for t in QUILL_WRITE_TOOLS),
         memory_policy="off",
+        # The quill agent reads finance, pipeline, operations, and customer
+        # data — cost numbers, quantities, confidential business figures — so
+        # its inference MUST stay on-prem → local lane (fail-safe default).
+        model_lane="local",
     ),
 )
 

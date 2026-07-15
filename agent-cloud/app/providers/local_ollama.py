@@ -55,6 +55,30 @@ from app.providers.base import (
 log = logging.getLogger("agentcloud.providers.local")
 
 
+# The lane router / pricing layer tags on-prem model ids with a provider
+# prefix ('ollama:' / 'local:') so cost accounting can pin them to $0
+# (pricing.ZERO_COST_PREFIXES). ollama's own API wants the bare engine model
+# name, so we strip a single leading routing prefix before every call. A bare
+# 'local' (the canonical zero-cost id) has no engine model and is rejected
+# with an actionable error rather than silently guessing.
+_ROUTING_PREFIXES = ("ollama:", "local:")
+
+
+def _engine_model(model: str) -> str:
+    m = (model or "").strip()
+    low = m.lower()
+    for pfx in _ROUTING_PREFIXES:
+        if low.startswith(pfx):
+            return m[len(pfx):]
+    if low == "local":
+        raise ProviderError(
+            "local provider requires a concrete engine model id "
+            "(e.g. 'ollama:qwen3:14b' or 'qwen3:14b'), not the bare 'local' "
+            "alias; set the agent's model or MODEL_LOCAL_DEFAULT"
+        )
+    return m
+
+
 # --------------------------------------------------------------------------
 # retry classification (mirrors embeddings._is_retryable_http)
 # --------------------------------------------------------------------------
@@ -291,7 +315,7 @@ class LocalProvider(ModelProvider):
         tools: list[dict[str, Any]], max_tokens: int,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
-            "model": model,
+            "model": _engine_model(model),
             "messages": _messages_to_ollama(system, messages),
             # Disable "thinking" traces: they aren't part of the ModelResponse
             # contract and would pollute the reply text. Harmless on models

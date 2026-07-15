@@ -49,6 +49,7 @@ async def _provision_tenant(db, tenant_id: str) -> None:
                     "budget_monthly_usd": s.DEFAULT_BUDGET_MONTHLY_USD,
                     "enabled": True,
                     "memory_policy": seed.memory_policy,
+                    "model_lane": seed.model_lane,
                 },
                 dialect,
             )
@@ -61,6 +62,7 @@ def _agent_dict(a: AgentDef) -> dict[str, Any]:
         "model": a.model,
         "enabled": a.enabled,
         "memory_policy": a.memory_policy,
+        "model_lane": getattr(a, "model_lane", "local") or "local",
         "budget_monthly_usd": float(a.budget_monthly_usd),
         "created_at": a.created_at,
     }

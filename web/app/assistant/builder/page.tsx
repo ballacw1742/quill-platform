@@ -65,6 +65,7 @@ type Draft = {
   system_prompt: string;
   model: string;
   memory_policy: string;
+  model_lane: string; // §8 Hybrid Sensitivity Router: 'local' | 'frontier'
   budget_monthly_usd: number;
   enabled: boolean;
   tools: string[];
@@ -77,6 +78,7 @@ const BLANK: Draft = {
   system_prompt: "",
   model: "",
   memory_policy: "off",
+  model_lane: "local", // fail-safe default: keep data on-prem
   budget_monthly_usd: 10,
   enabled: true,
   tools: [],
@@ -90,6 +92,7 @@ function draftFromDetail(a: AgentDetail): Draft {
     system_prompt: a.system_prompt,
     model: a.model,
     memory_policy: a.memory_policy,
+    model_lane: a.model_lane ?? "local",
     budget_monthly_usd: a.budget_monthly_usd,
     enabled: a.enabled,
     tools: [...a.tools],
@@ -104,10 +107,12 @@ function draftFromTemplate(t: Template): Draft {
     system_prompt: t.system_prompt,
     model: t.model,
     memory_policy: t.memory_policy,
+    model_lane: "local",
     budget_monthly_usd: t.budget_monthly_usd,
     enabled: true,
     tools: [...t.tools],
     is_seed: false,
+    published: false,
   };
 }
 
@@ -175,6 +180,7 @@ export default function AgentBuilderPage() {
             model: draft.model || undefined,
             tools: draft.tools,
             memory_policy: draft.memory_policy,
+            model_lane: draft.model_lane as "local" | "frontier",
             budget_monthly_usd: draft.budget_monthly_usd,
             enabled: draft.enabled,
           },
@@ -189,6 +195,7 @@ export default function AgentBuilderPage() {
           model: draft.model,
           tools: draft.tools,
           memory_policy: draft.memory_policy,
+          model_lane: draft.model_lane as "local" | "frontier",
           budget_monthly_usd: draft.budget_monthly_usd,
         };
         // Only send enabled for non-seeds (seeds reject disable; harmless to omit).
@@ -468,6 +475,25 @@ function Editor(props: {
               ))}
             </SelectContent>
           </Select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <Label>Model lane</Label>
+          <Select
+            value={draft.model_lane}
+            onValueChange={(v) => set("model_lane", v)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="local">Local (on-prem — sensitive data)</SelectItem>
+              <SelectItem value="frontier">Frontier (Claude API)</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Local keeps this agent&apos;s data on-prem; frontier uses the Claude
+            API for non-sensitive work.
+          </p>
         </div>
         <div className="flex flex-col gap-1">
           <Label htmlFor="budget">Budget (USD/mo)</Label>

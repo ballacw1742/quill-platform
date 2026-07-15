@@ -22,6 +22,9 @@ export const AgentCloudAgentSchema = z.object({
   model: z.string(),
   enabled: z.boolean(),
   memory_policy: z.string(),
+  // Hybrid Sensitivity Router (§8): 'local' (on-prem inference for sensitive
+  // data) | 'frontier' (Claude API). Optional for backward compat.
+  model_lane: z.string().optional(),
   budget_monthly_usd: z.number(),
   created_at: z.string(),
 });
@@ -49,6 +52,9 @@ export const AgentDetailSchema = z.object({
   enabled: z.boolean(),
   is_seed: z.boolean(),
   created_at: z.string(),
+  // Hybrid Sensitivity Router (§8): 'local' | 'frontier'. Optional for
+  // backward compat with older API builds.
+  model_lane: z.string().optional(),
   // Phase 5 (AUTHORING_MATURITY.md §2.5): additive, optional for backward compat.
   version: z.number().int().optional(),
   published: z.boolean().optional(),
@@ -213,12 +219,17 @@ export const ChannelRevokeResultSchema = z.object({
 });
 export type ChannelRevokeResult = z.infer<typeof ChannelRevokeResultSchema>;
 
+/** Hybrid Sensitivity Router (§8) lanes. */
+export const MODEL_LANES = ["local", "frontier"] as const;
+export type ModelLane = (typeof MODEL_LANES)[number];
+
 export type AgentCreatePayload = {
   agent_id: string;
   system_prompt: string;
   model?: string;
   tools?: string[];
   memory_policy?: string;
+  model_lane?: ModelLane;
   budget_monthly_usd?: number;
   enabled?: boolean;
 };
@@ -228,6 +239,7 @@ export type AgentPatchPayload = Partial<{
   model: string;
   tools: string[];
   memory_policy: string;
+  model_lane: ModelLane;
   budget_monthly_usd: number;
   enabled: boolean;
 }>;

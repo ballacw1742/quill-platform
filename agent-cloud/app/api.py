@@ -133,6 +133,8 @@ class AgentCreateIn(BaseModel):
     model: str | None = None
     tools: list[str] | None = None
     memory_policy: str | None = None
+    # Hybrid Sensitivity Router (§8): 'local' | 'frontier'. Omitted ⇒ 'local'.
+    model_lane: str | None = None
     budget_monthly_usd: float | None = None
     enabled: bool = True
     # ADK_AGENTS_DESIGN.md §1 — ADK task-agents + sharing.
@@ -150,6 +152,8 @@ class AgentPatchIn(BaseModel):
     model: str | None = None
     tools: list[str] | None = None
     memory_policy: str | None = None
+    # Hybrid Sensitivity Router (§8): 'local' | 'frontier'.
+    model_lane: str | None = None
     budget_monthly_usd: float | None = None
     enabled: bool | None = None
     # ADK_AGENTS_DESIGN.md §1 — agent-kind/runtime/share/adk_config toggles.

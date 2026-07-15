@@ -44,6 +44,11 @@ class TaskContext:
     tools: list[str] = field(default_factory=list)
     model: str = ""
     system_prompt: str = ""
+    # Hybrid Sensitivity Router (§8): the agent's model lane ('local' |
+    # 'frontier'). When lane routing is enabled the runner picks the provider
+    # + model from this instead of the global MODEL_PROVIDER. Fail-safe to
+    # 'local' so a task-agent keeps data on-prem unless promoted.
+    model_lane: str = "local"
     # Optional project context — used by generate_deliverable to route
     # deliverables into per-project Drive subfolders.
     project_id: str | None = None

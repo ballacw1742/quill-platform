@@ -28,6 +28,25 @@ class Settings(BaseSettings):
     MODEL_PROVIDER: str = Field(default="anthropic")
     MODEL_DEFAULT: str = Field(default="claude-fable-5")
     MODEL_CHEAP: str = Field(default="claude-haiku-4-5")
+
+    # --- Hybrid Sensitivity Router (scaled-down §8) -----------------------
+    # Per-agent model lane routing. When enabled, an agent's `model_lane`
+    # column ('local' | 'frontier') selects the provider PER AGENT instead of
+    # the single global MODEL_PROVIDER:
+    #   local    -> LANE_LOCAL_PROVIDER   (on-prem ollama; nothing leaves box)
+    #   frontier -> LANE_FRONTIER_PROVIDER (Claude API for non-sensitive work)
+    # When disabled (default OFF for backward-compat), every agent uses the
+    # global MODEL_PROVIDER exactly as before. Flip on to activate the router.
+    MODEL_LANE_ROUTING_ENABLED: bool = Field(default=False)
+    # Provider each lane maps to. The local lane is the fail-safe: an
+    # unknown/unclassified lane always resolves to LANE_LOCAL_PROVIDER.
+    LANE_LOCAL_PROVIDER: str = Field(default="local")
+    LANE_FRONTIER_PROVIDER: str = Field(default="anthropic")
+    # The model id each lane's agents run when the agent row does not pin one
+    # (used as a sensible per-lane default; the agent's own `model` still
+    # wins when set). Local agents run an on-prem ollama model; frontier
+    # agents run the default Claude tier.
+    MODEL_LOCAL_DEFAULT: str = Field(default="ollama:qwen3:14b")
     MAX_TOKENS: int = Field(default=1024)
     MAX_TOOL_ITERATIONS: int = Field(default=6)
     MODEL_RETRY_ATTEMPTS: int = Field(default=3)
