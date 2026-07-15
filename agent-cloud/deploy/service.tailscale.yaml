@@ -114,7 +114,11 @@ spec:
                 secretKeyRef: { name: DRIVE_SERVICE_ACCOUNT_JSON, key: latest }
         # ── Tailscale userspace sidecar ───────────────────────────────────
         - name: tailscale
-          image: ghcr.io/tailscale/tailscale:stable
+          # Mirrored from ghcr.io/tailscale/tailscale:stable into our GCR
+          # (Cloud Run cannot import ghcr.io images — ContainerImageImportFailed).
+          # Re-mirror on upgrade: gcloud builds submit --no-source with a
+          # docker pull ghcr→tag→push gcr step (see chat/runbook).
+          image: gcr.io/totemic-formula-467102-s9/tailscale:stable
           resources:
             limits:
               cpu: '1'
@@ -123,15 +127,16 @@ spec:
             - name: TS_AUTHKEY
               valueFrom:
                 secretKeyRef: { name: TAILSCALE_OAUTH_CLIENT_SECRET, key: latest }
+            # 'tailscale up' args (tag advertisement).
             - name: TS_EXTRA_ARGS
               value: --advertise-tags=tag:cloud-run
+            # 'tailscaled' args — the SOCKS5 proxy the app dials for on-prem
+            # ollama lives HERE (not a dedicated env var). Userspace networking
+            # is implied by --tun=userspace-networking.
+            - name: TS_TAILSCALED_EXTRA_ARGS
+              value: --tun=userspace-networking --socks5-server=0.0.0.0:1055 --outbound-http-proxy-listen=0.0.0.0:1055
             - name: TS_USERSPACE
               value: 'true'
-            # SOCKS5 (and HTTP) proxy the app dials for on-prem ollama.
-            - name: TS_SOCKS5_SERVER
-              value: localhost:1055
-            - name: TS_OUTBOUND_HTTP_PROXY_LISTEN
-              value: localhost:1055
             - name: TS_STATE_DIR
               value: /tmp/tailscale
             # Ephemeral node: auto-removed from the tailnet when the instance
