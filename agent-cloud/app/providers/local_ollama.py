@@ -45,6 +45,7 @@ import httpx
 
 from app.config import get_settings
 from app.providers.base import (
+    LocalUnreachableError,
     ModelProvider,
     ModelResponse,
     ProviderError,
@@ -53,6 +54,30 @@ from app.providers.base import (
 )
 
 log = logging.getLogger("agentcloud.providers.local")
+
+
+# The lane router / pricing layer tags on-prem model ids with a provider
+# prefix ('ollama:' / 'local:') so cost accounting can pin them to $0
+# (pricing.ZERO_COST_PREFIXES). ollama's own API wants the bare engine model
+# name, so we strip a single leading routing prefix before every call. A bare
+# 'local' (the canonical zero-cost id) has no engine model and is rejected
+# with an actionable error rather than silently guessing.
+_ROUTING_PREFIXES = ("ollama:", "local:")
+
+
+def _engine_model(model: str) -> str:
+    m = (model or "").strip()
+    low = m.lower()
+    for pfx in _ROUTING_PREFIXES:
+        if low.startswith(pfx):
+            return m[len(pfx):]
+    if low == "local":
+        raise ProviderError(
+            "local provider requires a concrete engine model id "
+            "(e.g. 'ollama:qwen3:14b' or 'qwen3:14b'), not the bare 'local' "
+            "alias; set the agent's model or MODEL_LOCAL_DEFAULT"
+        )
+    return m
 
 
 # --------------------------------------------------------------------------
@@ -216,22 +241,29 @@ class OllamaEngine(LocalEngine):
     name = "ollama"
 
     def __init__(self, *, base_url: str, timeout: float,
-                 client: httpx.AsyncClient | None = None):
+                 client: httpx.AsyncClient | None = None,
+                 proxy: str | None = None):
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._client = client  # injectable for tests
+        # Optional proxy for on-prem reachability (e.g. Tailscale userspace
+        # SOCKS5 sidecar). Scoped to ollama traffic only. Empty ⇒ direct.
+        self._proxy = proxy or None
+
+    def _new_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=self._timeout, proxy=self._proxy)
 
     def _http(self) -> httpx.AsyncClient:
         # When a client is injected (tests), reuse it; otherwise per-call
         # client so we never leak a session across the event loop.
-        return self._client or httpx.AsyncClient(timeout=self._timeout)
+        return self._client or self._new_client()
 
     async def _post(self, path: str, body: dict[str, Any]) -> httpx.Response:
         if self._client is not None:
             r = await self._client.post(f"{self._base_url}{path}", json=body)
             r.raise_for_status()
             return r
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with self._new_client() as client:
             r = await client.post(f"{self._base_url}{path}", json=body)
             r.raise_for_status()
             return r
@@ -251,7 +283,7 @@ class OllamaEngine(LocalEngine):
                     if line.strip():
                         yield json.loads(line)
             return
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with self._new_client() as client:
             async with client.stream(
                 "POST", f"{self._base_url}/api/chat", json=body
             ) as resp:
@@ -284,6 +316,7 @@ class LocalProvider(ModelProvider):
             self._engine = OllamaEngine(
                 base_url=s.OLLAMA_HOST,
                 timeout=s.LOCAL_INFERENCE_TIMEOUT_SECONDS,
+                proxy=s.LOCAL_INFERENCE_PROXY,
             )
 
     def _base_body(
@@ -291,7 +324,7 @@ class LocalProvider(ModelProvider):
         tools: list[dict[str, Any]], max_tokens: int,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
-            "model": model,
+            "model": _engine_model(model),
             "messages": _messages_to_ollama(system, messages),
             # Disable "thinking" traces: they aren't part of the ModelResponse
             # contract and would pollute the reply text. Harmless on models
@@ -341,7 +374,10 @@ class LocalProvider(ModelProvider):
                 status=exc.response.status_code,
             ) from exc
         except httpx.HTTPError as exc:
-            raise ProviderError(
+            # transport/connection failure = the on-prem host is unreachable
+            # (asleep, off the tailnet, ...). Tagged so the fail-open wrapper
+            # can distinguish it from a genuine model/API error.
+            raise LocalUnreachableError(
                 f"local ollama request failed (is ollama running at "
                 f"{s.OLLAMA_HOST}?): {exc}"
             ) from exc
@@ -389,7 +425,7 @@ class LocalProvider(ModelProvider):
                     status=exc.response.status_code,
                 ) from exc
             except httpx.HTTPError as exc:
-                raise ProviderError(
+                raise LocalUnreachableError(
                     f"local ollama stream request failed (is ollama running at "
                     f"{s.OLLAMA_HOST}?): {exc}"
                 ) from exc

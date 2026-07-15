@@ -37,6 +37,90 @@ async def test_first_contact_seeds_personal_and_quill():
     assert by_id["personal"].model == "claude-haiku-4-5"
 
 
+async def test_seeds_get_sensitivity_lanes():
+    """§8 Hybrid Sensitivity Router: the quill agent reads finance/cost data
+    (sensitive) → local lane; the personal agent has no Quill business tools
+    → frontier lane."""
+    await chat_turn(
+        tenant_id=TENANT_A, agent_id="personal", message="hi",
+        provider=FakeProvider([text_response("hello")]),
+    )
+    async with tenant_session(TENANT_A) as db:
+        rows = (
+            await db.execute(
+                sa.select(AgentDef.agent_id, AgentDef.model_lane).where(
+                    AgentDef.tenant_id == TENANT_A
+                )
+            )
+        ).all()
+    lanes = {r.agent_id: r.model_lane for r in rows}
+    assert lanes["quill"] == "local"
+    assert lanes["personal"] == "frontier"
+
+
+async def test_routing_on_selects_provider_per_lane(monkeypatch):
+    """With MODEL_LANE_ROUTING_ENABLED, the orchestrator resolves the provider
+    from the agent's lane (no explicit provider override). The local-lane
+    agent must be routed to the local provider; the frontier-lane agent to the
+    frontier provider."""
+    import app.config as config_mod
+    import app.orchestrator as orch_mod
+
+    monkeypatch.setenv("MODEL_LANE_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("LANE_LOCAL_PROVIDER", "local")
+    monkeypatch.setenv("LANE_FRONTIER_PROVIDER", "anthropic")
+    config_mod.get_settings.cache_clear()
+
+    requested: list[str] = []
+
+    def _fake_get_provider_for_lane(lane):
+        from app.providers import provider_name_for_lane
+        name = provider_name_for_lane(lane)
+        requested.append(name)
+        return FakeProvider([text_response("routed ok")])
+
+    monkeypatch.setattr(
+        orch_mod, "get_provider_for_lane", _fake_get_provider_for_lane
+    )
+
+    # quill = local lane
+    await chat_turn(tenant_id=TENANT_A, agent_id="quill", message="finance?")
+    # personal = frontier lane
+    await chat_turn(tenant_id=TENANT_A, agent_id="personal", message="hi")
+
+    config_mod.get_settings.cache_clear()
+    assert requested == ["local", "anthropic"]
+
+
+async def test_routing_off_uses_global_provider(monkeypatch):
+    """With routing off, the lane is ignored and the global get_provider seam
+    is used (this is the seam the API tests patch)."""
+    import app.config as config_mod
+    import app.orchestrator as orch_mod
+
+    monkeypatch.setenv("MODEL_LANE_ROUTING_ENABLED", "false")
+    config_mod.get_settings.cache_clear()
+
+    used = {"lane_router": 0, "global": 0}
+
+    def _fake_lane(lane):
+        used["lane_router"] += 1
+        return FakeProvider([text_response("x")])
+
+    def _fake_global(*a, **k):
+        used["global"] += 1
+        return FakeProvider([text_response("x")])
+
+    monkeypatch.setattr(orch_mod, "get_provider_for_lane", _fake_lane)
+    monkeypatch.setattr(orch_mod, "get_provider", _fake_global)
+
+    await chat_turn(tenant_id=TENANT_A, agent_id="quill", message="finance?")
+
+    config_mod.get_settings.cache_clear()
+    assert used["global"] == 1
+    assert used["lane_router"] == 0
+
+
 async def test_unknown_agent_404s():
     with pytest.raises(UnknownAgentError):
         await chat_turn(

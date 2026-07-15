@@ -122,6 +122,13 @@ ALTER TABLE agentcloud_agents
     """
 ALTER TABLE agentcloud_agents
     ADD COLUMN IF NOT EXISTS trust_tier TEXT NOT NULL DEFAULT 'tier-0-mandatory'""",
+    # Hybrid Sensitivity Router (scaled-down §8): static per-agent model lane.
+    # local (fail-safe default, on-prem inference) | frontier (Claude API for
+    # non-sensitive agents). Default is the safe lane so a new agent keeps
+    # data on-prem until explicitly promoted.
+    """
+ALTER TABLE agentcloud_agents
+    ADD COLUMN IF NOT EXISTS model_lane TEXT NOT NULL DEFAULT 'local'""",
 ]
 
 # Phase 5: agent authoring maturity — versioning/diff/rollback/publish

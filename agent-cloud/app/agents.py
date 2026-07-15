@@ -51,6 +51,10 @@ AGENT_KINDS = ("assistant", "adk_task")
 RUNTIMES = ("claude", "adk")
 VISIBILITIES = ("private", "shared")
 APPROVAL_STATES = ("draft", "suggested", "approved", "rejected")
+# Hybrid Sensitivity Router (§8): the model lane an agent can be assigned.
+# local = on-prem inference (sensitive data stays on the box; fail-safe
+# default); frontier = Claude API (non-sensitive agents only).
+MODEL_LANES = ("local", "frontier")
 
 # Allowed model aliases = keys of the pricing table (source of truth,
 # app/providers/pricing.py). A versioned `@date` suffix is tolerated exactly
@@ -245,6 +249,7 @@ def _detail_dict(a: AgentDef) -> dict[str, Any]:
         "model": a.model,
         "tools": list(a.tools or []),
         "memory_policy": a.memory_policy,
+        "model_lane": getattr(a, "model_lane", "local") or "local",
         "budget_monthly_usd": float(a.budget_monthly_usd),
         "enabled": a.enabled,
         "is_seed": a.agent_id in SEED_AGENT_IDS,
@@ -387,6 +392,14 @@ def _validate_memory_policy(policy: str) -> str:
             f"memory_policy must be one of {', '.join(MEMORY_POLICIES)}"
         )
     return policy
+
+
+def _validate_model_lane(lane: str) -> str:
+    if lane not in MODEL_LANES:
+        raise AgentValidationError(
+            f"model_lane must be one of {', '.join(MODEL_LANES)}"
+        )
+    return lane
 
 
 def _validate_agent_kind(kind: str) -> str:
@@ -567,6 +580,9 @@ async def create_agent(tenant_id: str, data: dict) -> dict:
         agent_kind = _validate_agent_kind(str(data.get("agent_kind", "assistant")))
         tools = _validate_tools(data.get("tools", []) or [], agent_kind=agent_kind)
         memory_policy = _validate_memory_policy(str(data.get("memory_policy", "off")))
+        # Model lane (§8): fail-safe to 'local' when unspecified so a new agent
+        # keeps data on-prem until explicitly promoted to the frontier lane.
+        model_lane = _validate_model_lane(str(data.get("model_lane", "local")))
         # When no explicit budget is given, default to the config default but
         # never above the tenant's own cap (user-* tenants cap below the config
         # default, so a fixed default would otherwise 400 every create).
@@ -596,6 +612,7 @@ async def create_agent(tenant_id: str, data: dict) -> dict:
             budget_monthly_usd=budget,
             enabled=enabled,
             memory_policy=memory_policy,
+            model_lane=model_lane,
             agent_kind=agent_kind,
             runtime=runtime,
             visibility=visibility,
@@ -643,6 +660,9 @@ async def update_agent(tenant_id: str, agent_id: str, patch: dict) -> dict:
         if "memory_policy" in patch:
             row.memory_policy = _validate_memory_policy(str(patch["memory_policy"]))
             changed.append("memory_policy")
+        if "model_lane" in patch:
+            row.model_lane = _validate_model_lane(str(patch["model_lane"]))
+            changed.append("model_lane")
         if "budget_monthly_usd" in patch:
             row.budget_monthly_usd = await _validate_budget(
                 db, tenant_id, patch["budget_monthly_usd"]

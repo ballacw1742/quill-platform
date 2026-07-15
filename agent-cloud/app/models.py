@@ -86,6 +86,18 @@ class AgentDef(Base):
     trust_tier: Mapped[str] = mapped_column(
         sa.Text, nullable=False, default="tier-0-mandatory"
     )
+    # Hybrid Sensitivity Router (scaled-down §8) — the static per-agent model
+    # lane. "local" (fail-safe default) routes the agent to on-prem inference
+    # (MODEL_PROVIDER=local / ollama): nothing this agent processes leaves our
+    # hardware. "frontier" routes to the Claude API for higher quality on
+    # agents that DON'T touch sensitive data (no cost/finance numbers, no
+    # confidential business data). The user never chooses per request; the
+    # lane is a property of the agent's data exposure. Default is the safe
+    # lane (local) so any new/unclassified agent keeps data on-prem until it
+    # is explicitly promoted to frontier.
+    model_lane: Mapped[str] = mapped_column(
+        sa.Text, nullable=False, default="local"
+    )
     # Phase 5 (AUTHORING_MATURITY.md §1.1) — monotonic version, +1 per mutating
     # update/rollback. Additive; existing rows default to 1.
     version: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1)

@@ -31,7 +31,12 @@ from app.config import get_settings
 from app.db import tenant_session
 from app.logging_setup import agent_id_var, session_id_var, tenant_id_var
 from app.models import AgentDef, Message, Session, Tenant
-from app.providers import ModelProvider, get_provider
+from app.providers import (
+    ModelProvider,
+    get_provider,
+    get_provider_for_lane,
+    model_for_lane,
+)
 from app.providers.pricing import cost_usd as pricing_cost_usd
 from app.seeds import SEED_AGENTS, seed_model_for_tenant
 from app.tools import (
@@ -95,6 +100,9 @@ class _TurnContext:
     tenant_month_spend_usd: float = 0.0
     tenant_budget_source: str = "default"
     memory_policy: str = "off"
+    # Hybrid Sensitivity Router (§8): the agent's model lane ('local' |
+    # 'frontier'). Drives per-agent provider selection when routing is on.
+    model_lane: str = "local"
     history: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -127,6 +135,7 @@ async def _prepare(
                         "budget_monthly_usd": s.DEFAULT_BUDGET_MONTHLY_USD,
                         "enabled": True,
                         "memory_policy": seed.memory_policy,
+                        "model_lane": seed.model_lane,
                     },
                     dialect,
                 )
@@ -181,15 +190,26 @@ async def _prepare(
         )
 
         memory_policy = agent.memory_policy or "off"
+        model_lane = getattr(agent, "model_lane", "local") or "local"
         allowlist = list(agent.tools or [])
         if memory_policy == "off":
             # policy gate on top of the allow-list: memory tools are neither
             # offered to the model nor executable when memory is off.
             allowlist = [t for t in allowlist if t not in MEMORY_TOOL_NAMES]
 
+        # When lane routing is on, the lane picks the model id to run (a
+        # local-lane agent must run an on-prem model id, a frontier agent a
+        # Claude id); otherwise the agent's pinned model is used unchanged.
+        s2 = get_settings()
+        effective_model = (
+            model_for_lane(model_lane, agent.model)
+            if s2.MODEL_LANE_ROUTING_ENABLED
+            else agent.model
+        )
+
         return _TurnContext(
             session_id=sid,
-            model=agent.model,
+            model=effective_model,
             system_prompt=agent.system_prompt,
             allowlist=allowlist,
             budget_monthly_usd=float(agent.budget_monthly_usd),
@@ -198,6 +218,7 @@ async def _prepare(
             tenant_month_spend_usd=tenant_spend,
             tenant_budget_source=tenant_budget_source,
             memory_policy=memory_policy,
+            model_lane=model_lane,
             history=history,
         )
 
@@ -361,7 +382,18 @@ async def stream_turn(
     if ctx.memory_policy == "auto_recall":
         system_prompt += await memory_mod.recall_block(tenant_id, agent_id, message)
 
-    prov = provider or get_provider()
+    # Per-agent lane routing (§8): a local-lane agent runs on on-prem
+    # inference (data stays on the box), a frontier agent on the Claude API.
+    # An explicit provider override (tests) always wins. When routing is
+    # disabled we use the module-level get_provider (single global provider,
+    # and the seam tests patch); only when routing is ON do we resolve the
+    # provider from the agent's lane.
+    if provider is not None:
+        prov = provider
+    elif s.MODEL_LANE_ROUTING_ENABLED:
+        prov = get_provider_for_lane(ctx.model_lane)
+    else:
+        prov = get_provider()
     tools_spec = specs_for_allowlist(ctx.allowlist)
     messages = [*ctx.history, {"role": "user", "content": message}]
     new_turns: list[dict[str, Any]] = [{"role": "user", "content": message}]

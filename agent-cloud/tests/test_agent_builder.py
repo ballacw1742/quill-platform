@@ -128,6 +128,8 @@ async def test_create_reserved_seed_id_409(client):
         ("agent_id", "UPPER"),
         ("model", "gpt-4o"),
         ("memory_policy", "sometimes"),
+        ("model_lane", "cloud"),
+        ("model_lane", "hybrid"),
         ("tools", ["get_time", "no_such_tool"]),
         ("system_prompt", "   "),
         ("budget_monthly_usd", 0),
@@ -138,6 +140,47 @@ async def test_create_validation_400(client, field, value):
     async with client:
         r = await client.post("/v1/agents", json=_create_body(**{field: value}))
     assert r.status_code == 400, (field, value, r.text)
+
+
+async def test_create_defaults_to_local_lane(client):
+    """§8: an agent created without an explicit lane fails safe to 'local'
+    (data stays on-prem until explicitly promoted to frontier)."""
+    async with client:
+        r = await client.post("/v1/agents", json=_create_body())
+    assert r.status_code == 201
+    assert r.json()["model_lane"] == "local"
+
+
+async def test_create_with_frontier_lane(client):
+    async with client:
+        r = await client.post(
+            "/v1/agents", json=_create_body(model_lane="frontier")
+        )
+    assert r.status_code == 201
+    assert r.json()["model_lane"] == "frontier"
+
+
+async def test_patch_model_lane(client):
+    async with client:
+        await client.post("/v1/agents", json=_create_body())
+        r = await client.patch(
+            "/v1/agents/research",
+            params={"tenant_id": TENANT},
+            json={"model_lane": "frontier"},
+        )
+    assert r.status_code == 200
+    assert r.json()["model_lane"] == "frontier"
+
+
+async def test_patch_invalid_model_lane_400(client):
+    async with client:
+        await client.post("/v1/agents", json=_create_body())
+        r = await client.patch(
+            "/v1/agents/research",
+            params={"tenant_id": TENANT},
+            json={"model_lane": "nonsense"},
+        )
+    assert r.status_code == 400
 
 
 async def test_create_budget_over_tenant_cap_400(client):

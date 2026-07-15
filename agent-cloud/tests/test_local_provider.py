@@ -20,6 +20,7 @@ from app.providers.local_ollama import (
     LocalEngine,
     LocalProvider,
     OllamaEngine,
+    _engine_model,
     _messages_to_ollama,
     _tools_to_ollama,
 )
@@ -44,6 +45,44 @@ class FakeEngine(LocalEngine):
         self.last_body = body
         for c in self._stream_chunks:
             yield c
+
+
+# --------------------------------------------------------------------------
+# routing-prefix stripping (§8 lane router tags local ids 'ollama:'/'local:')
+# --------------------------------------------------------------------------
+def test_engine_model_strips_routing_prefix():
+    # the lane router / pricing layer prefixes on-prem ids for $0 accounting;
+    # ollama's API needs the bare engine name.
+    assert _engine_model("ollama:qwen3:14b") == "qwen3:14b"
+    assert _engine_model("local:gemma4:12b-mlx") == "gemma4:12b-mlx"
+    # only ONE leading prefix is stripped (model names may contain colons)
+    assert _engine_model("qwen3:14b") == "qwen3:14b"
+    assert _engine_model("OLLAMA:Qwen") == "Qwen"  # case-insensitive prefix
+
+
+def test_engine_model_rejects_bare_local_alias():
+    # 'local' is the canonical $0 pricing id, not a runnable engine model
+    with pytest.raises(ProviderError):
+        _engine_model("local")
+
+
+async def test_complete_sends_stripped_model_to_engine():
+    engine = FakeEngine(
+        chat_response={
+            "message": {"content": "ok"},
+            "model": "qwen3:14b",
+            "done_reason": "stop",
+            "prompt_eval_count": 3,
+            "eval_count": 2,
+        }
+    )
+    prov = LocalProvider(engine=engine)
+    await prov.complete(
+        model="ollama:qwen3:14b", system="s", messages=[{"role": "user", "content": "hi"}],
+        tools=[], max_tokens=64,
+    )
+    # the engine must receive the bare name, NOT the routing-prefixed id
+    assert engine.last_body["model"] == "qwen3:14b"
 
 
 # --------------------------------------------------------------------------

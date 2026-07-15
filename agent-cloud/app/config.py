@@ -28,6 +28,35 @@ class Settings(BaseSettings):
     MODEL_PROVIDER: str = Field(default="anthropic")
     MODEL_DEFAULT: str = Field(default="claude-fable-5")
     MODEL_CHEAP: str = Field(default="claude-haiku-4-5")
+
+    # --- Hybrid Sensitivity Router (scaled-down §8) -----------------------
+    # Per-agent model lane routing. When enabled, an agent's `model_lane`
+    # column ('local' | 'frontier') selects the provider PER AGENT instead of
+    # the single global MODEL_PROVIDER:
+    #   local    -> LANE_LOCAL_PROVIDER   (on-prem ollama; nothing leaves box)
+    #   frontier -> LANE_FRONTIER_PROVIDER (Claude API for non-sensitive work)
+    # When disabled (default OFF for backward-compat), every agent uses the
+    # global MODEL_PROVIDER exactly as before. Flip on to activate the router.
+    MODEL_LANE_ROUTING_ENABLED: bool = Field(default=False)
+    # Provider each lane maps to. The local lane is the fail-safe: an
+    # unknown/unclassified lane always resolves to LANE_LOCAL_PROVIDER.
+    LANE_LOCAL_PROVIDER: str = Field(default="local")
+    LANE_FRONTIER_PROVIDER: str = Field(default="anthropic")
+    # The model id each lane's agents run when the agent row does not pin one
+    # (used as a sensible per-lane default; the agent's own `model` still
+    # wins when set). Local agents run an on-prem ollama model; frontier
+    # agents run the default Claude tier.
+    MODEL_LOCAL_DEFAULT: str = Field(default="ollama:qwen3:14b")
+    # Fail-open: when a LOCAL-lane agent's on-prem inference host is
+    # unreachable (e.g. the Mac Studio is asleep or off the tailnet), degrade
+    # that turn to the frontier provider instead of hard-failing. This keeps
+    # the product up when local inference is down BUT means sensitive-data
+    # turns can transit the Claude API during the outage — so it is a
+    # deliberate, logged, demo-phase tradeoff. Set False for the absolute
+    # "sensitive data never leaves the box" guarantee (fail-closed): a local
+    # outage then surfaces a clean provider error rather than silently using
+    # the cloud. Only consulted when MODEL_LANE_ROUTING_ENABLED is on.
+    MODEL_LANE_FAIL_OPEN: bool = Field(default=False)
     MAX_TOKENS: int = Field(default=1024)
     MAX_TOOL_ITERATIONS: int = Field(default=6)
     MODEL_RETRY_ATTEMPTS: int = Field(default=3)
@@ -45,6 +74,12 @@ class Settings(BaseSettings):
     LOCAL_ENGINE: str = Field(default="ollama")
     OLLAMA_HOST: str = Field(default="http://localhost:11434")
     LOCAL_INFERENCE_TIMEOUT_SECONDS: float = Field(default=120.0)
+    # Optional proxy used ONLY for local-inference (ollama) HTTP calls, so the
+    # on-prem host can be reached over a private network (e.g. a Tailscale
+    # userspace SOCKS5 sidecar on Cloud Run) WITHOUT routing the app's other
+    # egress (Anthropic/Gemini/Quill API) through it. Empty = direct connect.
+    # Example: socks5://localhost:1055
+    LOCAL_INFERENCE_PROXY: str = Field(default="")
     # Embedding model served locally (ollama /api/embed). Its output
     # dimensionality must match EMBEDDING_DIM / the vector(<dim>) column.
     LOCAL_EMBEDDING_MODEL: str = Field(default="nomic-embed-text")
