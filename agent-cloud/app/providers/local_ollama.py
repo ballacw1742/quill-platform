@@ -45,6 +45,7 @@ import httpx
 
 from app.config import get_settings
 from app.providers.base import (
+    LocalUnreachableError,
     ModelProvider,
     ModelResponse,
     ProviderError,
@@ -240,22 +241,29 @@ class OllamaEngine(LocalEngine):
     name = "ollama"
 
     def __init__(self, *, base_url: str, timeout: float,
-                 client: httpx.AsyncClient | None = None):
+                 client: httpx.AsyncClient | None = None,
+                 proxy: str | None = None):
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._client = client  # injectable for tests
+        # Optional proxy for on-prem reachability (e.g. Tailscale userspace
+        # SOCKS5 sidecar). Scoped to ollama traffic only. Empty ⇒ direct.
+        self._proxy = proxy or None
+
+    def _new_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(timeout=self._timeout, proxy=self._proxy)
 
     def _http(self) -> httpx.AsyncClient:
         # When a client is injected (tests), reuse it; otherwise per-call
         # client so we never leak a session across the event loop.
-        return self._client or httpx.AsyncClient(timeout=self._timeout)
+        return self._client or self._new_client()
 
     async def _post(self, path: str, body: dict[str, Any]) -> httpx.Response:
         if self._client is not None:
             r = await self._client.post(f"{self._base_url}{path}", json=body)
             r.raise_for_status()
             return r
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with self._new_client() as client:
             r = await client.post(f"{self._base_url}{path}", json=body)
             r.raise_for_status()
             return r
@@ -275,7 +283,7 @@ class OllamaEngine(LocalEngine):
                     if line.strip():
                         yield json.loads(line)
             return
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with self._new_client() as client:
             async with client.stream(
                 "POST", f"{self._base_url}/api/chat", json=body
             ) as resp:
@@ -308,6 +316,7 @@ class LocalProvider(ModelProvider):
             self._engine = OllamaEngine(
                 base_url=s.OLLAMA_HOST,
                 timeout=s.LOCAL_INFERENCE_TIMEOUT_SECONDS,
+                proxy=s.LOCAL_INFERENCE_PROXY,
             )
 
     def _base_body(
@@ -365,7 +374,10 @@ class LocalProvider(ModelProvider):
                 status=exc.response.status_code,
             ) from exc
         except httpx.HTTPError as exc:
-            raise ProviderError(
+            # transport/connection failure = the on-prem host is unreachable
+            # (asleep, off the tailnet, ...). Tagged so the fail-open wrapper
+            # can distinguish it from a genuine model/API error.
+            raise LocalUnreachableError(
                 f"local ollama request failed (is ollama running at "
                 f"{s.OLLAMA_HOST}?): {exc}"
             ) from exc
@@ -413,7 +425,7 @@ class LocalProvider(ModelProvider):
                     status=exc.response.status_code,
                 ) from exc
             except httpx.HTTPError as exc:
-                raise ProviderError(
+                raise LocalUnreachableError(
                     f"local ollama stream request failed (is ollama running at "
                     f"{s.OLLAMA_HOST}?): {exc}"
                 ) from exc

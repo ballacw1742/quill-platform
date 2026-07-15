@@ -29,6 +29,16 @@ class ProviderError(RuntimeError):
         self.status = status
 
 
+class LocalUnreachableError(ProviderError):
+    """The on-prem (local) inference host could not be reached at all — a
+    transport/connection failure, not a model or request error. Signals the
+    fail-open wrapper that it is safe to degrade this turn to the frontier
+    provider (the host is down, nothing sensitive was processed locally).
+    A genuine model/API error stays a plain ProviderError and does NOT
+    fail-open (we must not leak a bad-request retry to the cloud).
+    """
+
+
 @dataclass
 class ModelResponse:
     content: list[dict[str, Any]]  # normalized Anthropic-style blocks

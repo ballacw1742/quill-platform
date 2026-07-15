@@ -1,0 +1,149 @@
+# Cloud Run multi-container service: quill-agent-orchestrator (app) +
+# Tailscale userspace sidecar (§8 model-lane router — reaches on-prem ollama
+# on the Mac Studio over the private tailnet, no public exposure).
+#
+# The sidecar runs tailscaled in userspace networking with a SOCKS5 proxy on
+# localhost:1055. The app reaches the Mac Studio (100.89.64.66:11434) ONLY for
+# ollama traffic via LOCAL_INFERENCE_PROXY=socks5://localhost:1055 — all other
+# egress (Anthropic/Gemini/Quill API) stays direct.
+#
+# Placeholders (__SHA__, secret refs) are substituted by the deploy workflow.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: quill-agent-orchestrator
+  labels:
+    cloud.googleapis.com/location: us-central1
+  annotations:
+    run.googleapis.com/ingress: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: '1'
+        autoscaling.knative.dev/maxScale: '3'
+        run.googleapis.com/startup-cpu-boost: 'true'
+        run.googleapis.com/cloudsql-instances: totemic-formula-467102-s9:us-central1:quill-datasite-db
+        # Sidecar container-dependency: start tailscale before the app so the
+        # SOCKS proxy is up when the app first tries a local-lane turn.
+        run.googleapis.com/container-dependencies: '{"app":["tailscale"]}'
+    spec:
+      serviceAccountName: openclaw-adk@totemic-formula-467102-s9.iam.gserviceaccount.com
+      containers:
+        # ── application container ─────────────────────────────────────────
+        - name: app
+          image: gcr.io/totemic-formula-467102-s9/quill-agent-orchestrator:__SHA__
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: '1'
+              memory: 512Mi
+          env:
+            - name: QUILL_API_URL
+              value: https://quill-agents-894031978246.us-central1.run.app
+            # §8 model-lane router — ENABLED, fail-open for the demo phase.
+            - name: MODEL_LANE_ROUTING_ENABLED
+              value: 'true'
+            - name: MODEL_LANE_FAIL_OPEN
+              value: 'true'
+            - name: LANE_LOCAL_PROVIDER
+              value: local
+            - name: LANE_FRONTIER_PROVIDER
+              value: anthropic
+            - name: MODEL_LOCAL_DEFAULT
+              value: ollama:gemma4:12b-mlx
+            - name: OLLAMA_HOST
+              value: http://100.89.64.66:11434
+            - name: LOCAL_INFERENCE_PROXY
+              value: socks5://localhost:1055
+            - name: MODEL_PROVIDER
+              value: anthropic
+            - name: MODEL_DEFAULT
+              value: claude-fable-5
+            - name: MODEL_CHEAP
+              value: claude-haiku-4-5
+            - name: EMBEDDING_PROVIDER
+              value: gemini
+            - name: EVENT_BUS
+              value: pubsub
+            - name: JOBS_BACKEND
+              value: cloudrun
+            - name: CLOUDRUN_JOB_NAME
+              value: agentcloud-subagent
+            - name: SCHEDULER_BACKEND
+              value: cloudscheduler
+            - name: SECRETS_BACKEND
+              value: kms
+            - name: SECRETS_KMS_KEY
+              value: projects/totemic-formula-467102-s9/locations/us-central1/keyRings/agentcloud/cryptoKeys/tenant-secrets
+            - name: CHANNELS_ENABLED
+              value: 'true'
+            - name: ALLOW_WEB_FETCH
+              value: 'true'
+            - name: DRIVE_ENABLED
+              value: 'true'
+            - name: DRIVE_FOLDER_ID
+              value: 1MUNTi_Vun7V40JcLzQVmmFHVIXI-wtaA
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: QUILL_DATABASE_URL, key: latest }
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef: { name: ANTHROPIC_API_KEY, key: latest }
+            - name: QUILL_AGENT_SECRET
+              valueFrom:
+                secretKeyRef: { name: QUILL_AGENT_SECRET, key: latest }
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef: { name: GEMINI_API_KEY, key: latest }
+            - name: APPROVALS_NOTIFY_SECRET
+              valueFrom:
+                secretKeyRef: { name: AGENTCLOUD_NOTIFY_SECRET, key: latest }
+            - name: SCHEDULER_TICK_SECRET
+              valueFrom:
+                secretKeyRef: { name: AGENTCLOUD_SCHEDULER_TICK_SECRET, key: latest }
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom:
+                secretKeyRef: { name: TELEGRAM_BOT_TOKEN, key: latest }
+            - name: TELEGRAM_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef: { name: TELEGRAM_WEBHOOK_SECRET, key: latest }
+            - name: DRIVE_SERVICE_ACCOUNT_JSON
+              valueFrom:
+                secretKeyRef: { name: DRIVE_SERVICE_ACCOUNT_JSON, key: latest }
+        # ── Tailscale userspace sidecar ───────────────────────────────────
+        - name: tailscale
+          image: ghcr.io/tailscale/tailscale:stable
+          resources:
+            limits:
+              cpu: '1'
+              memory: 256Mi
+          env:
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef: { name: TAILSCALE_OAUTH_CLIENT_SECRET, key: latest }
+            - name: TS_EXTRA_ARGS
+              value: --advertise-tags=tag:cloud-run
+            - name: TS_USERSPACE
+              value: 'true'
+            # SOCKS5 (and HTTP) proxy the app dials for on-prem ollama.
+            - name: TS_SOCKS5_SERVER
+              value: localhost:1055
+            - name: TS_OUTBOUND_HTTP_PROXY_LISTEN
+              value: localhost:1055
+            - name: TS_STATE_DIR
+              value: /tmp/tailscale
+            # Ephemeral node: auto-removed from the tailnet when the instance
+            # scales to zero / restarts (no stale nodes piling up).
+            - name: TS_AUTH_ONCE
+              value: 'true'
+          # Container-dependency gate: the app waits until the SOCKS proxy port
+          # is accepting connections (tailscaled up + proxy listening).
+          startupProbe:
+            tcpSocket:
+              port: 1055
+            initialDelaySeconds: 1
+            periodSeconds: 3
+            failureThreshold: 20
+            timeoutSeconds: 3
