@@ -114,7 +114,7 @@ function PartyRow({
   const [expanded, setExpanded] = React.useState(index < 2);
 
   return (
-    <div className="rounded-xl border border-separator bg-bg-elevated overflow-hidden">
+    <div className="rounded-2xl border border-hairline bg-bg-elevated overflow-hidden">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -217,7 +217,7 @@ function KeyTermRow({
   onRemove: () => void;
 }) {
   return (
-    <div className="flex items-start gap-2 rounded-xl border border-separator bg-bg-elevated px-3 py-2.5">
+    <div className="flex items-start gap-2 rounded-2xl border border-hairline bg-bg-elevated px-3 py-2.5">
       <div className="flex-1 space-y-1.5">
         <input
           type="text"
@@ -612,7 +612,7 @@ export function DraftContractSheet({ open, onOpenChange }: DraftContractSheetPro
         {step === "review" && (
           <div className="space-y-4">
             <DraftAttorneyBanner />
-            <div className="rounded-xl bg-bg-elevated border border-separator divide-y divide-separator">
+            <div className="rounded-2xl border border-hairline bg-bg-elevated divide-y divide-separator">
               <div className="flex justify-between items-center px-3 py-2.5">
                 <span className="text-caption text-label-tertiary">Mode</span>
                 <span className="text-callout font-medium text-label-primary capitalize">
@@ -656,7 +656,7 @@ export function DraftContractSheet({ open, onOpenChange }: DraftContractSheetPro
           <button
             type="button"
             onClick={handleBack}
-            className="rounded-xl border border-separator bg-bg-elevated px-4 py-3 min-h-[44px] text-callout font-medium text-label-primary active:bg-bg-tertiary no-tap-highlight"
+            className="rounded-xl border border-hairline bg-bg-elevated px-4 py-3 min-h-[44px] text-callout font-medium text-label-primary active:bg-bg-tertiary no-tap-highlight"
           >
             Back
           </button>

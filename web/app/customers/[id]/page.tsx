@@ -1,30 +1,38 @@
 "use client";
 
 /**
- * /customers/[id] — Customer Detail Page (Sprint 2A)
+ * /customers/[id] — Customer Detail Page
  *
- * Tabs: Tickets | Notes | Details
- * Design: dark Quill theme, iOS-style cards, accent blue #0A84FF.
+ * Ported visual layer from Lovable: quill-platform-builder/src/routes/customers.$id.tsx
+ * Data wiring kept from prod; routing via next/navigation.
+ *
+ * Key token mappings (LOVABLE_PORT_CONTRACT § Known token equivalences):
+ *   bg-bg-elevated shadow-card        — card surfaces
+ *   text-success / text-warning / text-danger — semantic colors (exist in prod)
+ *   text-primary-foreground           — prod alias for #FFFFFF (accent button text)
+ *   bg-fill-quaternary                — no prod equiv → bg-chrome/60
+ *   bg-chrome border border-hairline  — modal background
+ *   shadow-elevated / accent-pressed  — exist in prod
+ *   No inline hex. No emojis.
  */
 
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
-  Ticket,
-  StickyNote,
-  Settings2,
-  Plus,
-  X,
   ChevronDown,
   ChevronRight,
-  Users,
   Loader2,
+  Plus,
+  Settings2,
+  StickyNote,
+  Ticket,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
-import { ErrorBanner } from "@/components/ui/error-banner";
+import { healthColor } from "@/components/customers/CustomerCard";
 import {
   useCustomer,
   useCustomerTickets,
@@ -35,34 +43,30 @@ import {
   useUpdateCustomer,
   useCampuses,
 } from "@/lib/api";
-import type { CustomerDetail, SupportTicket, AccountNote } from "@/lib/schemas";
+import type { CustomerDetail, SupportTicket } from "@/lib/schemas";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function healthColor(score: number | null | undefined): string {
-  if (score == null) return "text-label-secondary";
-  if (score >= 80) return "text-green-400";
-  if (score >= 60) return "text-yellow-400";
-  return "text-red-400";
-}
+const TICKET_SEVERITIES = ["P1", "P2", "P3", "P4"] as const;
+type TicketSeverity = typeof TICKET_SEVERITIES[number];
+type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
 
-function severityBadge(severity: string): string {
-  switch (severity) {
-    case "P1": return "bg-red-500 text-white";
+function severityCls(sev: string): string {
+  switch (sev) {
+    case "P1": return "bg-danger text-white";
     case "P2": return "bg-orange-500 text-white";
     case "P3": return "bg-yellow-500 text-black";
-    case "P4": return "bg-zinc-500 text-white";
-    default:   return "bg-zinc-600 text-white";
+    default:   return "bg-zinc-500 text-white";
   }
 }
 
 function statusBadge(s: string): string {
   switch (s) {
-    case "open":        return "text-red-400 bg-red-400/10";
-    case "in_progress": return "text-yellow-400 bg-yellow-400/10";
-    case "resolved":    return "text-green-400 bg-green-400/10";
-    case "closed":      return "text-label-tertiary bg-bg-elevated";
-    default:            return "text-label-secondary bg-bg-elevated";
+    case "open":        return "text-danger bg-danger/10";
+    case "in_progress": return "text-warning bg-warning/10";
+    case "resolved":    return "text-success bg-success/10";
+    case "closed":      return "text-label-tertiary bg-chrome/60";
+    default:            return "text-label-secondary bg-chrome/60";
   }
 }
 
@@ -80,138 +84,239 @@ function fmtDateTime(iso: string): string {
   });
 }
 
+const inputCls =
+  "w-full rounded-xl bg-bg-elevated shadow-card px-3 py-2.5 text-body text-label-primary placeholder:text-label-tertiary focus:outline-none focus:border-accent";
+
 // ── Tabs ──────────────────────────────────────────────────────────────────────
 
-const TABS = [
-  { key: "tickets", label: "Tickets", icon: Ticket },
-  { key: "notes", label: "Notes", icon: StickyNote },
-  { key: "details", label: "Details", icon: Settings2 },
-] as const;
+type TabValue = "tickets" | "notes" | "details";
 
-type TabKey = typeof TABS[number]["key"];
+const TABS: { value: TabValue; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { value: "tickets", label: "Tickets", icon: Ticket },
+  { value: "notes", label: "Notes", icon: StickyNote },
+  { value: "details", label: "Details", icon: Settings2 },
+];
 
-// ── Tickets Tab ───────────────────────────────────────────────────────────────
+// ── TicketRow (owns its own useUpdateTicket at the component level) ────────────
 
-const STATUS_ORDER = ["open", "in_progress", "resolved", "closed"] as const;
+const STATUS_ORDER: TicketStatus[] = ["open", "in_progress", "resolved", "closed"];
 
-function TicketsTab({ accountId }: { accountId: string }) {
-  const [newTicketOpen, setNewTicketOpen] = React.useState(false);
-  const [expanded, setExpanded] = React.useState<string | null>(null);
-  const [newTitle, setNewTitle] = React.useState("");
-  const [newSeverity, setNewSeverity] = React.useState("P3");
-  const [newDesc, setNewDesc] = React.useState("");
+function TicketRow({
+  ticket,
+  accountId,
+  expanded,
+  onToggle,
+}: {
+  ticket: SupportTicket;
+  accountId: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const updateTicket = useUpdateTicket(accountId, ticket.id);
+  const [notes, setNotes] = React.useState(ticket.resolution_notes ?? "");
 
-  const { data, isLoading, error } = useCustomerTickets(accountId);
+  React.useEffect(() => {
+    setNotes(ticket.resolution_notes ?? "");
+  }, [ticket.resolution_notes]);
+
+  return (
+    <div
+      className={cn(
+        "rounded-2xl bg-bg-elevated shadow-card overflow-hidden",
+        expanded && "border border-accent/30",
+      )}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-start gap-3 px-4 py-3 text-left no-tap-highlight active:opacity-70"
+      >
+        <span
+          className={cn(
+            "rounded px-1.5 py-0.5 text-caption-2 font-bold shrink-0 mt-0.5",
+            severityCls(ticket.severity),
+          )}
+        >
+          {ticket.severity}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-body font-medium text-label-primary truncate">{ticket.title}</p>
+          <div className="flex items-center gap-2 mt-1">
+            <span className={cn("text-caption-2 font-semibold rounded-full px-1.5 py-0.5", statusBadge(ticket.status))}>
+              {statusLabel(ticket.status)}
+            </span>
+            <span className="text-caption-2 text-label-tertiary">{fmtDate(ticket.created_at)}</span>
+          </div>
+        </div>
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-label-tertiary shrink-0 mt-1" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-label-tertiary shrink-0 mt-1" />
+        )}
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 border-t border-hairline pt-3 flex flex-col gap-3">
+          {ticket.description && (
+            <p className="text-body text-label-secondary whitespace-pre-wrap">{ticket.description}</p>
+          )}
+          {ticket.resolved_at && (
+            <p className="text-caption-1 text-success">Resolved {fmtDate(ticket.resolved_at)}</p>
+          )}
+          <div className="flex flex-col gap-1">
+            <label className="text-caption-1 text-label-secondary">Resolution Notes</label>
+            <textarea
+              className={cn(inputCls, "resize-none")}
+              rows={2}
+              placeholder="Add resolution notes…"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={() => {
+                if (notes !== (ticket.resolution_notes ?? "")) {
+                  updateTicket.mutate({ resolution_notes: notes });
+                }
+              }}
+            />
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {STATUS_ORDER.filter((s) => s !== ticket.status).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => updateTicket.mutate({ status: s })}
+                disabled={updateTicket.isPending}
+                className={cn(
+                  "text-caption-2 font-semibold rounded-full px-3 py-1 active:scale-95 disabled:opacity-50",
+                  statusBadge(s),
+                )}
+              >
+                → {statusLabel(s)}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── New Ticket Modal ──────────────────────────────────────────────────────────
+
+function NewTicketModal({ accountId, onClose }: { accountId: string; onClose: () => void }) {
   const createTicket = useCreateTicket(accountId);
+  const [title, setTitle] = React.useState("");
+  const [severity, setSeverity] = React.useState<TicketSeverity>("P3");
+  const [description, setDescription] = React.useState("");
+  const [formError, setFormError] = React.useState<string | null>(null);
 
-  const [resolutionDrafts, setResolutionDrafts] = React.useState<Record<string, string>>({});
-
-  // Per-ticket update mutation — call hooks at component level for a fixed set of tickets
-  // We use a single PATCH mutation routed via ticketId state
-  const [patchingTicket, setPatchingTicket] = React.useState<string | null>(null);
-  const updateTicketMutation = useUpdateTicket(accountId, patchingTicket ?? "__none__");
-
-  async function handlePatch(ticketId: string, body: Record<string, unknown>) {
-    setPatchingTicket(ticketId);
-    // Wait for state to propagate — use the mutation directly after setting patchingTicket
-    await new Promise<void>((res) => setTimeout(res, 0));
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setFormError(null);
     try {
-      await updateTicketMutation.mutateAsync(body as Parameters<typeof updateTicketMutation.mutateAsync>[0]);
-    } finally {
-      setPatchingTicket(null);
+      await createTicket.mutateAsync({
+        title: title.trim(),
+        severity,
+        description: description.trim() || undefined,
+      });
+      onClose();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "Failed to create ticket");
     }
   }
 
-  async function handleCreate() {
-    if (!newTitle.trim()) return;
-    try {
-      await createTicket.mutateAsync({ title: newTitle, severity: newSeverity, description: newDesc || undefined });
-      setNewTitle("");
-      setNewSeverity("P3");
-      setNewDesc("");
-      setNewTicketOpen(false);
-    } catch (_) {}
-  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center">
+      <div className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-chrome border border-hairline shadow-2xl pb-safe">
+        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-hairline">
+          <h2 className="text-headline font-semibold text-label-primary">New Ticket</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="text-label-secondary active:text-label-primary"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3 px-4 py-4">
+          {formError && (
+            <p className="text-caption-1 text-danger bg-danger/10 rounded-xl px-3 py-2">{formError}</p>
+          )}
+          <label className="flex flex-col gap-1">
+            <span className="text-caption-1 text-label-secondary">Title *</span>
+            <input
+              className={inputCls}
+              placeholder="Describe the issue…"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+            />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-caption-1 text-label-secondary">Severity</span>
+            <select
+              className={inputCls}
+              value={severity}
+              onChange={(e) => setSeverity(e.target.value as TicketSeverity)}
+            >
+              {TICKET_SEVERITIES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-caption-1 text-label-secondary">Description (optional)</span>
+            <textarea
+              className={cn(inputCls, "resize-none")}
+              rows={3}
+              placeholder="Additional context…"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={!title.trim() || createTicket.isPending}
+            className="mt-2 w-full rounded-xl py-3 text-body font-semibold bg-accent text-primary-foreground disabled:opacity-40"
+          >
+            {createTicket.isPending ? "Creating…" : "Create Ticket"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
 
+// ── Tickets Tab ───────────────────────────────────────────────────────────────
+
+function TicketsTab({ accountId }: { accountId: string }) {
+  const { data, isLoading } = useCustomerTickets(accountId);
+  const [expanded, setExpanded] = React.useState<string | null>(null);
+  const [showNew, setShowNew] = React.useState(false);
+
+  // prod envelope: data is TicketListPage | undefined → .items
   const tickets = data?.items ?? [];
 
   return (
-    <div className="pt-4">
-      {/* New ticket button */}
-      <div className="flex justify-end mb-4">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <span className="text-caption-1 text-label-secondary">
+          {tickets.length} ticket{tickets.length !== 1 ? "s" : ""}
+        </span>
         <button
           type="button"
-          onClick={() => setNewTicketOpen(true)}
-          className="flex items-center gap-1.5 text-caption-1 font-semibold text-accent bg-accent/10 rounded-full px-3 py-1.5 active:scale-95"
+          onClick={() => setShowNew(true)}
+          className="flex items-center gap-1.5 rounded-full bg-accent/10 text-accent active:bg-accent/20 active:scale-[0.98] transition-all px-3 py-1.5 text-caption-1 font-semibold"
         >
-          <Plus className="w-3.5 h-3.5" />
+          <Plus className="h-4 w-4" />
           New Ticket
         </button>
       </div>
 
-      {/* New ticket modal */}
-      {newTicketOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-bg-primary rounded-t-3xl p-6 pb-safe-bottom shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-headline font-semibold text-label-primary">New Ticket</h3>
-              <button type="button" onClick={() => setNewTicketOpen(false)}>
-                <X className="w-5 h-5 text-label-secondary" />
-              </button>
-            </div>
-            <div className="space-y-3">
-              <div>
-                <label className="text-caption-1 text-label-secondary">Title</label>
-                <input
-                  className="mt-1 w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary placeholder:text-label-quaternary focus:outline-none focus:border-accent/60"
-                  placeholder="Describe the issue…"
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="text-caption-1 text-label-secondary">Severity</label>
-                <select
-                  className="mt-1 w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary focus:outline-none"
-                  value={newSeverity}
-                  onChange={(e) => setNewSeverity(e.target.value)}
-                >
-                  {["P1", "P2", "P3", "P4"].map((s) => (
-                    <option key={s} value={s}>{s} {s === "P1" ? "— Critical" : s === "P2" ? "— High" : s === "P3" ? "— Medium" : "— Low"}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="text-caption-1 text-label-secondary">Description (optional)</label>
-                <textarea
-                  className="mt-1 w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary placeholder:text-label-quaternary focus:outline-none h-20 resize-none"
-                  placeholder="Additional context…"
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleCreate}
-                disabled={!newTitle.trim() || createTicket.isPending}
-                className="w-full rounded-xl bg-accent text-white font-semibold py-3 active:scale-98 disabled:opacity-50"
-              >
-                {createTicket.isPending ? "Creating…" : "Create Ticket"}
-              </button>
-              {createTicket.isError && (
-                <p className="text-caption-1 text-red-400">{createTicket.error?.message}</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {error && <ErrorBanner message={error.message} />}
       {isLoading && (
-        <div className="space-y-2">
-          {[1, 2].map((i) => (
-            <div key={i} className="h-20 rounded-2xl bg-chrome/60 animate-pulse" />
-          ))}
+        <div className="flex justify-center py-6 text-label-tertiary">
+          <Loader2 className="h-5 w-5 animate-spin" />
         </div>
       )}
 
@@ -219,89 +324,17 @@ function TicketsTab({ accountId }: { accountId: string }) {
         <p className="text-body text-label-tertiary text-center py-10">No tickets yet.</p>
       )}
 
-      {tickets.map((ticket) => {
-        const isExpanded = expanded === ticket.id;
-        return (
-          <div
-            key={ticket.id}
-            className="rounded-2xl bg-chrome/80 border border-separator/40 mb-3 overflow-hidden"
-          >
-            {/* Ticket header row */}
-            <button
-              type="button"
-              onClick={() => setExpanded(isExpanded ? null : ticket.id)}
-              className="w-full text-left px-4 py-3 flex items-start gap-3"
-            >
-              <span className={cn("text-caption-2 font-bold rounded px-1.5 py-0.5 mt-0.5 flex-shrink-0", severityBadge(ticket.severity))}>
-                {ticket.severity}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-body font-medium text-label-primary truncate">{ticket.title}</p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className={cn("text-caption-2 font-semibold rounded-full px-1.5 py-0.5", statusBadge(ticket.status))}>
-                    {statusLabel(ticket.status)}
-                  </span>
-                  <span className="text-caption-2 text-label-quaternary">{fmtDate(ticket.created_at)}</span>
-                  {ticket.resolved_at && (
-                    <span className="text-caption-2 text-green-400">Resolved {fmtDate(ticket.resolved_at)}</span>
-                  )}
-                </div>
-              </div>
-              {isExpanded ? (
-                <ChevronDown className="w-4 h-4 text-label-quaternary flex-shrink-0 mt-1" />
-              ) : (
-                <ChevronRight className="w-4 h-4 text-label-quaternary flex-shrink-0 mt-1" />
-              )}
-            </button>
+      {tickets.map((t) => (
+        <TicketRow
+          key={t.id}
+          ticket={t}
+          accountId={accountId}
+          expanded={expanded === t.id}
+          onToggle={() => setExpanded(expanded === t.id ? null : t.id)}
+        />
+      ))}
 
-            {/* Expanded ticket body */}
-            {isExpanded && (
-              <div className="px-4 pb-4 border-t border-separator/30 pt-3 space-y-3">
-                {ticket.description && (
-                  <p className="text-body text-label-secondary whitespace-pre-wrap">{ticket.description}</p>
-                )}
-
-                {/* Resolution notes */}
-                <div>
-                  <label className="text-caption-1 text-label-secondary">Resolution Notes</label>
-                  <textarea
-                    className="mt-1 w-full rounded-xl bg-bg-primary border border-separator/40 px-3 py-2 text-body text-label-primary placeholder:text-label-quaternary focus:outline-none h-16 resize-none"
-                    placeholder="Add resolution notes…"
-                    value={resolutionDrafts[ticket.id] ?? ticket.resolution_notes ?? ""}
-                    onChange={(e) =>
-                      setResolutionDrafts((prev) => ({ ...prev, [ticket.id]: e.target.value }))
-                    }
-                    onBlur={() => {
-                      const notes = resolutionDrafts[ticket.id];
-                      if (notes !== undefined && notes !== ticket.resolution_notes) {
-                        handlePatch(ticket.id, { resolution_notes: notes });
-                      }
-                    }}
-                  />
-                </div>
-
-                {/* Status buttons */}
-                <div className="flex gap-2 flex-wrap">
-                  {STATUS_ORDER.filter((s) => s !== ticket.status).map((s) => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => handlePatch(ticket.id, { status: s })}
-                      disabled={patchingTicket === ticket.id}
-                      className={cn(
-                        "text-caption-2 font-semibold rounded-full px-3 py-1 active:scale-95 disabled:opacity-50",
-                        statusBadge(s),
-                      )}
-                    >
-                      → {statusLabel(s)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {showNew && <NewTicketModal accountId={accountId} onClose={() => setShowNew(false)} />}
     </div>
   );
 }
@@ -309,67 +342,63 @@ function TicketsTab({ accountId }: { accountId: string }) {
 // ── Notes Tab ─────────────────────────────────────────────────────────────────
 
 function NotesTab({ accountId }: { accountId: string }) {
-  const [noteText, setNoteText] = React.useState("");
-  const { data, isLoading, error } = useCustomerNotes(accountId);
+  const { data, isLoading } = useCustomerNotes(accountId);
   const addNote = useAddNote(accountId);
+  const [text, setText] = React.useState("");
 
-  async function handleAddNote() {
-    if (!noteText.trim()) return;
-    try {
-      await addNote.mutateAsync({ text: noteText });
-      setNoteText("");
-    } catch (_) {}
-  }
-
+  // prod envelope: data is NoteListPage | undefined → .items
   const notes = data?.items ?? [];
 
+  async function handleAdd() {
+    if (!text.trim()) return;
+    try {
+      await addNote.mutateAsync({ text: text.trim() });
+      setText("");
+    } catch {
+      // ignore
+    }
+  }
+
   return (
-    <div className="pt-4">
-      {/* Add note area */}
-      <div className="mb-4 rounded-2xl bg-chrome/80 border border-separator/40 p-3">
+    <div className="flex flex-col gap-3">
+      <div className="rounded-2xl bg-bg-elevated shadow-card p-3">
         <textarea
-          className="w-full bg-transparent text-body text-label-primary placeholder:text-label-quaternary focus:outline-none resize-none min-h-[60px]"
+          className="w-full bg-transparent text-body text-label-primary placeholder:text-label-tertiary focus:outline-none resize-none min-h-[60px]"
           placeholder="Add a note…"
-          value={noteText}
-          onChange={(e) => setNoteText(e.target.value)}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
         />
         <div className="flex justify-end mt-2">
           <button
             type="button"
-            onClick={handleAddNote}
-            disabled={!noteText.trim() || addNote.isPending}
-            className="text-caption-1 font-semibold text-accent bg-accent/10 rounded-full px-4 py-1.5 active:scale-95 disabled:opacity-50"
+            onClick={handleAdd}
+            disabled={!text.trim() || addNote.isPending}
+            className="text-caption-1 font-semibold text-accent bg-accent/10 rounded-full px-4 py-1.5 disabled:opacity-50"
           >
             {addNote.isPending ? "Saving…" : "Add Note"}
           </button>
         </div>
         {addNote.isError && (
-          <p className="text-caption-1 text-red-400 mt-1">{addNote.error?.message}</p>
+          <p className="text-caption-1 text-danger mt-1">{addNote.error?.message}</p>
         )}
       </div>
 
-      {error && <ErrorBanner message={error.message} />}
       {isLoading && (
-        <div className="space-y-2">
-          {[1, 2].map((i) => (
-            <div key={i} className="h-16 rounded-2xl bg-chrome/60 animate-pulse" />
-          ))}
+        <div className="flex justify-center py-4 text-label-tertiary">
+          <Loader2 className="h-5 w-5 animate-spin" />
         </div>
       )}
 
       {!isLoading && notes.length === 0 && (
-        <p className="text-body text-label-tertiary text-center py-10">No notes yet.</p>
+        <p className="text-body text-label-tertiary text-center py-6">No notes yet.</p>
       )}
 
-      {notes.map((note) => (
-        <div
-          key={note.id}
-          className="rounded-2xl bg-chrome/80 border border-separator/40 px-4 py-3 mb-3"
-        >
-          <p className="text-body text-label-primary whitespace-pre-wrap">{note.text}</p>
-          <p className="text-caption-2 text-label-quaternary mt-1.5">
-            {note.created_by && <span>{note.created_by} · </span>}
-            {fmtDateTime(note.created_at)}
+      {notes.map((n) => (
+        <div key={n.id} className="rounded-2xl bg-bg-elevated shadow-card px-4 py-3">
+          <p className="text-body text-label-primary whitespace-pre-wrap">{n.text}</p>
+          <p className="text-caption-2 text-label-tertiary mt-1.5">
+            {n.created_by && <span>{n.created_by} · </span>}
+            {fmtDateTime(n.created_at)}
           </p>
         </div>
       ))}
@@ -379,12 +408,44 @@ function NotesTab({ accountId }: { accountId: string }) {
 
 // ── Details Tab ───────────────────────────────────────────────────────────────
 
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <p className="text-footnote font-semibold text-label-tertiary uppercase tracking-wide mt-2">
+      {title}
+    </p>
+  );
+}
+
+function FieldRow({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-caption-1 text-label-secondary">{label}</span>
+      <input
+        className={inputCls}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+    </label>
+  );
+}
+
 function DetailsTab({ customer }: { customer: CustomerDetail }) {
   const updateCustomer = useUpdateCustomer(customer.id);
   const { data: campuses } = useCampuses();
-  const [campusId, setCampusId] = React.useState(customer.campus_id ?? "");
-  const [assigningCampus, setAssigningCampus] = React.useState(false);
+
   const [name, setName] = React.useState(customer.name);
+  const [type, setType] = React.useState(customer.type);
   const [industry, setIndustry] = React.useState(customer.industry ?? "");
   const [website, setWebsite] = React.useState(customer.website ?? "");
   const [city, setCity] = React.useState(customer.hq_city ?? "");
@@ -392,7 +453,8 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
   const [contactName, setContactName] = React.useState(customer.primary_contact_name ?? "");
   const [contactEmail, setContactEmail] = React.useState(customer.primary_contact_email ?? "");
   const [contactPhone, setContactPhone] = React.useState(customer.primary_contact_phone ?? "");
-  const [type, setType] = React.useState(customer.type);
+  const [campusId, setCampusId] = React.useState(customer.campus_id ?? "");
+  const [assigning, setAssigning] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
 
@@ -400,12 +462,15 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
     setSaving(true);
     try {
       await updateCustomer.mutateAsync({
-        name, industry: industry || undefined, website: website || undefined,
-        hq_city: city || undefined, hq_state: state || undefined,
+        name,
+        type,
+        industry: industry || undefined,
+        website: website || undefined,
+        hq_city: city || undefined,
+        hq_state: state || undefined,
         primary_contact_name: contactName || undefined,
         primary_contact_email: contactEmail || undefined,
         primary_contact_phone: contactPhone || undefined,
-        type,
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -416,102 +481,67 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
 
   async function handleAssignCampus(value: string) {
     setCampusId(value);
-    setAssigningCampus(true);
+    setAssigning(true);
     try {
-      // Empty string clears the link (null); otherwise link the selected campus.
+      // null clears the link; non-empty string links the campus
       await updateCustomer.mutateAsync({ campus_id: value || null });
     } finally {
-      setAssigningCampus(false);
+      setAssigning(false);
     }
   }
 
-  function FieldRow({ label, value, onChange, placeholder }: {
-    label: string;
-    value: string;
-    onChange: (v: string) => void;
-    placeholder?: string;
-  }) {
-    return (
-      <div className="mb-3">
-        <label className="text-caption-1 text-label-secondary">{label}</label>
-        <input
-          className="mt-1 w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary placeholder:text-label-quaternary focus:outline-none focus:border-accent/60"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={placeholder}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="pt-4">
-      {/* Account */}
-      <p className="text-footnote font-semibold text-label-tertiary uppercase tracking-wide mb-2">Account</p>
+    <div className="flex flex-col gap-3">
+      <SectionHeader title="Account" />
       <FieldRow label="Name" value={name} onChange={setName} />
-      <div className="mb-3">
-        <label className="text-caption-1 text-label-secondary">Type</label>
+      <label className="flex flex-col gap-1">
+        <span className="text-caption-1 text-label-secondary">Type</span>
         <select
-          className="mt-1 w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary focus:outline-none"
+          className={inputCls}
           value={type}
           onChange={(e) => setType(e.target.value)}
         >
           <option value="prospect">Prospect</option>
           <option value="customer">Customer</option>
         </select>
-      </div>
+      </label>
       <FieldRow label="Industry" value={industry} onChange={setIndustry} placeholder="e.g. AI/HPC" />
       <FieldRow label="Website" value={website} onChange={setWebsite} placeholder="https://" />
-      <div className="flex gap-2 mb-3">
-        <div className="flex-1">
-          <label className="text-caption-1 text-label-secondary">City</label>
-          <input
-            className="mt-1 w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary focus:outline-none"
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-          />
-        </div>
-        <div className="w-24">
-          <label className="text-caption-1 text-label-secondary">State</label>
-          <input
-            className="mt-1 w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary focus:outline-none"
-            value={state}
-            onChange={(e) => setState(e.target.value)}
-          />
-        </div>
+      <div className="grid grid-cols-[1fr_6rem] gap-2">
+        <FieldRow label="City" value={city} onChange={setCity} />
+        <FieldRow label="State" value={state} onChange={setState} />
       </div>
 
-      {/* Contact */}
-      <p className="text-footnote font-semibold text-label-tertiary uppercase tracking-wide mb-2 mt-4">Contact</p>
+      <SectionHeader title="Contact" />
       <FieldRow label="Name" value={contactName} onChange={setContactName} />
       <FieldRow label="Email" value={contactEmail} onChange={setContactEmail} placeholder="contact@example.com" />
       <FieldRow label="Phone" value={contactPhone} onChange={setContactPhone} placeholder="+1 (555) 000-0000" />
 
-      {/* Linked Campus & Deal */}
-      <p className="text-footnote font-semibold text-label-tertiary uppercase tracking-wide mb-2 mt-4">Linked</p>
-      <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-3 mb-3">
+      <SectionHeader title="Linked" />
+      <div className="rounded-2xl bg-bg-elevated shadow-card p-3">
         <div className="flex items-center justify-between mb-1">
           <p className="text-caption-1 text-label-secondary">Assign Campus</p>
-          {assigningCampus && <Loader2 className="h-3.5 w-3.5 animate-spin text-label-tertiary" />}
+          {assigning && <Loader2 className="h-3.5 w-3.5 animate-spin text-label-tertiary" />}
         </div>
         <select
-          className="w-full rounded-xl bg-chrome/80 border border-separator/40 px-3 py-2 text-body text-label-primary focus:outline-none"
+          className={inputCls}
           value={campusId}
-          disabled={assigningCampus}
+          disabled={assigning}
           onChange={(e) => handleAssignCampus(e.target.value)}
         >
           <option value="">No campus linked</option>
+          {/* prod envelope: CampusListResponse.items */}
           {(campuses?.items ?? []).map((c) => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
       </div>
-      <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-3 mb-4">
+      <div className="rounded-2xl bg-bg-elevated shadow-card p-3">
         <p className="text-caption-1 text-label-secondary mb-1">Most Recent Won Deal</p>
         {customer.won_deal ? (
           <>
             <p className="text-body text-label-primary">{customer.won_deal.name}</p>
-            <p className="text-caption-1 text-green-400 mt-0.5 capitalize">{customer.won_deal.stage}</p>
+            <p className="text-caption-1 text-success mt-0.5 capitalize">{customer.won_deal.stage}</p>
           </>
         ) : (
           <p className="text-body text-label-tertiary">No won deal</p>
@@ -519,14 +549,14 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
       </div>
 
       {/* Portal Access — Sprint 4B */}
-      <p className="text-footnote font-semibold text-label-tertiary uppercase tracking-wide mb-2 mt-4">Portal Access</p>
-      <div className="rounded-2xl bg-chrome/80 border border-separator/40 p-3 mb-4 space-y-2">
+      <SectionHeader title="Portal Access" />
+      <div className="rounded-2xl bg-bg-elevated shadow-card p-3 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <span
             className={`text-caption-1 font-semibold rounded-full px-2 py-0.5 ${
               customer.type === "customer"
-                ? "bg-green-500/20 text-green-400"
-                : "bg-yellow-500/20 text-yellow-400"
+                ? "bg-success/20 text-success"
+                : "bg-warning/20 text-warning"
             }`}
           >
             {customer.type === "customer" ? "Portal Access Enabled" : "Portal Access Not Active"}
@@ -545,7 +575,6 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
               onClick={() => {
                 navigator.clipboard
                   .writeText("https://quillpm.com/portal/login")
-                  .then(() => alert("Portal URL copied!"))
                   .catch(() => {});
               }}
               className="flex items-center gap-1.5 text-caption-1 font-semibold text-accent bg-accent/10 rounded-full px-3 py-1.5 active:scale-95"
@@ -561,17 +590,16 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
         )}
       </div>
 
-      {/* Save */}
       <button
         type="button"
         onClick={handleSave}
         disabled={saving}
-        className="w-full rounded-xl bg-accent text-white font-semibold py-3 active:scale-98 disabled:opacity-50 mb-6"
+        className="mt-2 w-full rounded-full bg-accent text-primary-foreground shadow-card hover:bg-accent-pressed hover:shadow-elevated active:scale-[0.98] transition-all font-semibold py-3 disabled:opacity-50"
       >
-        {saving ? "Saving…" : saved ? "Saved ✓" : "Save Changes"}
+        {saving ? "Saving…" : saved ? "Saved" : "Save Changes"}
       </button>
       {updateCustomer.isError && (
-        <p className="text-caption-1 text-red-400">{updateCustomer.error?.message}</p>
+        <p className="text-caption-1 text-danger">{updateCustomer.error?.message}</p>
       )}
     </div>
   );
@@ -582,7 +610,7 @@ function DetailsTab({ customer }: { customer: CustomerDetail }) {
 function CustomerDetailPageInner() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const [tab, setTab] = React.useState<TabKey>("tickets");
+  const [tab, setTab] = React.useState<TabValue>("tickets");
 
   const { data: customerRaw, isLoading, error } = useCustomer(id ?? "");
   const customer = customerRaw as CustomerDetail | undefined;
@@ -595,41 +623,51 @@ function CustomerDetailPageInner() {
     <MobileShell>
       <TopBar
         title={customer?.name ?? "Customer"}
-        left={
-          <button type="button" onClick={() => router.push("/customers")} aria-label="Back">
-            <ArrowLeft className="w-5 h-5 text-accent" />
+        right={
+          <button
+            type="button"
+            aria-label="Back to customers"
+            onClick={() => router.push("/customers")}
+            className="flex items-center gap-1 text-callout font-semibold text-accent"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
           </button>
         }
       />
 
-      <div className="px-4 pb-safe-bottom overflow-y-auto">
-        {error && <ErrorBanner message={error.message} />}
-
+      <div className="mx-auto w-full max-w-[708px] px-4 pt-3 pb-16 md:max-w-4xl md:px-8">
         {isLoading && (
-          <div className="mt-6 space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-16 rounded-2xl bg-chrome/60 animate-pulse" />
-            ))}
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-label-quaternary" />
           </div>
         )}
 
-        {!isLoading && customer && (
-          <>
-            {/* Header */}
-            <div className="mt-4 rounded-2xl bg-chrome/80 border border-separator/40 p-4 mb-4">
+        {error && (
+          <div className="rounded-xl border border-danger/30 bg-danger/10 p-3 text-callout text-danger">
+            Failed to load this customer.
+          </div>
+        )}
+
+        {customer && (
+          <div className="flex flex-col gap-4">
+            {/* Header card */}
+            <div className="rounded-2xl bg-bg-elevated shadow-card p-4">
               <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-title-3 font-bold text-label-primary">{customer.name}</p>
-                  <span className="inline-block mt-1 text-caption-2 font-semibold text-accent bg-accent/10 rounded-full px-2 py-0.5">
-                    Customer
+                <div className="min-w-0">
+                  <p className="text-title-3 font-bold text-label-primary truncate">
+                    {customer.name}
+                  </p>
+                  <span className="inline-block mt-1 text-caption-2 font-semibold text-accent bg-accent/10 rounded-full px-2 py-0.5 capitalize">
+                    {customer.type}
                   </span>
-                  {customer.won_deal?.campus_id && (
-                    <span className="ml-2 text-caption-2 text-label-secondary">
-                      Campus: {customer.won_deal.campus_id.slice(0, 8)}…
-                    </span>
+                  {customer.industry && (
+                    <p className="text-caption-1 text-label-secondary mt-1">
+                      {customer.industry}
+                    </p>
                   )}
                 </div>
-                <div className="text-right">
+                <div className="text-right shrink-0">
                   <p className={cn("text-title-1 font-bold", healthColor(score))}>
                     {score != null ? score : "—"}
                   </p>
@@ -638,23 +676,23 @@ function CustomerDetailPageInner() {
               </div>
             </div>
 
-            {/* Tab bar */}
-            <div className="flex bg-chrome/60 rounded-2xl p-1 mb-2 border border-separator/30">
+            {/* Tab bar — bg-fill-quaternary → bg-chrome/60 (no prod equiv) */}
+            <div className="flex gap-1 rounded-xl bg-chrome/60 p-1">
               {TABS.map((t) => {
                 const Icon = t.icon;
                 return (
                   <button
-                    key={t.key}
+                    key={t.value}
                     type="button"
-                    onClick={() => setTab(t.key)}
+                    onClick={() => setTab(t.value)}
                     className={cn(
-                      "flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-caption-1 font-semibold transition-all",
-                      tab === t.key
-                        ? "bg-accent/20 text-accent"
-                        : "text-label-secondary",
+                      "flex-1 flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-caption-1 font-semibold transition-colors",
+                      tab === t.value
+                        ? "bg-bg text-label-primary shadow"
+                        : "text-label-secondary active:opacity-70",
                     )}
                   >
-                    <Icon className="w-3.5 h-3.5" />
+                    <Icon className="h-3.5 w-3.5" />
                     {t.label}
                   </button>
                 );
@@ -662,10 +700,12 @@ function CustomerDetailPageInner() {
             </div>
 
             {/* Tab content */}
-            {tab === "tickets" && <TicketsTab accountId={id} />}
-            {tab === "notes" && <NotesTab accountId={id} />}
-            {tab === "details" && <DetailsTab customer={customer} />}
-          </>
+            <div className="pt-1">
+              {tab === "tickets" && <TicketsTab accountId={id} />}
+              {tab === "notes" && <NotesTab accountId={id} />}
+              {tab === "details" && <DetailsTab customer={customer} />}
+            </div>
+          </div>
         )}
       </div>
     </MobileShell>

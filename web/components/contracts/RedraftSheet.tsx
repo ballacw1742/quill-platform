@@ -90,7 +90,7 @@ export function RedraftSheet({ uploadId, open, onOpenChange }: RedraftSheetProps
             {overrides.map((override, i) => (
               <div
                 key={i}
-                className="flex items-start gap-2 rounded-xl border border-separator bg-bg-elevated px-3 py-2.5"
+                className="flex items-start gap-2 rounded-2xl border border-hairline bg-bg-elevated px-3 py-2.5"
               >
                 <div className="flex-1 space-y-1.5">
                   <input
@@ -148,7 +148,7 @@ export function RedraftSheet({ uploadId, open, onOpenChange }: RedraftSheetProps
         <button
           type="button"
           onClick={() => onOpenChange(false)}
-          className="rounded-xl border border-separator bg-bg-elevated px-4 py-3 min-h-[44px] text-callout font-medium text-label-primary active:bg-bg-tertiary no-tap-highlight"
+          className="rounded-xl border border-hairline bg-bg-elevated px-4 py-3 min-h-[44px] text-callout font-medium text-label-primary active:bg-bg-tertiary no-tap-highlight"
         >
           Cancel
         </button>

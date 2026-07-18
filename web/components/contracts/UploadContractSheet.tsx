@@ -181,10 +181,10 @@ export function UploadContractSheet({
             onKeyDown={(e) => e.key === "Enter" && fileInputRef.current?.click()}
             aria-label="Upload contract files"
             className={cn(
-              "rounded-xl border-2 border-dashed px-6 py-8 flex flex-col items-center gap-2 cursor-pointer transition-colors",
+              "rounded-2xl border-2 border-dashed px-6 py-8 flex flex-col items-center gap-2 cursor-pointer transition-colors no-tap-highlight",
               dragOver
                 ? "border-accent bg-accent/5"
-                : "border-separator hover:border-label-tertiary",
+                : "border-hairline hover:border-label-tertiary",
             )}
           >
             <FileUp className="h-8 w-8 text-label-tertiary" />
@@ -213,7 +213,7 @@ export function UploadContractSheet({
               {files.map((f) => (
                 <div
                   key={f.name}
-                  className="flex items-center gap-2 rounded-lg bg-bg-elevated px-3 py-2.5"
+                  className="flex items-center gap-2 rounded-2xl border border-hairline bg-bg-elevated px-3 py-2.5"
                 >
                   <span className="flex-1 text-caption text-label-primary truncate">
                     {f.name}
@@ -255,7 +255,7 @@ export function UploadContractSheet({
               onChange={(e) => setContractType(e.target.value)}
               className={cn(
                 "w-full rounded-xl bg-bg-elevated px-3 py-2.5 text-callout text-label-primary",
-                "border border-separator focus:outline-none focus:ring-1 focus:ring-accent",
+                "border border-hairline focus:outline-none focus:ring-1 focus:ring-accent",
                 "min-h-[44px]",
               )}
             >
