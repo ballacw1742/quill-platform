@@ -85,6 +85,14 @@ screen, do not change prod api.ts return shapes.
   add the Inter `<link>` (prod's `--font-sans` already lists Inter first, then
   falls back to the system stack — visually equivalent, no network font).
 
+## Known token equivalences (do NOT substitute — these exist in prod)
+- `shadow-card` EXISTS in prod (tailwind boxShadow.card). Use it; do not swap to `shadow-sm`.
+- `bg-chrome-solid` does NOT exist → use `bg-bg-elevated border border-hairline`.
+- `text-info/warning/success/danger`, `bg-accent-tint`, `ease-ios`, `duration-tap`,
+  `ios-list-group/ios-list-row/ios-list-row-last`, `pt-safe/pb-safe/pb-home`,
+  `text-large-title..caption-2`, `glass/glass-strong`, `border-hairline`,
+  `no-tap-highlight`, `bg-chrome` ALL exist in prod. Reuse verbatim.
+
 ## Strip-list (never port these into prod)
 - Lovable editor chrome: the `Chat / mic / ⋯ / Publish` bottom bar (Lovable IDE).
 - `src/lib/lovable-error-reporting.ts`, `src/lib/error-capture.ts`,
