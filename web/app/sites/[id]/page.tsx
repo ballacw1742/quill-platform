@@ -20,6 +20,7 @@
 
 import * as React from "react";
 import { useRouter, useParams } from "next/navigation";
+import { toast } from "sonner";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -268,7 +269,19 @@ export default function SiteDetailPage() {
             <button
               type="button"
               disabled={runEvaluation.isPending}
-              onClick={() => runEvaluation.mutate(siteId)}
+              onClick={() =>
+                runEvaluation.mutate(siteId, {
+                  onSuccess: () =>
+                    toast.success("Evaluation complete", {
+                      description: "The scorecard has been updated.",
+                    }),
+                  onError: (err) =>
+                    toast.error("Evaluation failed", {
+                      description:
+                        err instanceof Error ? err.message : "Please try again.",
+                    }),
+                })
+              }
               className={cn(
                 "text-body w-full rounded-2xl border border-accent py-3.5 font-semibold text-accent",
                 "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
