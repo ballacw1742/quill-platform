@@ -54,9 +54,11 @@ import {
   useLogout,
   useProjects,
   useProjectRequests,
+  useSites,
   useSession,
 } from "@/lib/api";
-import type { QuillProject, Session } from "@/lib/schemas";
+import type { QuillProject, Session, Site } from "@/lib/schemas";
+import { siteAddress, workloadLabel } from "@/components/sites/SiteCard";
 import { cn } from "@/lib/utils";
 
 function greetingFor(hour: number): string {
@@ -79,6 +81,7 @@ function HomeScreen() {
   const { data: projectsData } = useProjects();
   const { data: approvals } = useApprovals();
   const { data: requestsData } = useProjectRequests();
+  const { data: sitesData } = useSites();
 
   const projects = React.useMemo<QuillProject[]>(
     () => projectsData?.items ?? [],
@@ -89,6 +92,13 @@ function HomeScreen() {
     [projects],
   );
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
+
+  // Sites still moving through evaluation (not yet decided/advanced to a
+  // project). Surfaced below the projects so a new site is visible from home.
+  const sitesInProgress = React.useMemo(
+    () => (sitesData ?? []).filter((s) => (s.status ?? "intake") !== "decided"),
+    [sitesData],
+  );
 
   const pendingApprovals = React.useMemo(
     () => (approvals ?? []).filter((a) => a.status === "pending").length,
@@ -153,6 +163,11 @@ function HomeScreen() {
             Start a New Site
           </Link>
         </div>
+      )}
+
+      {/* ── Sites in progress (below projects) ── */}
+      {sitesInProgress.length > 0 && (
+        <SitesInProgress sites={sitesInProgress} />
       )}
 
       {/* ── Primary CTA: start a new site (the entry point for site intake) ── */}
@@ -227,6 +242,59 @@ function ActionTile({
         <span className="text-footnote font-semibold text-label-secondary">{label}</span>
       </span>
     </Link>
+  );
+}
+
+const SITE_STATUS_LABEL: Record<string, string> = {
+  intake: "Intake",
+  researching: "Researching",
+  scoring: "Scoring",
+  review: "Review",
+  decided: "Decided",
+};
+
+function SitesInProgress({ sites }: { sites: Site[] }) {
+  return (
+    <section aria-label="Sites in progress" className="mt-6">
+      <p className="text-caption-1 mb-1.5 ml-1 font-semibold uppercase tracking-wide text-label-tertiary">
+        Sites in progress
+      </p>
+      <div className="space-y-2">
+        {sites.map((s) => {
+          const status = s.status ?? "intake";
+          const score = s.scores?.total_weighted;
+          return (
+            <Link
+              key={s.site_id}
+              href={`/sites/${encodeURIComponent(s.site_id)}`}
+              className="no-tap-highlight ease-ios flex items-center gap-3 rounded-2xl bg-bg-elevated px-4 py-3.5 shadow-card active:scale-[0.99] duration-tap"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-tint text-accent">
+                <Building2 className="h-5 w-5" aria-hidden />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-headline font-semibold text-label-primary">
+                  {siteAddress(s)}
+                </span>
+                <span className="mt-0.5 block truncate text-footnote text-label-secondary">
+                  {workloadLabel(s.target_workload)}
+                  {s.target_mw ? ` · ${s.target_mw} MW` : ""}
+                </span>
+              </span>
+              <span className="flex shrink-0 flex-col items-end gap-1">
+                <span className="rounded-full bg-bg-tertiary px-2 py-0.5 text-caption-1 font-semibold text-label-secondary">
+                  {SITE_STATUS_LABEL[status] ?? status}
+                </span>
+                {typeof score === "number" && (
+                  <span className="text-caption-2 text-label-tertiary">{Math.round(score)}/100</span>
+                )}
+              </span>
+              <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-label-quaternary" />
+            </Link>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
