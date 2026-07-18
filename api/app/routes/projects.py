@@ -77,12 +77,27 @@ def _utcnow() -> datetime:
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Shared workspace: owner/partner users collaborate in one shared data space —
+# they all see the same projects/requests regardless of which member created
+# them. The user_id column is retained as an authorship/audit stamp. Observers
+# (and any future non-member roles) remain scoped to their own records.
+_WORKSPACE_ROLES = {"owner", "partner"}
+
+
+def _is_workspace_member(user) -> bool:
+    return getattr(user, "role", None) in _WORKSPACE_ROLES
+
+
 async def _get_owned_project(project_id: str, user, db: AsyncSession) -> Project:
-    """Fetch a project, enforce ownership, raise 404/403 as appropriate."""
+    """Fetch a project, enforce access, raise 404/403 as appropriate.
+
+    Workspace members (owner/partner) share all projects; other roles are
+    limited to projects they created.
+    """
     project = await db.get(Project, project_id)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "project not found")
-    if project.user_id != str(user.id):
+    if not _is_workspace_member(user) and project.user_id != str(user.id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "not your project")
     return project
 
@@ -387,7 +402,11 @@ async def list_projects(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ) -> ProjectListResponse:
-    base_where = [Project.user_id == str(user.id)]
+    # Workspace members see all projects (shared workspace); other roles see
+    # only their own.
+    base_where = []
+    if not _is_workspace_member(user):
+        base_where.append(Project.user_id == str(user.id))
     if status_filter:
         base_where.append(Project.status == status_filter)
 

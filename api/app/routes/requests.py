@@ -1292,16 +1292,20 @@ async def list_requests(
 ) -> RequestListResponse:
     from sqlalchemy import func
 
+    # Shared workspace: owner/partner members see all requests; other roles
+    # see only their own. (user_id is retained as an authorship stamp.)
+    where_clauses = []
+    if getattr(user, "role", None) not in ("owner", "partner"):
+        where_clauses.append(RequestRecord.user_id == str(user.id))
+
     count_result = await db.execute(
-        select(func.count()).select_from(RequestRecord).where(
-            RequestRecord.user_id == str(user.id)
-        )
+        select(func.count()).select_from(RequestRecord).where(*where_clauses)
     )
     total = count_result.scalar_one()
 
     result = await db.execute(
         select(RequestRecord)
-        .where(RequestRecord.user_id == str(user.id))
+        .where(*where_clauses)
         .order_by(RequestRecord.created_at.desc())
         .limit(limit)
         .offset(offset)
@@ -1339,7 +1343,10 @@ async def get_request(
     record = await db.get(RequestRecord, request_id)
     if record is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "request not found")
-    if record.user_id != str(user.id):
+    if (
+        getattr(user, "role", None) not in ("owner", "partner")
+        and record.user_id != str(user.id)
+    ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "not your request")
     # Phase G4: enrich with linked deliverable meta.
     return await _request_out(record, db)
