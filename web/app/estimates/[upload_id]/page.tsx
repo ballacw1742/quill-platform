@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell";
+import { ModuleAgentBar } from "@/components/journey/ModuleAgentBar";
 import { ErrorBanner } from "@/components/ui/error-banner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useEstimateStatus, useStartEstimation, useDocument } from "@/lib/api";
@@ -126,6 +127,7 @@ export default function EstimateProgressPage() {
         title={title}
         left={<BackButton href="/estimates" label="Estimates" />}
       />
+      <ModuleAgentBar moduleKey="estimates" />
 
       <div className="flex min-h-[calc(100dvh-200px)] flex-col bg-bg pb-24">
         {error ? (
@@ -243,7 +245,7 @@ function StatusBanner({
           meta.bg,
         )}
       >
-        <span className={cn("flex h-7 w-7 items-center justify-center rounded-md", meta.iconBg)}>
+        <span className={cn("flex h-8 w-8 items-center justify-center rounded-md", meta.iconBg)}>
           {inFlight ? (
             <Loader2 className={cn("h-4 w-4 animate-spin", meta.iconColor)} />
           ) : (

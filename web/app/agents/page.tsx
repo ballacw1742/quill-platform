@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Bot, ChevronRight, ToggleLeft, ToggleRight } from "lucide-react";
+import { Bot, ToggleLeft, ToggleRight } from "lucide-react";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorBanner } from "@/components/ui/error-banner";
@@ -56,9 +56,10 @@ function formatLastInvoked(iso: string | null | undefined): string {
 }
 
 const FRAMEWORK_BADGE: Record<string, { label: string; className: string }> = {
-  adk: { label: "ADK", className: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300" },
-  datasite: { label: "DataSite", className: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300" },
-  internal: { label: "Internal", className: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300" },
+  // Semantic tokens only — no Tailwind color-name classes (PALETTE RULE).
+  adk:      { label: "ADK",      className: "bg-info/15 text-info" },
+  datasite: { label: "DataSite", className: "bg-accent-tint text-accent" },
+  internal: { label: "Internal", className: "bg-fill-quaternary text-label-secondary" },
 };
 
 function AgentCard({
@@ -136,7 +137,7 @@ function AgentCard({
           {intents.map((intent) => (
             <span
               key={intent}
-              className="text-caption-1 px-2 py-0.5 rounded-full bg-fill-tertiary text-label-secondary"
+              className="text-caption-1 px-2 py-0.5 rounded-full bg-separator/30 text-label-secondary"
             >
               {intent.replace(/_/g, " ")}
             </span>

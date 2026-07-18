@@ -54,10 +54,9 @@ export function ResponseBubble({ request }: { request: ProjectRequest }) {
   const href = moduleHref(request.output_module, request.output_id);
 
   return (
-    <div className="flex justify-start mb-3 px-4">
+    <div className="mb-3 flex justify-start px-4">
       <div className="max-w-[80%] space-y-1.5">
-        {/* Agent label */}
-        <div className="flex items-center gap-1.5 text-caption-1 text-label-tertiary ml-1">
+        <div className="ml-1 flex items-center gap-1.5 text-caption-1 text-label-tertiary">
           <span aria-hidden>{intentIcon(request.intent)}</span>
           <span>{intentLabel(request.intent)}</span>
         </div>
@@ -72,7 +71,7 @@ export function ResponseBubble({ request }: { request: ProjectRequest }) {
           {href && (
             <Link
               href={href}
-              className="mt-2 inline-flex items-center gap-1 text-caption-1 text-accent hover:underline underline-offset-2"
+              className="mt-2 inline-flex items-center gap-1 text-caption-1 text-accent underline-offset-2 hover:underline"
             >
               View result
               <ArrowRight className="h-3 w-3" />
@@ -80,7 +79,7 @@ export function ResponseBubble({ request }: { request: ProjectRequest }) {
           )}
         </div>
 
-        <div className="text-caption-2 text-label-tertiary ml-1">
+        <div className="ml-1 text-caption-2 text-label-tertiary">
           {new Date(
             /[Zz]|[+-]\d{2}:\d{2}$/.test(request.updated_at)
               ? request.updated_at

@@ -80,6 +80,7 @@ const config: Config = {
         accent: {
           DEFAULT: "rgb(var(--accent) / <alpha-value>)",
           pressed: "rgb(var(--accent-pressed) / <alpha-value>)",
+          tint: "rgb(var(--accent-tint) / <alpha-value>)",
           foreground: "#FFFFFF",
         },
         // System statuses (DESIGN_SYSTEM §2)

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Send, Paperclip, Link as LinkIcon, X, Loader2 } from "lucide-react";
+import { Send, Paperclip, X, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,6 +17,25 @@ import { cn } from "@/lib/utils";
  *   - prefillValue prop: when set, pre-populates the text input (e.g. quick
  *     actions from the empty state or agent chip taps)
  */
+
+/** Google Drive triangle glyph (lucide has no Drive icon). */
+function GoogleDriveIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 87.3 78"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3L27.5 53H0c0 1.55.4 3.1 1.2 4.5z" fill="#0066da" />
+      <path d="M43.65 25 29.9 1.2c-1.35.8-2.5 1.9-3.3 3.3L1.2 48.4A9.06 9.06 0 0 0 0 52.9h27.5z" fill="#00ac47" />
+      <path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.5l5.85 11.5z" fill="#ea4335" />
+      <path d="M43.65 25 57.4 1.2C56.05.4 54.5 0 52.9 0H34.4c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d" />
+      <path d="M59.8 53H27.5L13.75 76.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc" />
+      <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3L43.65 25 59.8 53h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00" />
+    </svg>
+  );
+}
 
 export interface RequestInputValue {
   message: string;
@@ -148,7 +167,7 @@ export function RequestInput({
       {/* Drive URL input (toggleable) */}
       {driveOpen && (
         <div className="flex items-center gap-2 px-4 pt-2">
-          <LinkIcon className="h-4 w-4 text-label-tertiary shrink-0" aria-hidden />
+          <GoogleDriveIcon className="h-4 w-4 shrink-0" />
           <input
             type="url"
             value={driveUrl}
@@ -165,7 +184,7 @@ export function RequestInput({
           <button
             type="button"
             onClick={() => { setDriveUrl(""); setDriveOpen(false); }}
-            className="rounded-full p-1 text-label-secondary hover:bg-bg-elevated"
+            className="rounded-full p-1.5 text-label-secondary hover:bg-bg-elevated hover:text-label-primary active:scale-95 transition-colors"
             aria-label="Close Drive link input"
           >
             <X className="h-4 w-4" />
@@ -239,7 +258,7 @@ export function RequestInput({
           aria-label="Add Google Drive link"
           aria-pressed={driveOpen}
         >
-          <LinkIcon className="h-5 w-5" aria-hidden />
+          <GoogleDriveIcon className="h-5 w-5" />
         </button>
 
         {/* Text input */}
@@ -254,6 +273,7 @@ export function RequestInput({
           className={cn(
             "flex-1 resize-none rounded-2xl border border-separator bg-bg-elevated px-4 py-2.5",
             "text-body text-label-primary placeholder:text-label-tertiary",
+            "placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis",
             "focus:outline-none focus:ring-2 focus:ring-accent/50",
             "min-h-[44px] max-h-[120px] overflow-y-auto",
             "transition-opacity",
@@ -269,7 +289,7 @@ export function RequestInput({
           disabled={!canSend}
           className={cn(
             "flex h-[44px] w-[44px] shrink-0 items-center justify-center rounded-full",
-            "bg-accent text-white transition-all active:scale-95",
+            "bg-accent text-primary-foreground transition-all active:scale-95",
             "disabled:opacity-40 disabled:cursor-not-allowed",
           )}
           aria-label="Send request"

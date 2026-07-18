@@ -3,10 +3,8 @@
 import * as React from "react";
 import { Inbox, Search, SlidersHorizontal, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { MobileShell, TopBar } from "@/components/layout/MobileShell";
-import { SegmentedControl } from "@/components/ui/segmented-control";
+import { MobileShell } from "@/components/layout/MobileShell";
 import { HelpHint } from "@/components/ui/help-hint";
-import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { FilterSheet, DEFAULT_FILTERS, type QueueFilterValue } from "@/components/queue/FilterSheet";
 import { ApprovalDetailSheet } from "@/components/queue/ApprovalDetailSheet";
@@ -23,29 +21,28 @@ import {
   type QueueCategory,
 } from "@/lib/queue-categories";
 import { OnboardingOverlay } from "@/components/onboarding/OnboardingOverlay";
-import { ErrorBanner } from "@/components/ui/error-banner";
-import { SkelList } from "@/components/ui/skeletons";
+import { cn } from "@/lib/utils";
 
 /**
- * /queue — iOS-redesign main screen, per MOBILE_UX_SPEC §"Tab 1 — Queue".
+ * /queue — Lovable-reskinned approval queue, per MOBILE_UX_SPEC §"Tab 1 — Queue".
  *
  * Layout (top → bottom):
- *   1. TopBar:  "Queue" title + pending counter + search-toggle + filter button.
+ *   1. TopBar:  "Queue" title + search-toggle + filter button (sticky).
  *   2. (optional) expanded search bar.
- *   3. SegmentedControl: lane switch (Mandatory / Spot-check / Auto), with
- *      live counts in the segment chips. Default "Spot-check".
- *   4. Pull-to-refresh container (native iOS overscroll behaviour).
- *   5. List of ApprovalRow (rows use ListRow + SwipeRow primitives).
+ *   3. Custom lane tab grid: 3 cols, bg-bg-elevated, active tab bg-bg shadow-card,
+ *      with pending-count badges. Lane description below.
+ *   4. Pull-to-refresh container.
+ *   5. QueueCategoryGroup list.
  *   6. Empty state per lane.
  *
- * Detail view: tapping a row opens ApprovalDetailSheet (BottomSheet) over
- * the queue. No navigation — the queue stays mounted and refreshes after
- * the decision.
+ * Decision flow, websocket, and all prod data hooks PRESERVED:
+ *   - useApprovals() from @/lib/api — bare ApprovalItem[]
+ *   - useDecide() called inside ApprovalDetailSheet via prod's decision path
+ *   - useApprovalsSocket() subscribed inside MobileShell (unchanged)
+ *   - Lane semantics: tier-0-mandatory / tier-1-spotcheck / tier-2-auto (prod API integer → string mapping in api.ts)
  */
 
-// Tab order matches the way Charles thinks about the queue:
-//   Yours → Two-signer → Auto.
-// Per COPY_GUIDE the lane segmented control uses these single-word labels.
+// Tab order matches the way Charles thinks about the queue: Yours → Two-signer → Auto.
 const LANE_TABS: { value: Lane; label: string }[] = [
   { value: "tier-1-spotcheck", label: laneTabLabel("tier-1-spotcheck") }, // "Yours"
   { value: "tier-0-mandatory", label: laneTabLabel("tier-0-mandatory") }, // "Two-signer"
@@ -67,7 +64,6 @@ export default function QueuePage() {
   const [openId, setOpenId] = React.useState<string | null>(null);
 
   // Category expansion state — keyed by display label.
-  // Initialised on first render from localStorage + default-expansion logic.
   const [expandedCategories, setExpandedCategories] = React.useState<Set<string>>(
     () => new Set<string>(),
   );
@@ -125,16 +121,10 @@ export default function QueuePage() {
   );
 
   // Initialise expansion state from localStorage once we have categories.
-  // Re-run whenever the lane or categories change so newly-pending items
-  // force-expand even mid-session.
   React.useEffect(() => {
     const stored = loadExpandedCategories();
     const initial = computeInitialExpansion(activeCategories, stored);
     setExpandedCategories((prev) => {
-      // On first load: use computed initial.
-      // On subsequent changes (lane switch, filter): merge — keep any
-      // manually-expanded cats the user set this session, but force-expand
-      // anything with pending items.
       if (!expansionInitialized.current) {
         expansionInitialized.current = true;
         return initial;
@@ -143,7 +133,6 @@ export default function QueuePage() {
       for (const cat of activeCategories) {
         if (cat.hasPending) merged.add(cat.label);
       }
-      // Drop labels for categories that no longer exist in this lane view.
       const validLabels = new Set(activeCategories.map((c) => c.label));
       for (const label of merged) {
         if (!validLabels.has(label)) merged.delete(label);
@@ -162,7 +151,6 @@ export default function QueuePage() {
         } else {
           next.add(label);
         }
-        // Persist updated expansion state.
         saveExpandedCategories(Array.from(next));
         return next;
       });
@@ -170,14 +158,11 @@ export default function QueuePage() {
     [],
   );
 
-  // Pull-to-refresh: rely on browser overscroll + an explicit refresh handler.
+  // Pull-to-refresh: rely on browser overscroll + explicit refresh handler.
   const refresh = React.useCallback(
     () => qc.invalidateQueries({ queryKey: ["approvals"] }),
     [qc],
   );
-  // Pull-to-refresh handled at the browser level on iOS Safari for a real PWA
-  // installed instance. For browser-tab usage, we provide a manual refresh by
-  // triggering invalidate on viewport-top overscroll start.
   const onTouchStart = React.useRef<{ y: number; scrolledTop: boolean } | null>(null);
   const handleTouchStart = (e: React.TouchEvent) => {
     const target = e.currentTarget as HTMLDivElement;
@@ -193,37 +178,36 @@ export default function QueuePage() {
     onTouchStart.current = null;
   };
 
+  const activeLaneMeta = LANE_META[lane];
+
   return (
     <MobileShell>
       <OnboardingOverlay />
-      <TopBar
-        title="Queue"
-        right={
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              aria-label={searchOpen ? "Close search" : "Search"}
-              onClick={() => {
-                setSearchOpen((v) => {
-                  if (v) setSearch("");
-                  return !v;
-                });
-              }}
-              className="flex h-11 w-11 items-center justify-center text-accent active:opacity-60 no-tap-highlight"
-            >
-              {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
-            </button>
-            <button
-              type="button"
-              aria-label="Filter"
-              onClick={() => setFilterOpen(true)}
-              className="flex h-11 w-11 items-center justify-center text-accent active:opacity-60 no-tap-highlight"
-            >
-              <SlidersHorizontal className="h-5 w-5" />
-            </button>
-          </div>
-        }
-      />
+
+      {/* Sticky toolbar: search + filter buttons */}
+      <div className="sticky top-0 z-20 flex items-center justify-end gap-1 border-b border-hairline bg-chrome px-3 py-1">
+        <button
+          type="button"
+          aria-label={searchOpen ? "Close search" : "Search"}
+          onClick={() => {
+            setSearchOpen((v) => {
+              if (v) setSearch("");
+              return !v;
+            });
+          }}
+          className="no-tap-highlight flex h-10 w-10 items-center justify-center text-accent active:opacity-60"
+        >
+          {searchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
+        </button>
+        <button
+          type="button"
+          aria-label="Filter"
+          onClick={() => setFilterOpen(true)}
+          className="no-tap-highlight flex h-10 w-10 items-center justify-center text-accent active:opacity-60"
+        >
+          <SlidersHorizontal className="h-5 w-5" />
+        </button>
+      </div>
 
       <div
         className="flex flex-col"
@@ -231,19 +215,20 @@ export default function QueuePage() {
         onTouchEnd={handleTouchEnd}
       >
         {searchOpen && (
-          <div className="px-4 pt-2 pb-2 bg-bg">
+          <div className="bg-bg px-4 pt-2 pb-2">
             <Input
               autoFocus
-              placeholder="Search…"
+              placeholder="Search approvals…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-11 rounded-md bg-bg-elevated border-transparent text-body"
+              className="text-body h-11 rounded-md border-transparent bg-bg-elevated"
             />
           </div>
         )}
 
-        <div className="px-4 pt-2 pb-3 bg-bg">
-          <div className="flex items-baseline justify-between mb-2">
+        {/* Lane selector + pending summary */}
+        <div className="bg-bg px-4 pt-2 pb-3">
+          <div className="mb-2 flex items-baseline justify-between">
             <span className="text-footnote text-label-secondary inline-flex items-center gap-1">
               {totalPending} pending
               <HelpHint term="lane" ariaLabel="What do these tabs mean?" />
@@ -252,31 +237,81 @@ export default function QueuePage() {
               {activeRows.length} in lane
             </span>
           </div>
-          <SegmentedControl
-            value={lane}
-            onChange={setLane}
-            options={LANE_TABS.map((t) => ({
-              value: t.value,
-              label: t.label,
-              badge: lanes[t.value].length,
-            }))}
-            ariaLabel="Switch lane"
-          />
+
+          {/* Lovable-style tab grid: 3 cols, bg-bg-elevated container, active = bg-bg shadow-card */}
+          <div
+            role="tablist"
+            aria-label="Switch lane"
+            className="grid grid-cols-3 gap-1 rounded-lg bg-bg-elevated p-1"
+          >
+            {LANE_TABS.map((t) => {
+              const count = lanes[t.value].length;
+              const active = lane === t.value;
+              return (
+                <button
+                  key={t.value}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setLane(t.value)}
+                  className={cn(
+                    "text-footnote flex h-8 items-center justify-center gap-1.5 rounded-md font-medium transition-colors duration-state no-tap-highlight",
+                    active
+                      ? "bg-bg text-label-primary shadow-card"
+                      : "text-label-secondary active:opacity-70",
+                  )}
+                >
+                  {t.label}
+                  {count > 0 && (
+                    <span
+                      className={cn(
+                        "text-caption-2 flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 font-semibold",
+                        active
+                          ? "bg-accent text-accent-foreground"
+                          : "bg-separator/40 text-label-secondary",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Lane description — per Lovable design */}
+          {activeLaneMeta?.description && (
+            <p className="text-footnote mt-2 text-label-tertiary">
+              {activeLaneMeta.description}
+            </p>
+          )}
         </div>
 
         <div className="flex-1 bg-bg-elevated">
-          {error && (
-            <ErrorBanner
-              message="Couldn't load your queue. Try again."
-              onRetry={() => refetch()}
-            />
-          )}
-          {isLoading ? (
-            <SkelList ariaLabel="Loading queue" count={6} />
+          {error ? (
+            <div className="mx-4 mt-4 rounded-xl bg-danger/10 px-4 py-3">
+              <p className="text-footnote text-danger">
+                Couldn't load your queue. Try again.
+              </p>
+              <button
+                onClick={() => refetch()}
+                className="text-footnote mt-1 font-semibold text-danger underline"
+              >
+                Retry
+              </button>
+            </div>
+          ) : isLoading ? (
+            <div className="space-y-2 p-4">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="h-16 animate-shimmer rounded-xl bg-bg-tertiary"
+                />
+              ))}
+            </div>
           ) : activeRows.length === 0 ? (
             <EmptyLaneState lane={lane} />
           ) : (
-            <div className="divide-y divide-separator/20">
+            <div className="divide-y divide-hairline">
               {activeCategories.map((category) => (
                 <QueueCategoryGroup
                   key={category.label}
@@ -285,9 +320,8 @@ export default function QueuePage() {
                   onToggle={() => toggleCategory(category.label)}
                   onOpen={(id) => setOpenId(id)}
                   onApprove={(id) => {
-                    // Swipe-approve still requires biometric; route through the
-                    // detail sheet's approve flow rather than minting an
-                    // unauthenticated mutation here.
+                    // Swipe-approve routes through the detail sheet's approve
+                    // flow rather than minting an unauthenticated mutation here.
                     setOpenId(id);
                   }}
                   onReject={(id) => setOpenId(id)}
@@ -316,24 +350,26 @@ export default function QueuePage() {
 }
 
 function EmptyLaneState({ lane }: { lane: Lane }) {
-  // Per COPY_GUIDE §"Empty states / Queue tab".
   const copy: Record<Lane, { title: string; subtitle: string }> = {
     "tier-0-mandatory": {
       title: "No two-signer items.",
-      subtitle:
-        "These are big-impact items that need both you and a partner.",
+      subtitle: "These are big-impact items that need both you and a partner.",
     },
     "tier-1-spotcheck": {
       title: "Nothing to sign off.",
-      subtitle:
-        "When the helpers find something needing your eyes, it'll show up here.",
+      subtitle: "When the helpers find something needing your eyes, it'll show up here.",
     },
     "tier-2-auto": {
       title: "Nothing handled automatically yet.",
-      subtitle:
-        "Auto-handled items will show up here so you can spot-check anytime.",
+      subtitle: "Auto-handled items will show up here so you can spot-check any time.",
     },
   };
   const c = copy[lane];
-  return <EmptyState icon={<Inbox />} title={c.title} subtitle={c.subtitle} />;
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 px-8 py-16 text-center">
+      <Inbox className="h-10 w-10 text-label-quaternary" aria-hidden="true" />
+      <p className="text-headline text-label-primary">{c.title}</p>
+      <p className="text-footnote max-w-xs text-label-secondary">{c.subtitle}</p>
+    </div>
+  );
 }

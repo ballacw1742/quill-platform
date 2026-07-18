@@ -2,7 +2,8 @@
 
 /**
  * QueueCategoryGroup.tsx — collapsible section for one workflow category
- * in the Queue page.
+ * in the Queue page. Lovable-reskinned visual layer; all prod behaviour
+ * (onApprove, onReject swipe gates, ApprovalRow) preserved.
  *
  * Renders:
  *   • A header button (≥ 44px touch target) with:
@@ -49,7 +50,7 @@ export function QueueCategoryGroup({
       <CollapsibleTrigger
         open={open}
         onToggle={onToggle}
-        className="px-4 py-0 bg-bg-elevated border-b border-separator/40 w-full"
+        className="border-b border-hairline bg-bg-elevated px-4 py-0 w-full"
         aria-label={`${category.label}, ${category.items.length} items${
           category.pendingCount > 0 ? `, ${category.pendingCount} pending` : ""
         }, ${open ? "expanded" : "collapsed"}`}
@@ -73,7 +74,7 @@ export function QueueCategoryGroup({
           {category.pendingCount > 0 && (
             <Badge
               variant="default"
-              className="text-caption-2 h-5 px-1.5 min-w-[20px] bg-accent text-white shrink-0"
+              className="text-caption-2 h-5 px-1.5 min-w-[20px] bg-accent text-white shrink-0 hover:bg-accent"
             >
               {category.pendingCount}
             </Badge>
@@ -87,10 +88,7 @@ export function QueueCategoryGroup({
       </CollapsibleTrigger>
 
       <CollapsibleContent open={open}>
-        <ul
-          className="divide-y divide-separator/40 bg-bg-tertiary"
-          role="list"
-        >
+        <ul className="divide-y divide-separator/30" role="list">
           {category.items.map((item) => (
             <li key={item.approval_id}>
               <ApprovalRow

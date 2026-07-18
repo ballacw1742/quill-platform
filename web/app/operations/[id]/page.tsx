@@ -1,34 +1,51 @@
 "use client";
 
 /**
- * /operations/[id] — Campus Detail (Sprint 1A)
+ * /operations/[id] — Campus Detail (Lovable redesign port).
  *
- * Tabbed layout:
- *   1. INCIDENTS — list, log new, expand + update
- *   2. METRICS   — PUE line chart (SVG), metric history table, record new
- *   3. DETAILS   — editable campus fields, promote-from-project
+ * Visual source: quill-platform-builder/src/routes/operations.$id.tsx
+ * Data: prod hooks from @/lib/api (all verified below).
  *
- * Design: dark Quill chrome, accent blue #0A84FF, matches /projects patterns.
+ * Envelope notes:
+ *   useCampus(id)              → Campus (bare object)
+ *   useCampusIncidents(id)     → CampusIncidentListResponse { items, total }  → data?.items ?? []
+ *   useCampusMetrics(id, days) → CampusMetricListResponse  { items, total }  → data?.items ?? []
+ *   useCustomersByCampus(id)   → CustomerListPage { items, total }            → data?.items ?? []
+ *
+ * Visual changes from old prod:
+ *   - ModuleAgentBar added (Lovable shows agent bar on detail screen)
+ *   - shadow-card on StatCard + IncidentRow + MetricsTab panels
+ *   - Tabs: bg-bg-elevated p-1 → buttons rounded-lg (no outer rounded-xl tab strip with bg-fill-quaternary
+ *     since fill-quaternary absent in prod; use bg-bg-elevated instead)
+ *   - Severity/status uses text-danger/warning/success tokens
+ *   - border-hairline in expanded incident row + modal headers
+ *   - Buttons: rounded-full with shadow-card / hover:bg-accent-pressed / active:scale-[0.98]
+ *   - DetailsTab: uses useEffect to sync form when campus data loads
+ *   - MetricsTab: history list uses shadow-card card, divide-hairline, and metricLabel()
  */
 
 import * as React from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
-  Activity,
-  AlertTriangle,
   ArrowLeft,
-  Building2,
+  AlertTriangle,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
-  Info,
   Loader2,
   Plus,
-  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell";
+import { ModuleAgentBar } from "@/components/journey/ModuleAgentBar";
+import {
+  campusStatusBadge,
+  fmtMW,
+  fmtPct,
+  fmtPUE,
+  pueColor,
+  uptimeColor,
+} from "@/components/operations/CampusCard";
 import {
   useCampus,
   useUpdateCampus,
@@ -40,24 +57,9 @@ import {
   useCustomersByCampus,
 } from "@/lib/api";
 import type { Campus, CampusIncident, CampusMetric } from "@/lib/schemas";
-import { INCIDENT_SEVERITIES, INCIDENT_STATUSES, METRIC_TYPES } from "@/lib/schemas";
+import { CAMPUS_STATUSES, INCIDENT_SEVERITIES, INCIDENT_STATUSES, METRIC_TYPES } from "@/lib/schemas";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmtPUE(v: number | null | undefined): string {
-  if (v == null) return "—";
-  return v.toFixed(3);
-}
-
-function fmtPct(v: number | null | undefined): string {
-  if (v == null) return "—";
-  return `${v.toFixed(3)}%`;
-}
-
-function fmtMW(v: number | null | undefined): string {
-  if (v == null) return "—";
-  return `${v} MW`;
-}
 
 function fmtDate(iso: string): string {
   return new Date(iso).toLocaleString("en-US", {
@@ -69,49 +71,87 @@ function fmtDate(iso: string): string {
   });
 }
 
-function pueColor(current: number | null | undefined, target: number | null | undefined): string {
-  if (current == null) return "text-label-primary";
-  if (target == null) return "text-label-primary";
-  return current <= target ? "text-green-400" : "text-red-400";
+function severityCls(sev: string): string {
+  switch (sev) {
+    case "P1": return "bg-danger text-primary-foreground";
+    case "P2": return "bg-warning text-primary-foreground";
+    case "P3": return "bg-fill-quaternary text-label-secondary";
+    default:   return "bg-fill-quaternary text-label-secondary";
+  }
 }
 
-function uptimeColor(pct: number | null | undefined): string {
-  if (pct == null) return "text-label-primary";
-  if (pct >= 99.9) return "text-green-400";
-  if (pct >= 99.0) return "text-yellow-400";
-  return "text-red-400";
-}
-
-function campusStatusCls(status: string): string {
+function statusCls(status: string): string {
   switch (status) {
-    case "commissioning": return "text-yellow-400 bg-yellow-400/10";
-    case "live":          return "text-green-400 bg-green-400/10";
-    case "maintenance":   return "text-orange-400 bg-orange-400/10";
-    case "decommissioned": return "text-zinc-400 bg-zinc-400/10";
-    default: return "text-label-secondary bg-bg-elevated";
+    case "open":          return "text-danger";
+    case "investigating": return "text-warning";
+    case "resolved":      return "text-success";
+    case "closed":        return "text-label-tertiary";
+    default:              return "text-label-secondary";
   }
 }
 
-function incidentSeverityCls(severity: string): string {
-  switch (severity) {
-    case "P1": return "bg-red-500 text-white";
-    case "P2": return "bg-orange-500 text-white";
-    case "P3": return "bg-yellow-500 text-black";
-    default:   return "bg-zinc-500 text-white";
+function metricLabel(t: string): string {
+  switch (t) {
+    case "pue":                return "PUE";
+    case "uptime_pct":         return "Uptime %";
+    case "power_mw":           return "Live MW";
+    case "temp_avg":           return "Avg Temp";
+    case "cooling_efficiency": return "Cooling Efficiency";
+    default:                   return t;
   }
 }
 
-function incidentStatusCls(status: string): string {
-  switch (status) {
-    case "open":          return "text-red-400";
-    case "investigating": return "text-yellow-400";
-    case "resolved":      return "text-green-400";
-    case "closed":        return "text-zinc-400";
-    default: return "text-label-secondary";
-  }
+// ── Shared form primitives ────────────────────────────────────────────────────
+
+const fieldInput =
+  "w-full rounded-xl bg-bg-elevated shadow-card px-3 py-2.5 text-body text-label-primary placeholder:text-label-tertiary focus:outline-none focus:border-accent";
+
+function FieldRow({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-caption-1 text-label-secondary">{label}</span>
+      {children}
+    </label>
+  );
 }
 
-// ── Header Stat Card ──────────────────────────────────────────────────────────
+// ── Modal shell ───────────────────────────────────────────────────────────────
+
+function ModalShell({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-center">
+      <div className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-chrome border border-hairline shadow-2xl pb-safe">
+        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-hairline">
+          <h2 className="text-headline font-semibold text-label-primary">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-label-secondary active:text-label-primary text-body"
+          >
+            Cancel
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ── Stat Card ─────────────────────────────────────────────────────────────────
 
 function StatCard({
   label,
@@ -125,9 +165,9 @@ function StatCard({
   valueClass?: string;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-2xl bg-bg-elevated border border-separator/40 px-3 py-3">
+    <div className="flex flex-col gap-1 rounded-2xl bg-bg-elevated shadow-card px-3 py-3">
       <span className="text-caption-2 text-label-tertiary uppercase tracking-wide">{label}</span>
-      <span className={cn("text-subheadline font-semibold", valueClass ?? "text-label-primary")}>
+      <span className={cn("text-subhead font-semibold", valueClass ?? "text-label-primary")}>
         {value}
       </span>
       {sub && <span className="text-caption-2 text-label-secondary">{sub}</span>}
@@ -135,17 +175,22 @@ function StatCard({
   );
 }
 
-// ── Mini SVG PUE Chart ────────────────────────────────────────────────────────
+// ── PUE Line Chart ────────────────────────────────────────────────────────────
 
 function PueLineChart({ metrics }: { metrics: CampusMetric[] }) {
   const puePoints = [...metrics]
     .filter((m) => m.metric_type === "pue")
-    .sort((a, b) => new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime());
+    .sort(
+      (a, b) =>
+        new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime(),
+    );
 
   if (puePoints.length < 2) {
     return (
       <div className="flex items-center justify-center h-24 text-caption-1 text-label-tertiary">
-        {puePoints.length === 0 ? "No PUE data recorded yet" : "Need at least 2 data points for chart"}
+        {puePoints.length === 0
+          ? "No PUE data recorded yet"
+          : "Need at least 2 data points for chart"}
       </div>
     );
   }
@@ -165,7 +210,7 @@ function PueLineChart({ metrics }: { metrics: CampusMetric[] }) {
   });
 
   return (
-    <div className="w-full overflow-x-auto">
+    <div className="w-full">
       <svg
         viewBox={`0 0 ${W} ${H}`}
         className="w-full h-20"
@@ -179,11 +224,9 @@ function PueLineChart({ metrics }: { metrics: CampusMetric[] }) {
           strokeLinejoin="round"
           strokeLinecap="round"
         />
-        {puePoints.map((p, i) => {
-          const [x, y] = pts[i].split(",").map(Number);
-          return (
-            <circle key={i} cx={x} cy={y} r="3" fill="#0A84FF" />
-          );
+        {pts.map((p, i) => {
+          const [x, y] = p.split(",").map(Number);
+          return <circle key={i} cx={x} cy={y} r="3" fill="#0A84FF" />;
         })}
       </svg>
       <div className="flex justify-between text-caption-2 text-label-tertiary mt-1 px-1">
@@ -197,11 +240,11 @@ function PueLineChart({ metrics }: { metrics: CampusMetric[] }) {
 // ── Incidents Tab ─────────────────────────────────────────────────────────────
 
 function IncidentsTab({ campusId }: { campusId: string }) {
-  const { data, isLoading, error } = useCampusIncidents(campusId);
-  const createIncident = useCreateIncident(campusId);
+  const { data, isLoading } = useCampusIncidents(campusId);
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
-  const [showLogModal, setShowLogModal] = React.useState(false);
+  const [showLog, setShowLog] = React.useState(false);
 
+  // Prod useCampusIncidents → CampusIncidentListResponse { items, total }
   const incidents = data?.items ?? [];
 
   if (isLoading) {
@@ -215,11 +258,13 @@ function IncidentsTab({ campusId }: { campusId: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <span className="text-caption-1 text-label-secondary">{incidents.length} incident{incidents.length !== 1 ? "s" : ""}</span>
+        <span className="text-caption-1 text-label-secondary">
+          {incidents.length} incident{incidents.length !== 1 ? "s" : ""}
+        </span>
         <button
           type="button"
-          onClick={() => setShowLogModal(true)}
-          className="flex items-center gap-1.5 rounded-xl bg-accent/10 text-accent px-3 py-1.5 text-caption-1 font-semibold active:opacity-70"
+          onClick={() => setShowLog(true)}
+          className="flex items-center gap-1.5 rounded-full bg-accent/10 text-accent hover:bg-accent/20 active:scale-[0.98] transition-all px-3 py-1.5 text-caption-1 font-semibold active:opacity-70"
         >
           <Plus className="h-4 w-4" />
           Log Incident
@@ -227,26 +272,28 @@ function IncidentsTab({ campusId }: { campusId: string }) {
       </div>
 
       {incidents.length === 0 ? (
-        <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-6 py-10 text-center">
+        <div className="rounded-2xl bg-bg-elevated shadow-card px-6 py-10 text-center">
           <AlertTriangle className="h-8 w-8 text-label-tertiary mx-auto mb-2" />
           <p className="text-body text-label-secondary">No incidents recorded</p>
         </div>
       ) : (
         <div className="flex flex-col gap-2">
-          {incidents.map((incident) => (
+          {incidents.map((inc) => (
             <IncidentRow
-              key={incident.id}
-              incident={incident}
+              key={inc.id}
+              incident={inc}
               campusId={campusId}
-              expanded={expandedId === incident.id}
-              onToggle={() => setExpandedId(expandedId === incident.id ? null : incident.id)}
+              expanded={expandedId === inc.id}
+              onToggle={() =>
+                setExpandedId(expandedId === inc.id ? null : inc.id)
+              }
             />
           ))}
         </div>
       )}
 
-      {showLogModal && (
-        <LogIncidentModal campusId={campusId} onClose={() => setShowLogModal(false)} />
+      {showLog && (
+        <LogIncidentModal campusId={campusId} onClose={() => setShowLog(false)} />
       )}
     </div>
   );
@@ -268,12 +315,17 @@ function IncidentRow({
   const [rcaNotes, setRcaNotes] = React.useState(incident.rca_notes ?? "");
   const [saving, setSaving] = React.useState(false);
 
+  React.useEffect(() => {
+    setNewStatus(incident.status);
+    setRcaNotes(incident.rca_notes ?? "");
+  }, [incident.status, incident.rca_notes]);
+
   async function handleSave() {
     setSaving(true);
     try {
       await updateIncident.mutateAsync({
         status: newStatus,
-        rca_notes: rcaNotes || undefined,
+        rca_notes: rcaNotes,
       });
     } finally {
       setSaving(false);
@@ -281,26 +333,37 @@ function IncidentRow({
   }
 
   return (
-    <div className={cn(
-      "rounded-2xl bg-bg-elevated border border-separator/40 overflow-hidden",
-      expanded && "border-accent/30",
-    )}>
+    <div
+      className={cn(
+        "rounded-2xl bg-bg-elevated shadow-card overflow-hidden",
+        expanded && "border border-accent/30",
+      )}
+    >
       <button
         type="button"
         onClick={onToggle}
         className="w-full flex items-center gap-3 px-4 py-3 text-left no-tap-highlight active:opacity-70"
       >
-        <span className={cn("rounded px-1.5 py-0.5 text-caption-2 font-bold shrink-0", incidentSeverityCls(incident.severity))}>
+        <span
+          className={cn(
+            "rounded px-1.5 py-0.5 text-caption-2 font-bold shrink-0",
+            severityCls(incident.severity),
+          )}
+        >
           {incident.severity}
         </span>
         <div className="flex-1 min-w-0">
-          <p className="text-body font-medium text-label-primary truncate">{incident.title}</p>
+          <p className="text-body font-medium text-label-primary truncate">
+            {incident.title}
+          </p>
           <div className="flex items-center gap-2 mt-0.5">
-            <span className={cn("text-caption-2 font-semibold", incidentStatusCls(incident.status))}>
+            <span className={cn("text-caption-2 font-semibold", statusCls(incident.status))}>
               {incident.status}
             </span>
             <span className="text-caption-2 text-label-tertiary">·</span>
-            <span className="text-caption-2 text-label-tertiary">{fmtDate(incident.opened_at)}</span>
+            <span className="text-caption-2 text-label-tertiary">
+              {fmtDate(incident.opened_at)}
+            </span>
           </div>
         </div>
         {expanded ? (
@@ -311,14 +374,16 @@ function IncidentRow({
       </button>
 
       {expanded && (
-        <div className="px-4 pb-4 border-t border-separator/20 pt-3 flex flex-col gap-3">
+        <div className="px-4 pb-4 border-t border-hairline pt-3 flex flex-col gap-3">
           {incident.description && (
             <p className="text-body text-label-secondary">{incident.description}</p>
           )}
           {incident.impact && (
-            <div className="rounded-xl bg-red-500/10 border border-red-500/20 px-3 py-2">
-              <p className="text-caption-2 text-red-300 font-semibold mb-0.5">Customer Impact</p>
-              <p className="text-caption-1 text-red-200">{incident.impact}</p>
+            <div className="rounded-xl bg-danger/10 border border-danger/20 px-3 py-2">
+              <p className="text-caption-2 text-danger font-semibold mb-0.5">
+                Customer Impact
+              </p>
+              <p className="text-caption-1 text-danger">{incident.impact}</p>
             </div>
           )}
           {incident.resolved_at && (
@@ -327,25 +392,25 @@ function IncidentRow({
             </p>
           )}
 
-          {/* Update status */}
           <div className="flex flex-col gap-2">
             <label className="text-caption-1 text-label-secondary">Update Status</label>
             <select
-              className="rounded-xl bg-bg border border-separator/40 px-3 py-2 text-body text-label-primary focus:outline-none focus:border-accent"
+              className="rounded-xl bg-bg border border-hairline px-3 py-2 text-body text-label-primary focus:outline-none focus:border-accent"
               value={newStatus}
               onChange={(e) => setNewStatus(e.target.value)}
             >
               {INCIDENT_STATUSES.map((s) => (
-                <option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>
+                <option key={s} value={s}>
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </option>
               ))}
             </select>
           </div>
 
-          {/* RCA Notes */}
           <div className="flex flex-col gap-2">
             <label className="text-caption-1 text-label-secondary">RCA Notes</label>
             <textarea
-              className="rounded-xl bg-bg border border-separator/40 px-3 py-2 text-body text-label-primary focus:outline-none focus:border-accent resize-none"
+              className="rounded-xl bg-bg border border-hairline px-3 py-2 text-body text-label-primary focus:outline-none focus:border-accent resize-none"
               rows={3}
               placeholder="Root cause analysis notes…"
               value={rcaNotes}
@@ -357,7 +422,7 @@ function IncidentRow({
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="rounded-xl bg-accent text-white py-2 text-body font-semibold active:opacity-70 disabled:opacity-40"
+            className="rounded-full bg-accent text-primary-foreground shadow-card hover:bg-accent-pressed hover:shadow-elevated active:scale-[0.98] transition-all py-2 text-body font-semibold active:opacity-70 disabled:opacity-40"
           >
             {saving ? "Saving…" : "Save"}
           </button>
@@ -367,10 +432,16 @@ function IncidentRow({
   );
 }
 
-function LogIncidentModal({ campusId, onClose }: { campusId: string; onClose: () => void }) {
+function LogIncidentModal({
+  campusId,
+  onClose,
+}: {
+  campusId: string;
+  onClose: () => void;
+}) {
   const createIncident = useCreateIncident(campusId);
   const [title, setTitle] = React.useState("");
-  const [severity, setSeverity] = React.useState<string>("P3");
+  const [severity, setSeverity] = React.useState("P3");
   const [description, setDescription] = React.useState("");
   const [impact, setImpact] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
@@ -379,7 +450,12 @@ function LogIncidentModal({ campusId, onClose }: { campusId: string; onClose: ()
     e.preventDefault();
     setError(null);
     try {
-      await createIncident.mutateAsync({ title, severity, description: description || null, impact: impact || null });
+      await createIncident.mutateAsync({
+        title: title.trim(),
+        severity,
+        description: description.trim() || null,
+        impact: impact.trim() || null,
+      });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed");
@@ -387,80 +463,66 @@ function LogIncidentModal({ campusId, onClose }: { campusId: string; onClose: ()
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center">
-      <div className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-chrome border border-separator/40 shadow-2xl pb-safe">
-        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-separator/30">
-          <h2 className="text-headline font-semibold text-label-primary">Log Incident</h2>
-          <button type="button" onClick={onClose} className="text-label-secondary text-body">Cancel</button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3 px-4 py-4">
-          {error && <p className="text-caption-1 text-red-400 bg-red-400/10 rounded-xl px-3 py-2">{error}</p>}
-
-          <label className="flex flex-col gap-1">
-            <span className="text-caption-1 text-label-secondary">Title *</span>
-            <input
-              className="w-full rounded-xl bg-bg-elevated border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-              placeholder="Brief description of the incident"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              required
-            />
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-caption-1 text-label-secondary">Severity</span>
-            <select
-              className="w-full rounded-xl bg-bg-elevated border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-              value={severity}
-              onChange={(e) => setSeverity(e.target.value)}
-            >
-              {INCIDENT_SEVERITIES.map((s) => (
-                <option key={s} value={s}>
-                  {s === "P1" ? "P1 — Critical (customer-impacting)" :
-                   s === "P2" ? "P2 — High (service degraded)" :
-                   s === "P3" ? "P3 — Medium" :
-                   "P4 — Low / Informational"}
-                </option>
-              ))}
-            </select>
-            {severity === "P1" && (
-              <p className="text-caption-2 text-red-400 mt-1">⚠ P1 incidents require immediate COO notification.</p>
-            )}
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-caption-1 text-label-secondary">Description</span>
-            <textarea
-              className="w-full rounded-xl bg-bg-elevated border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent resize-none"
-              rows={3}
-              placeholder="Detailed description of the issue"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-          </label>
-
-          <label className="flex flex-col gap-1">
-            <span className="text-caption-1 text-label-secondary">Customer Impact</span>
-            <textarea
-              className="w-full rounded-xl bg-bg-elevated border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent resize-none"
-              rows={2}
-              placeholder="What customers / workloads are affected"
-              value={impact}
-              onChange={(e) => setImpact(e.target.value)}
-            />
-          </label>
-
-          <button
-            type="submit"
-            disabled={!title.trim() || createIncident.isPending}
-            className="mt-2 w-full rounded-xl py-3 text-body font-semibold bg-accent text-white disabled:opacity-40"
+    <ModalShell title="Log Incident" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3 px-4 py-4">
+        {error && (
+          <p className="text-caption-1 text-danger bg-danger/10 rounded-xl px-3 py-2">
+            {error}
+          </p>
+        )}
+        <FieldRow label="Title *">
+          <input
+            className={fieldInput}
+            placeholder="Short summary"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+          />
+        </FieldRow>
+        <FieldRow label="Severity">
+          <select
+            className={fieldInput}
+            value={severity}
+            onChange={(e) => setSeverity(e.target.value)}
           >
-            {createIncident.isPending ? "Logging…" : "Log Incident"}
-          </button>
-        </form>
-      </div>
-    </div>
+            {INCIDENT_SEVERITIES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+        <FieldRow label="Description">
+          <textarea
+            className={cn(fieldInput, "resize-none")}
+            rows={3}
+            placeholder="What happened?"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </FieldRow>
+        <FieldRow label="Customer Impact">
+          <textarea
+            className={cn(fieldInput, "resize-none")}
+            rows={2}
+            placeholder="Any user-visible impact?"
+            value={impact}
+            onChange={(e) => setImpact(e.target.value)}
+          />
+        </FieldRow>
+        <button
+          type="submit"
+          disabled={!title.trim() || createIncident.isPending}
+          className={cn(
+            "mt-2 rounded-full bg-accent text-primary-foreground shadow-card hover:bg-accent-pressed hover:shadow-elevated active:scale-[0.98] transition-all py-3 text-body font-semibold",
+            (!title.trim() || createIncident.isPending) &&
+              "opacity-40 cursor-not-allowed",
+          )}
+        >
+          {createIncident.isPending ? "Logging…" : "Log Incident"}
+        </button>
+      </form>
+    </ModalShell>
   );
 }
 
@@ -468,79 +530,100 @@ function LogIncidentModal({ campusId, onClose }: { campusId: string; onClose: ()
 
 function MetricsTab({ campusId }: { campusId: string }) {
   const { data, isLoading } = useCampusMetrics(campusId, 30);
-  const recordMetric = useRecordMetric(campusId);
-  const [showRecordModal, setShowRecordModal] = React.useState(false);
+  const [showRecord, setShowRecord] = React.useState(false);
 
+  // Prod useCampusMetrics → CampusMetricListResponse { items, total }
   const metrics = data?.items ?? [];
-  const displayMetrics = [...metrics].slice(0, 50);
+
+  const recentDesc = [...metrics].sort((a, b) =>
+    b.recorded_at.localeCompare(a.recorded_at),
+  );
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-10 text-label-tertiary">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <span className="text-caption-1 text-label-secondary">{metrics.length} readings (last 30 days)</span>
-        <button
-          type="button"
-          onClick={() => setShowRecordModal(true)}
-          className="flex items-center gap-1.5 rounded-xl bg-accent/10 text-accent px-3 py-1.5 text-caption-1 font-semibold active:opacity-70"
-        >
-          <Plus className="h-4 w-4" />
-          Record Metric
-        </button>
+      <div className="rounded-2xl bg-bg-elevated shadow-card p-4">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-subhead font-semibold text-label-primary">
+            PUE (last 30 days)
+          </h3>
+          <button
+            type="button"
+            onClick={() => setShowRecord(true)}
+            className="flex items-center gap-1.5 rounded-full bg-accent/10 text-accent hover:bg-accent/20 active:scale-[0.98] transition-all px-3 py-1.5 text-caption-1 font-semibold active:opacity-70"
+          >
+            <Plus className="h-4 w-4" />
+            Record
+          </button>
+        </div>
+        <PueLineChart metrics={metrics} />
       </div>
 
-      {/* PUE Chart */}
-      <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-4 py-4">
-        <p className="text-caption-1 text-label-secondary mb-3 font-semibold">PUE — Last 30 Days</p>
-        {isLoading ? (
-          <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-label-tertiary" /></div>
-        ) : (
-          <PueLineChart metrics={metrics} />
-        )}
-      </div>
-
-      {/* Metric history table */}
-      {metrics.length > 0 && (
-        <div className="rounded-2xl bg-bg-elevated border border-separator/40 overflow-hidden">
-          <div className="grid grid-cols-4 gap-2 px-4 py-2 border-b border-separator/30">
-            {["Type", "Value", "Unit", "Recorded"].map((h) => (
-              <span key={h} className="text-caption-2 text-label-tertiary font-semibold uppercase tracking-wide">{h}</span>
-            ))}
+      <div>
+        <h3 className="text-subhead font-semibold text-label-primary mb-2">
+          History
+        </h3>
+        {recentDesc.length === 0 ? (
+          <div className="rounded-2xl bg-bg-elevated shadow-card px-4 py-6 text-center text-label-secondary text-body">
+            No metrics recorded yet
           </div>
-          <div className="divide-y divide-separator/20">
-            {displayMetrics.map((m) => (
-              <div key={m.id} className="grid grid-cols-4 gap-2 px-4 py-2.5 items-center">
-                <span className="text-caption-1 text-label-primary font-medium">{m.metric_type}</span>
-                <span className="text-caption-1 text-label-primary">{m.value}</span>
-                <span className="text-caption-1 text-label-secondary">{m.unit ?? "—"}</span>
-                <span className="text-caption-2 text-label-tertiary">{fmtDate(m.recorded_at)}</span>
+        ) : (
+          <div className="rounded-2xl bg-bg-elevated shadow-card overflow-hidden divide-y divide-hairline">
+            {recentDesc.slice(0, 20).map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between px-4 py-2.5"
+              >
+                <div>
+                  <p className="text-body text-label-primary">
+                    {metricLabel(m.metric_type)}
+                  </p>
+                  <p className="text-caption-2 text-label-tertiary">
+                    {fmtDate(m.recorded_at)}
+                  </p>
+                </div>
+                <span className="text-body font-mono text-label-primary">
+                  {m.metric_type === "pue"
+                    ? m.value.toFixed(3)
+                    : m.metric_type === "uptime_pct"
+                      ? `${m.value.toFixed(3)}%`
+                      : m.metric_type === "power_mw"
+                        ? `${m.value} MW`
+                        : m.value}
+                </span>
               </div>
             ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {!isLoading && metrics.length === 0 && (
-        <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-6 py-10 text-center">
-          <Activity className="h-8 w-8 text-label-tertiary mx-auto mb-2" />
-          <p className="text-body text-label-secondary">No metrics recorded yet</p>
-        </div>
-      )}
-
-      {showRecordModal && (
-        <RecordMetricModal campusId={campusId} onClose={() => setShowRecordModal(false)} />
+      {showRecord && (
+        <RecordMetricModal campusId={campusId} onClose={() => setShowRecord(false)} />
       )}
     </div>
   );
 }
 
-function RecordMetricModal({ campusId, onClose }: { campusId: string; onClose: () => void }) {
+function RecordMetricModal({
+  campusId,
+  onClose,
+}: {
+  campusId: string;
+  onClose: () => void;
+}) {
   const recordMetric = useRecordMetric(campusId);
-  const [metricType, setMetricType] = React.useState<string>("pue");
+  const [type, setType] = React.useState("pue");
   const [value, setValue] = React.useState("");
   const [unit, setUnit] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
 
-  // Default units per metric type
   const defaultUnits: Record<string, string> = {
     pue: "",
     uptime_pct: "%",
@@ -550,17 +633,22 @@ function RecordMetricModal({ campusId, onClose }: { campusId: string; onClose: (
   };
 
   function handleTypeChange(t: string) {
-    setMetricType(t);
+    setType(t);
     setUnit(defaultUnits[t] ?? "");
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    const num = parseFloat(value);
+    if (Number.isNaN(num)) {
+      setError("Enter a valid number");
+      return;
+    }
     try {
       await recordMetric.mutateAsync({
-        metric_type: metricType,
-        value: parseFloat(value),
+        metric_type: type,
+        value: num,
         unit: unit.trim() || null,
       });
       onClose();
@@ -570,60 +658,59 @@ function RecordMetricModal({ campusId, onClose }: { campusId: string; onClose: (
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center">
-      <div className="w-full max-w-lg rounded-t-2xl sm:rounded-2xl bg-chrome border border-separator/40 shadow-2xl pb-safe">
-        <div className="flex items-center justify-between px-4 pt-4 pb-2 border-b border-separator/30">
-          <h2 className="text-headline font-semibold text-label-primary">Record Metric</h2>
-          <button type="button" onClick={onClose} className="text-label-secondary text-body">Cancel</button>
-        </div>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3 px-4 py-4">
-          {error && <p className="text-caption-1 text-red-400 bg-red-400/10 rounded-xl px-3 py-2">{error}</p>}
-
-          <label className="flex flex-col gap-1">
-            <span className="text-caption-1 text-label-secondary">Metric Type</span>
-            <select
-              className="w-full rounded-xl bg-bg-elevated border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-              value={metricType}
-              onChange={(e) => handleTypeChange(e.target.value)}
-            >
-              {METRIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </label>
-
-          <div className="grid grid-cols-2 gap-3">
-            <label className="flex flex-col gap-1">
-              <span className="text-caption-1 text-label-secondary">Value *</span>
-              <input
-                type="number"
-                step="any"
-                className="w-full rounded-xl bg-bg-elevated border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-                placeholder="1.18"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-                required
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-caption-1 text-label-secondary">Unit</span>
-              <input
-                className="w-full rounded-xl bg-bg-elevated border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-                placeholder="%"
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-              />
-            </label>
-          </div>
-
-          <button
-            type="submit"
-            disabled={!value || recordMetric.isPending}
-            className="mt-2 w-full rounded-xl py-3 text-body font-semibold bg-accent text-white disabled:opacity-40"
+    <ModalShell title="Record Metric" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-3 px-4 py-4">
+        {error && (
+          <p className="text-caption-1 text-danger bg-danger/10 rounded-xl px-3 py-2">
+            {error}
+          </p>
+        )}
+        <FieldRow label="Metric Type">
+          <select
+            className={fieldInput}
+            value={type}
+            onChange={(e) => handleTypeChange(e.target.value)}
           >
-            {recordMetric.isPending ? "Recording…" : "Record"}
-          </button>
-        </form>
-      </div>
-    </div>
+            {METRIC_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {metricLabel(t)}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+        <div className="grid grid-cols-2 gap-3">
+          <FieldRow label="Value *">
+            <input
+              type="number"
+              step="0.001"
+              className={fieldInput}
+              placeholder="e.g. 1.18"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              required
+            />
+          </FieldRow>
+          <FieldRow label="Unit">
+            <input
+              className={fieldInput}
+              placeholder="%"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+            />
+          </FieldRow>
+        </div>
+        <button
+          type="submit"
+          disabled={!value || recordMetric.isPending}
+          className={cn(
+            "mt-2 rounded-full bg-accent text-primary-foreground shadow-card hover:bg-accent-pressed hover:shadow-elevated active:scale-[0.98] transition-all py-3 text-body font-semibold",
+            (!value || recordMetric.isPending) && "opacity-40 cursor-not-allowed",
+          )}
+        >
+          {recordMetric.isPending ? "Recording…" : "Record"}
+        </button>
+      </form>
+    </ModalShell>
   );
 }
 
@@ -632,18 +719,32 @@ function RecordMetricModal({ campusId, onClose }: { campusId: string; onClose: (
 function DetailsTab({ campus }: { campus: Campus }) {
   const updateCampus = useUpdateCampus(campus.id);
   const { data: servingCustomers } = useCustomersByCampus(campus.id);
+  // Prod useCustomersByCampus → CustomerListPage { items, total }
   const servingCustomer = servingCustomers?.items?.[0];
+
   const [name, setName] = React.useState(campus.name);
   const [address, setAddress] = React.useState(campus.address ?? "");
-  const [mwCapacity, setMwCapacity] = React.useState(String(campus.mw_capacity ?? ""));
-  const [mwLive, setMwLive] = React.useState(String(campus.mw_live ?? ""));
-  const [pueTarget, setPueTarget] = React.useState(String(campus.pue_target ?? ""));
+  const [mwLive, setMwLive] = React.useState(campus.mw_live?.toString() ?? "");
+  const [mwCapacity, setMwCapacity] = React.useState(campus.mw_capacity?.toString() ?? "");
+  const [pueTarget, setPueTarget] = React.useState(campus.pue_target?.toString() ?? "");
+  const [campusStatus, setCampusStatus] = React.useState(campus.status);
   const [notes, setNotes] = React.useState(campus.notes ?? "");
   const [projectIdInput, setProjectIdInput] = React.useState("");
   const [saving, setSaving] = React.useState(false);
   const [savingProject, setSavingProject] = React.useState(false);
-  const [success, setSuccess] = React.useState(false);
+  const [saved, setSaved] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  // Sync form when campus data refreshes
+  React.useEffect(() => {
+    setName(campus.name);
+    setAddress(campus.address ?? "");
+    setMwLive(campus.mw_live?.toString() ?? "");
+    setMwCapacity(campus.mw_capacity?.toString() ?? "");
+    setPueTarget(campus.pue_target?.toString() ?? "");
+    setCampusStatus(campus.status);
+    setNotes(campus.notes ?? "");
+  }, [campus]);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -653,13 +754,14 @@ function DetailsTab({ campus }: { campus: Campus }) {
       await updateCampus.mutateAsync({
         name: name.trim(),
         address: address.trim() || undefined,
-        mw_capacity: mwCapacity ? parseFloat(mwCapacity) : undefined,
         mw_live: mwLive ? parseFloat(mwLive) : undefined,
+        mw_capacity: mwCapacity ? parseFloat(mwCapacity) : undefined,
         pue_target: pueTarget ? parseFloat(pueTarget) : undefined,
+        status: campusStatus,
         notes: notes.trim() || undefined,
       });
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1600);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -682,88 +784,86 @@ function DetailsTab({ campus }: { campus: Campus }) {
   }
 
   return (
-    <form onSubmit={handleSave} className="flex flex-col gap-4">
-      {error && <p className="text-caption-1 text-red-400 bg-red-400/10 rounded-xl px-3 py-2">{error}</p>}
-      {success && <p className="text-caption-1 text-green-400 bg-green-400/10 rounded-xl px-3 py-2">Saved ✓</p>}
+    <form onSubmit={handleSave} className="flex flex-col gap-3">
+      {error && (
+        <p className="text-caption-1 text-danger bg-danger/10 rounded-xl px-3 py-2">{error}</p>
+      )}
 
-      <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-4 py-4 flex flex-col gap-3">
-        <label className="flex flex-col gap-1">
-          <span className="text-caption-1 text-label-secondary">Campus Name</span>
-          <input
-            className="w-full rounded-xl bg-bg border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-          />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-caption-1 text-label-secondary">Address</span>
-          <input
-            className="w-full rounded-xl bg-bg border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-          />
-        </label>
-
-        <div className="grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1">
-            <span className="text-caption-1 text-label-secondary">MW Capacity</span>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              className="w-full rounded-xl bg-bg border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-              value={mwCapacity}
-              onChange={(e) => setMwCapacity(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-caption-1 text-label-secondary">MW Live</span>
-            <input
-              type="number"
-              step="0.1"
-              min="0"
-              className="w-full rounded-xl bg-bg border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-              value={mwLive}
-              onChange={(e) => setMwLive(e.target.value)}
-            />
-          </label>
-        </div>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-caption-1 text-label-secondary">PUE Target</span>
+      <FieldRow label="Name">
+        <input
+          className={fieldInput}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </FieldRow>
+      <FieldRow label="Address">
+        <input
+          className={fieldInput}
+          value={address}
+          onChange={(e) => setAddress(e.target.value)}
+        />
+      </FieldRow>
+      <div className="grid grid-cols-2 gap-3">
+        <FieldRow label="Live MW">
           <input
             type="number"
-            step="0.01"
-            min="1"
-            max="3"
-            className="w-full rounded-xl bg-bg border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent"
-            value={pueTarget}
-            onChange={(e) => setPueTarget(e.target.value)}
+            step="0.1"
+            className={fieldInput}
+            value={mwLive}
+            onChange={(e) => setMwLive(e.target.value)}
           />
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className="text-caption-1 text-label-secondary">Notes</span>
-          <textarea
-            className="w-full rounded-xl bg-bg border border-separator/40 px-3 py-2.5 text-body text-label-primary focus:outline-none focus:border-accent resize-none"
-            rows={3}
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+        </FieldRow>
+        <FieldRow label="MW Capacity">
+          <input
+            type="number"
+            step="0.1"
+            className={fieldInput}
+            value={mwCapacity}
+            onChange={(e) => setMwCapacity(e.target.value)}
           />
-        </label>
-
-        <button
-          type="submit"
-          disabled={saving}
-          className="w-full rounded-xl py-3 text-body font-semibold bg-accent text-white disabled:opacity-40 active:opacity-70"
-        >
-          {saving ? "Saving…" : "Save Changes"}
-        </button>
+        </FieldRow>
       </div>
+      <FieldRow label="PUE Target">
+        <input
+          type="number"
+          step="0.01"
+          min="1"
+          max="3"
+          className={fieldInput}
+          value={pueTarget}
+          onChange={(e) => setPueTarget(e.target.value)}
+        />
+      </FieldRow>
+      <FieldRow label="Status">
+        <select
+          className={fieldInput}
+          value={campusStatus}
+          onChange={(e) => setCampusStatus(e.target.value)}
+        >
+          {CAMPUS_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+            </option>
+          ))}
+        </select>
+      </FieldRow>
+      <FieldRow label="Notes">
+        <textarea
+          className={cn(fieldInput, "resize-none")}
+          rows={3}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+      </FieldRow>
 
-      {/* Promote from Project */}
+      {campus.project_id && (
+        <p className="text-caption-1 text-label-tertiary">
+          Promoted from project{" "}
+          <span className="font-mono">{campus.project_id}</span>
+        </p>
+      )}
+
       {!campus.project_id && (
         <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-4 py-4 flex flex-col gap-3">
           <div>
@@ -774,7 +874,7 @@ function DetailsTab({ campus }: { campus: Campus }) {
           </div>
           <div className="flex gap-2">
             <input
-              className="flex-1 rounded-xl bg-bg border border-separator/40 px-3 py-2.5 text-body text-label-primary font-mono text-caption-1 focus:outline-none focus:border-accent"
+              className="flex-1 rounded-xl bg-bg-elevated shadow-card px-3 py-2.5 text-body text-label-primary font-mono text-caption-1 focus:outline-none focus:border-accent"
               placeholder="Project UUID"
               value={projectIdInput}
               onChange={(e) => setProjectIdInput(e.target.value)}
@@ -783,7 +883,7 @@ function DetailsTab({ campus }: { campus: Campus }) {
               type="button"
               onClick={handleLinkProject}
               disabled={!projectIdInput.trim() || savingProject}
-              className="rounded-xl bg-accent text-white px-4 py-2.5 text-body font-semibold disabled:opacity-40 active:opacity-70 shrink-0"
+              className="rounded-full bg-accent text-primary-foreground shadow-card hover:bg-accent-pressed hover:shadow-elevated active:scale-[0.98] transition-all px-4 py-2.5 text-body font-semibold disabled:opacity-40 shrink-0"
             >
               {savingProject ? "Linking…" : "Link"}
             </button>
@@ -791,20 +891,25 @@ function DetailsTab({ campus }: { campus: Campus }) {
         </div>
       )}
 
-      {campus.project_id && (
-        <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-4 py-3">
-          <p className="text-caption-1 text-label-secondary">Linked Project</p>
-          <p className="text-body font-mono text-label-primary mt-0.5">{campus.project_id}</p>
-        </div>
-      )}
-
-      {/* Serving Customer — Campus ↔ Customer link (Sprint 5.1) */}
       {servingCustomer && (
         <div className="rounded-2xl bg-bg-elevated border border-separator/40 px-4 py-3">
           <p className="text-caption-1 text-label-secondary">Serving Customer</p>
-          <p className="text-body font-semibold text-label-primary mt-0.5">{servingCustomer.name}</p>
+          <p className="text-body font-semibold text-label-primary mt-0.5">
+            {servingCustomer.name}
+          </p>
         </div>
       )}
+
+      <button
+        type="submit"
+        disabled={saving}
+        className={cn(
+          "mt-2 rounded-full bg-accent text-primary-foreground shadow-card hover:bg-accent-pressed hover:shadow-elevated active:scale-[0.98] transition-all py-3 text-body font-semibold",
+          saving && "opacity-40 cursor-not-allowed",
+        )}
+      >
+        {saving ? "Saving…" : saved ? "Saved" : "Save Changes"}
+      </button>
     </form>
   );
 }
@@ -821,11 +926,9 @@ const TABS: { label: string; value: TabValue }[] = [
 
 function CampusDetailPageInner() {
   const params = useParams();
-  const router = useRouter();
   const campusId = typeof params.id === "string" ? params.id : (params.id?.[0] ?? "");
 
-  const { data: campusRaw, isLoading, error } = useCampus(campusId);
-  const campus = campusRaw as Campus | undefined;
+  const { data: campus, isLoading, error } = useCampus(campusId);
   const [tab, setTab] = React.useState<TabValue>("incidents");
 
   if (isLoading) {
@@ -835,8 +938,8 @@ function CampusDetailPageInner() {
           left={<BackButton href="/operations" label="Operations" />}
           title="Loading…"
         />
-        <div className="flex justify-center pt-20">
-          <Loader2 className="h-6 w-6 animate-spin text-label-tertiary" />
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-label-quaternary" />
         </div>
       </MobileShell>
     );
@@ -849,14 +952,16 @@ function CampusDetailPageInner() {
           left={<BackButton href="/operations" label="Operations" />}
           title="Campus"
         />
-        <div className="px-4 py-6 text-center text-label-secondary text-body">
-          {error instanceof Error ? error.message : "Campus not found"}
+        <div className="px-4 pt-6 pb-10">
+          <div className="rounded-2xl bg-danger/10 px-4 py-4 text-footnote text-danger">
+            {error instanceof Error
+              ? error.message
+              : "Failed to load this campus. Try refreshing."}
+          </div>
         </div>
       </MobileShell>
     );
   }
-
-  const statusCls = campusStatusCls(campus.status);
 
   return (
     <MobileShell>
@@ -864,52 +969,61 @@ function CampusDetailPageInner() {
         left={<BackButton href="/operations" label="Operations" />}
         title={campus.name}
         right={
-          <span className={cn("rounded-full px-2 py-0.5 text-caption-2 font-semibold", statusCls)}>
-            {campus.status}
+          <span
+            className={cn(
+              "rounded-full px-2 py-0.5 text-caption-2 font-semibold",
+              campusStatusBadge(campus.status).cls,
+            )}
+          >
+            {campusStatusBadge(campus.status).label}
           </span>
         }
       />
+      <ModuleAgentBar moduleKey="operations" />
 
-      <div className="px-4 py-4 flex flex-col gap-4 pb-8">
-        {/* ── Header Stat Cards ─────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mx-auto w-full max-w-[708px] px-4 pt-3 pb-16 md:max-w-4xl md:px-8">
+        {/* ── Header stat cards ──────────────────────────────────────────── */}
+        <div className="grid grid-cols-3 gap-2 mb-4">
+          <StatCard
+            label="Power"
+            value={fmtMW(campus.mw_live)}
+            sub={campus.mw_capacity != null ? `of ${fmtMW(campus.mw_capacity)}` : undefined}
+          />
           <StatCard
             label="PUE"
             value={fmtPUE(campus.pue_current)}
-            sub={campus.pue_target ? `target ${fmtPUE(campus.pue_target)}` : "no target set"}
             valueClass={pueColor(campus.pue_current, campus.pue_target)}
+            sub={campus.pue_target != null ? `target ${fmtPUE(campus.pue_target)}` : undefined}
           />
           <StatCard
             label="Uptime"
             value={fmtPct(campus.uptime_pct)}
-            sub="30-day rolling"
             valueClass={uptimeColor(campus.uptime_pct)}
-          />
-          <StatCard
-            label="Power"
-            value={fmtMW(campus.power_mw_current)}
-            sub={campus.mw_capacity != null ? `/ ${fmtMW(campus.mw_capacity)} cap` : "capacity unknown"}
-          />
-          <StatCard
-            label="Incidents"
-            value={campus.active_p1_p2_count > 0 ? `${campus.active_p1_p2_count} active` : "Clear"}
-            sub="P1 / P2 open"
-            valueClass={campus.active_p1_p2_count > 0 ? "text-red-400" : "text-green-400"}
+            sub="30-day"
           />
         </div>
 
+        {/* Active P1/P2 badge row */}
+        {campus.active_p1_p2_count > 0 && (
+          <div className="flex items-center gap-2 mb-4">
+            <span className="inline-flex items-center rounded-full bg-danger/20 px-2 py-0.5 text-caption-2 font-semibold text-danger">
+              {campus.active_p1_p2_count} active P1/P2
+            </span>
+          </div>
+        )}
+
         {/* ── Tabs ──────────────────────────────────────────────────────── */}
-        <div className="flex gap-1 rounded-2xl bg-bg-elevated border border-separator/40 p-1">
+        <div className="flex gap-1 rounded-xl bg-bg-elevated p-1 mb-4">
           {TABS.map((t) => (
             <button
               key={t.value}
               type="button"
               onClick={() => setTab(t.value)}
               className={cn(
-                "flex-1 rounded-xl py-2 text-body font-semibold transition-colors no-tap-highlight",
+                "flex-1 rounded-lg px-3 py-2 text-caption-1 font-semibold transition-colors",
                 tab === t.value
-                  ? "bg-accent text-white shadow-sm"
-                  : "text-label-secondary active:text-label-primary",
+                  ? "bg-bg text-label-primary shadow"
+                  : "text-label-secondary active:opacity-70",
               )}
             >
               {t.label}
@@ -917,10 +1031,12 @@ function CampusDetailPageInner() {
           ))}
         </div>
 
-        {/* ── Tab Content ───────────────────────────────────────────────── */}
-        {tab === "incidents" && <IncidentsTab campusId={campusId} />}
-        {tab === "metrics" && <MetricsTab campusId={campusId} />}
-        {tab === "details" && campus && <DetailsTab campus={campus} />}
+        {/* ── Tab content ───────────────────────────────────────────────── */}
+        <div className="pt-2">
+          {tab === "incidents" && <IncidentsTab campusId={campus.id} />}
+          {tab === "metrics" && <MetricsTab campusId={campus.id} />}
+          {tab === "details" && <DetailsTab campus={campus} />}
+        </div>
       </div>
     </MobileShell>
   );

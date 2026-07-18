@@ -2,24 +2,25 @@
 
 import * as React from "react";
 import {
+  Activity,
+  AlertCircle,
+  ArrowRight,
   Brain,
   Building2,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   ClipboardList,
+  Clock,
+  DollarSign,
   FolderKanban,
   MapPin,
   Package,
+  RotateCcw,
+  Server,
   TrendingUp,
   Users,
   Zap,
-  Server,
-  DollarSign,
-  Activity,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-  RotateCcw,
 } from "lucide-react";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { ErrorBanner } from "@/components/ui/error-banner";
@@ -35,9 +36,9 @@ type KpiColor = "green" | "yellow" | "red" | "neutral";
 function kpiColorClass(color: KpiColor) {
   switch (color) {
     case "green":
-      return "text-green-600";
+      return "text-success";
     case "yellow":
-      return "text-yellow-600";
+      return "text-warning";
     case "red":
       return "text-danger";
     default:
@@ -50,24 +51,18 @@ function KpiCard({
   value,
   unit,
   color = "neutral",
-  trend,
 }: {
   label: string;
   value: string;
   unit?: string;
   color?: KpiColor;
-  trend?: "up" | "down";
 }) {
   return (
     <div className="rounded-xl bg-bg-elevated px-4 py-4 flex flex-col gap-1.5">
       <span className="text-caption-1 text-label-tertiary">{label}</span>
-      <div className="flex items-baseline gap-1.5">
-        <span className={cn("text-title-1 font-bold tabular-nums", kpiColorClass(color))}>
-          {value}
-        </span>
-        {trend === "up" && <span className="text-green-500 text-caption-1">↑</span>}
-        {trend === "down" && <span className="text-danger text-caption-1">↓</span>}
-      </div>
+      <span className={cn("text-title-1 font-bold tabular-nums", kpiColorClass(color))}>
+        {value}
+      </span>
       {unit && <span className="text-caption-2 text-label-quaternary">{unit}</span>}
     </div>
   );
@@ -103,7 +98,7 @@ function BriefSection({ title, summary, actionItems }: {
         <ul className="mt-2 space-y-0.5">
           {actionItems.map((item, i) => (
             <li key={i} className="flex items-start gap-1.5 text-footnote text-label-secondary">
-              <span className="mt-0.5 text-accent">→</span>
+              <ArrowRight className="mt-0.5 h-3 w-3 shrink-0 text-accent" />
               <span>{item}</span>
             </li>
           ))}
@@ -120,9 +115,9 @@ type HealthStatus = "green" | "yellow" | "red";
 function moduleHealthClass(status: HealthStatus) {
   switch (status) {
     case "green":
-      return "bg-green-500";
+      return "bg-success";
     case "yellow":
-      return "bg-yellow-500";
+      return "bg-warning";
     case "red":
       return "bg-danger";
   }
@@ -167,7 +162,7 @@ function ActivityRow({ item }: { item: AgentActivityList["items"][number] }) {
   const relTime = formatRelTime(item.created_at);
   return (
     <div className="flex items-start gap-3 py-3 border-b border-separator/30 last:border-0">
-      <span className={cn("mt-0.5 shrink-0", isOk ? "text-green-500" : "text-danger")}>
+      <span className={cn("mt-0.5 shrink-0", isOk ? "text-success" : "text-danger")}>
         {isOk ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
       </span>
       <div className="flex-1 min-w-0">
@@ -186,7 +181,7 @@ function ActivityRow({ item }: { item: AgentActivityList["items"][number] }) {
       <span
         className={cn(
           "shrink-0 rounded px-1.5 py-0.5 text-caption-2 font-medium",
-          isOk ? "bg-green-500/10 text-green-700" : "bg-danger/10 text-danger",
+          isOk ? "bg-success/10 text-success" : "bg-danger/10 text-danger",
         )}
       >
         {item.status}

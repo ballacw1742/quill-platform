@@ -374,3 +374,48 @@ export function displayConfidence(
   const pct = Math.round(Math.max(0, Math.min(1, c)) * 100);
   return withSuffix ? `${pct}% confident` : `${pct}%`;
 }
+
+// ── Agent trust tier (frontier vs on-prem/open-source) ──────────────────────
+// Ported 2026-07-18 from the Lovable redesign. Drives the AgentChip trust dot
+// and the ModuleAgentBar. Tier reflects the §8 model-lane routing:
+//   frontier: sensitive-capable, runs on a frontier model (Claude, via API).
+//   oss:      non-sensitive only, runs on the on-prem open-source model
+//             (local Ollama over Tailscale — data never leaves the tenant).
+// NOTE: `model` strings are user-facing labels; keep them aligned with the
+// live lane config (MODEL_LOCAL_DEFAULT / frontier model) — see MEMORY §8.
+export type AgentTrustTier = "frontier" | "oss";
+
+export interface AgentTrust {
+  tier: AgentTrustTier;
+  model: string;
+  dataScope: "sensitive" | "non-sensitive";
+}
+
+const DEFAULT_AGENT_TRUST: AgentTrust = {
+  tier: "frontier",
+  model: "Claude Sonnet 4.5",
+  dataScope: "sensitive",
+};
+
+export const AGENT_TRUST: Record<string, AgentTrust> = {
+  coordinator:         { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
+  "cost-estimator":    { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
+  "schedule-builder":  { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
+  "rfi-manager":       { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
+  "contract-reviewer": { tier: "frontier", model: "Claude Opus 4",     dataScope: "sensitive" },
+  "change-order":      { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
+  "owner-reporting":   { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
+  "site-evaluator":    { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
+  // On-prem OSS lane: research + status/scoring rollups on non-sensitive data.
+  "site-researcher":   { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
+  "site-scorer":       { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
+  "site-status":       { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
+  "progress-tracker":  { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
+  "daily-brief":       { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
+  "safety-aggregator": { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
+};
+
+export function agentTrust(agentId: string | undefined | null): AgentTrust {
+  if (!agentId) return DEFAULT_AGENT_TRUST;
+  return AGENT_TRUST[agentId] ?? DEFAULT_AGENT_TRUST;
+}

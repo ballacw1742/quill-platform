@@ -71,7 +71,7 @@ export function AgentBadge({
   return (
     <span
       className={cn(
-        "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-md",
         tone,
         className,
       )}

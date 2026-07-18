@@ -1,19 +1,27 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Download, FileText, Loader2, PenLine, Send } from "lucide-react";
+import {
+  AlertTriangle,
+  Download,
+  FileText,
+  Loader2,
+  PenLine,
+  Send,
+  ShieldAlert,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 import { MobileShell, TopBar, BackButton } from "@/components/layout/MobileShell";
+import { ModuleAgentBar } from "@/components/journey/ModuleAgentBar";
 import { ErrorBanner } from "@/components/ui/error-banner";
-import { SegmentedControl } from "@/components/ui/segmented-control";
+import { DraftAttorneyBanner } from "@/components/contracts/DraftAttorneyBanner";
+import { RedraftSheet } from "@/components/contracts/RedraftSheet";
 import { ContractExtractionView } from "@/components/artifacts/ContractExtractionView";
 import { ContractReviewView } from "@/components/artifacts/ContractReviewView";
 import { ContractInterpretationView } from "@/components/artifacts/ContractInterpretationView";
 import { ContractDraftView } from "@/components/artifacts/ContractDraftView";
-import { DraftAttorneyBanner } from "@/components/contracts/DraftAttorneyBanner";
-import { RedraftSheet } from "@/components/contracts/RedraftSheet";
 import {
   useContract,
   useContractReviews,
@@ -22,13 +30,21 @@ import {
   useInterpretContract,
   useContractDraft,
 } from "@/lib/api";
-import { ContractExtractionMetadataSchema, ContractReviewMetadataSchema, ContractDraftMetadataSchema } from "@/lib/schemas";
+import {
+  ContractExtractionMetadataSchema,
+  ContractDraftMetadataSchema,
+} from "@/lib/schemas";
 import { cn } from "@/lib/utils";
 
 // ── Tab types ──────────────────────────────────────────────────────────────
 type TabValue = "summary" | "draft" | "review" | "ask" | "original";
 
 // ── Status banner ──────────────────────────────────────────────────────────
+/**
+ * StatusBanner — Lovable redesign uses token-based border/bg colors with
+ * text-{color} design tokens. Prod tokens: text-danger, text-warning,
+ * text-success, text-info, border-hairline, bg-bg-elevated.
+ */
 function StatusBanner({
   status,
   onRunReview,
@@ -40,15 +56,15 @@ function StatusBanner({
 }) {
   if (status === "reviewed") {
     return (
-      <div className="flex items-center gap-2 rounded-xl bg-green-50 border border-green-200 px-3 py-2 text-caption text-green-700">
-        <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-success/30 bg-success/10 px-3 py-2 text-caption text-success">
+        <span className="h-2 w-2 rounded-full bg-success shrink-0" />
         Reviewed
       </div>
     );
   }
   if (status === "reviewing") {
     return (
-      <div className="flex items-center gap-2 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-caption text-amber-700">
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-caption text-warning">
         <Loader2 className="h-3 w-3 animate-spin shrink-0" />
         Review in progress…
       </div>
@@ -56,17 +72,17 @@ function StatusBanner({
   }
   if (status === "extracted") {
     return (
-      <div className="flex items-center justify-between gap-2 rounded-xl bg-blue-50 border border-blue-200 px-3 py-2">
-        <span className="text-caption text-blue-700">Ready for review</span>
+      <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-info/30 bg-info/10 px-3 py-2">
+        <span className="text-caption text-info">Ready for review</span>
         <button
           type="button"
           onClick={onRunReview}
           disabled={reviewPending}
           className={cn(
-            "text-caption font-semibold px-3 py-1.5 rounded-lg min-h-[32px]",
+            "rounded-lg px-3 py-1 text-caption font-semibold min-h-[32px]",
             reviewPending
-              ? "text-label-tertiary bg-bg-elevated"
-              : "text-white bg-blue-600 active:bg-blue-700",
+              ? "bg-bg-elevated text-label-tertiary"
+              : "bg-accent text-white active:bg-accent/80",
           )}
         >
           {reviewPending ? "Queuing…" : "Run review"}
@@ -76,22 +92,38 @@ function StatusBanner({
   }
   if (status === "extracting") {
     return (
-      <div className="flex items-center gap-2 rounded-xl bg-bg-elevated border border-separator px-3 py-2 text-caption text-label-secondary">
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-hairline bg-bg-elevated px-3 py-2 text-caption text-label-secondary">
         <Loader2 className="h-3 w-3 animate-spin shrink-0" />
         Extracting contract text…
       </div>
     );
   }
+  if (status === "drafting") {
+    return (
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-caption text-accent">
+        <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+        Drafting contract…
+      </div>
+    );
+  }
+  if (status === "drafted") {
+    return (
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2 text-caption text-accent">
+        <Sparkles className="h-3 w-3 shrink-0" />
+        Draft ready — review with counsel before executing.
+      </div>
+    );
+  }
   if (status === "failed") {
     return (
-      <div className="flex items-center gap-2 rounded-xl bg-red-50 border border-red-200 px-3 py-2 text-caption text-red-700">
+      <div className="mb-3 flex items-center gap-2 rounded-xl border border-danger/30 bg-danger/10 px-3 py-2 text-caption text-danger">
         <AlertTriangle className="h-3 w-3 shrink-0" />
         Processing failed
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-2 rounded-xl bg-bg-elevated border border-separator px-3 py-2 text-caption text-label-secondary">
+    <div className="mb-3 flex items-center gap-2 rounded-xl border border-hairline bg-bg-elevated px-3 py-2 text-caption text-label-secondary">
       <span className="h-2 w-2 rounded-full bg-separator shrink-0" />
       {status}
     </div>
@@ -102,15 +134,15 @@ function StatusBanner({
 function SummaryTab({ contract }: { contract: any }) {
   if (!contract.extracted_fields) {
     return (
-      <div className="rounded-xl bg-bg-elevated px-4 py-8 text-center text-callout text-label-secondary">
-        Extraction not yet complete. Check back shortly.
+      <div className="rounded-2xl border border-hairline bg-bg-elevated p-6 text-center text-callout text-label-secondary">
+        Awaiting extraction…
       </div>
     );
   }
   const parsed = ContractExtractionMetadataSchema.safeParse(contract.extracted_fields);
   if (!parsed.success) {
     return (
-      <div className="rounded-xl bg-bg-elevated px-4 py-8 text-center text-callout text-label-secondary">
+      <div className="rounded-2xl border border-hairline bg-bg-elevated p-6 text-center text-callout text-label-secondary">
         Could not render extraction data.
       </div>
     );
@@ -134,60 +166,61 @@ function ReviewTab({
 
   if (!latestReview) {
     return (
-      <div className="space-y-4">
-        <div className="rounded-xl bg-bg-elevated px-4 py-8 text-center">
-          <FileText className="h-8 w-8 text-label-tertiary mx-auto mb-2" />
-          <p className="text-callout text-label-secondary mb-4">
-            No review yet for this contract.
+      <div className="rounded-2xl border border-hairline bg-bg-elevated p-6 text-center">
+        <ShieldAlert className="h-8 w-8 text-label-tertiary mx-auto mb-2" />
+        <p className="mb-3 text-callout text-label-secondary">
+          No review has been run yet.
+        </p>
+        {contract.extracted_fields && (
+          <button
+            type="button"
+            onClick={onRunReview}
+            disabled={reviewPending}
+            className={cn(
+              "rounded-xl px-4 py-2 text-callout font-semibold min-h-[44px]",
+              reviewPending
+                ? "bg-bg-elevated text-label-tertiary"
+                : "bg-accent text-white active:bg-accent/80",
+            )}
+          >
+            {reviewPending ? "Queuing review…" : "Run review"}
+          </button>
+        )}
+        {!contract.extracted_fields && (
+          <p className="text-caption text-label-tertiary">
+            Extraction must complete before review can run.
           </p>
-          {contract.extracted_fields && (
-            <button
-              type="button"
-              onClick={onRunReview}
-              disabled={reviewPending}
-              className={cn(
-                "px-4 py-2 rounded-xl text-callout font-semibold min-h-[44px]",
-                reviewPending
-                  ? "bg-bg-elevated text-label-tertiary"
-                  : "bg-accent text-white active:bg-accent/80",
-              )}
-            >
-              {reviewPending ? "Queuing review…" : "Run review"}
-            </button>
-          )}
-          {!contract.extracted_fields && (
-            <p className="text-caption text-label-tertiary">
-              Extraction must complete before review can run.
-            </p>
-          )}
-        </div>
+        )}
       </div>
     );
   }
 
-  // The review artifact is stored in the Document's meta — we'll render
-  // from the review list item's severity_counts as a placeholder if the
-  // full artifact isn't available here.
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-caption text-label-tertiary">
         <span>Latest review</span>
         <span>·</span>
-        <span>{new Date(latestReview.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+        <span>
+          {new Date(latestReview.created_at).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </span>
       </div>
       <div className="flex gap-2 flex-wrap">
         {latestReview.severity_counts.critical > 0 && (
-          <span className="text-caption font-semibold text-red-700 bg-red-50 rounded-lg px-2 py-1">
+          <span className="rounded-lg border border-danger/30 px-2 py-1 text-caption font-semibold text-danger bg-danger/15">
             {latestReview.severity_counts.critical} Critical
           </span>
         )}
         {latestReview.severity_counts.high > 0 && (
-          <span className="text-caption font-semibold text-orange-700 bg-orange-50 rounded-lg px-2 py-1">
+          <span className="rounded-lg border border-warning/30 px-2 py-1 text-caption font-semibold text-warning bg-warning/15">
             {latestReview.severity_counts.high} High
           </span>
         )}
         {latestReview.severity_counts.medium > 0 && (
-          <span className="text-caption font-semibold text-amber-700 bg-amber-50 rounded-lg px-2 py-1">
+          <span className="rounded-lg border border-warning/20 px-2 py-1 text-caption font-semibold text-warning bg-warning/10">
             {latestReview.severity_counts.medium} Medium
           </span>
         )}
@@ -208,7 +241,11 @@ function AskTab({ uploadId, contract }: { uploadId: string; contract: any }) {
   const interpretMutation = useInterpretContract(uploadId);
 
   const items = historyData?.items ?? [];
-  const canAsk = question.trim().length > 0 && question.length <= 500 && !inFlight && !!contract.extracted_fields;
+  const canAsk =
+    question.trim().length > 0 &&
+    question.length <= 500 &&
+    !inFlight &&
+    !!contract.extracted_fields;
 
   const handleSend = async () => {
     if (!canAsk) return;
@@ -225,28 +262,27 @@ function AskTab({ uploadId, contract }: { uploadId: string; contract: any }) {
 
   if (!contract.extracted_fields) {
     return (
-      <div className="rounded-xl bg-bg-elevated px-4 py-8 text-center text-callout text-label-secondary">
+      <div className="rounded-2xl border border-hairline bg-bg-elevated p-6 text-center text-callout text-label-secondary">
         Extraction must complete before you can ask questions.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Input */}
-      <div className="flex gap-2 items-end">
+      <div className="flex items-end gap-2">
         <div className="flex-1">
           <textarea
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             disabled={inFlight}
-            placeholder="Ask a question about this contract…"
+            placeholder="Ask about this contract…"
             maxLength={500}
             rows={2}
             className={cn(
-              "w-full rounded-xl bg-bg-elevated px-3 py-2.5 text-callout text-label-primary",
-              "border border-separator focus:outline-none focus:ring-1 focus:ring-accent",
-              "resize-none",
+              "w-full resize-none rounded-xl border border-hairline bg-bg-elevated px-3 py-2.5 text-callout text-label-primary",
+              "focus:outline-none focus:ring-1 focus:ring-accent",
               inFlight && "opacity-50",
             )}
             onKeyDown={(e) => {
@@ -260,7 +296,7 @@ function AskTab({ uploadId, contract }: { uploadId: string; contract: any }) {
             <span
               className={cn(
                 "text-caption",
-                question.length > 450 ? "text-amber-500" : "text-label-tertiary",
+                question.length > 450 ? "text-warning" : "text-label-tertiary",
               )}
             >
               {question.length}/500
@@ -271,43 +307,34 @@ function AskTab({ uploadId, contract }: { uploadId: string; contract: any }) {
           type="button"
           onClick={handleSend}
           disabled={!canAsk}
-          className={cn(
-            "rounded-xl p-3 min-h-[44px] min-w-[44px] flex items-center justify-center transition-colors",
-            canAsk
-              ? "bg-accent text-white active:bg-accent/80"
-              : "bg-bg-elevated text-label-tertiary",
-          )}
           aria-label="Send question"
+          className={cn(
+            "flex h-11 w-11 items-center justify-center rounded-xl transition-colors no-tap-highlight",
+            canAsk ? "bg-accent text-white active:bg-accent/80" : "bg-accent/40 text-white",
+          )}
         >
           {inFlight ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
-            <Send className="h-5 w-5" />
+            <Send className="h-4 w-4" />
           )}
         </button>
       </div>
 
       {/* Q&A history (newest first) */}
-      {items.length > 0 && (
-        <div className="rounded-xl bg-bg-elevated overflow-hidden">
-          <p className="px-4 py-3 text-callout font-semibold text-label-primary border-b border-separator">
-            Past Questions
-          </p>
-          <div className="px-4">
-            {items.map((item) => (
-              <ContractInterpretationView
-                key={item.interpretation_id ?? item.question}
-                item={item}
-                compact
-              />
-            ))}
-          </div>
+      {items.length === 0 ? (
+        <div className="rounded-2xl border border-hairline bg-bg-elevated p-6 text-center text-callout text-label-secondary">
+          Ask a question to interpret this contract.
         </div>
-      )}
-
-      {items.length === 0 && (
-        <div className="rounded-xl bg-bg-elevated px-4 py-6 text-center text-caption text-label-secondary">
-          Ask your first question above.
+      ) : (
+        <div className="space-y-2">
+          {items.map((item) => (
+            <ContractInterpretationView
+              key={item.interpretation_id ?? item.question}
+              item={item}
+              compact
+            />
+          ))}
         </div>
       )}
     </div>
@@ -321,8 +348,8 @@ function OriginalTab({ contract }: { contract: any }) {
     : [];
   if (files.length === 0) {
     return (
-      <div className="rounded-xl bg-bg-elevated px-4 py-8 text-center text-callout text-label-secondary">
-        No files available.
+      <div className="rounded-2xl border border-hairline bg-bg-elevated p-6 text-center text-callout text-label-secondary">
+        No files attached.
       </div>
     );
   }
@@ -331,14 +358,14 @@ function OriginalTab({ contract }: { contract: any }) {
       {files.map((f, i) => (
         <div
           key={i}
-          className="flex items-center gap-3 rounded-xl bg-bg-elevated px-4 py-3"
+          className="flex items-center gap-3 rounded-2xl border border-hairline bg-bg-elevated p-3"
         >
           <FileText className="h-5 w-5 text-label-tertiary shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-callout text-label-primary truncate">{f.filename}</p>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-callout text-label-primary">{f.filename}</p>
             {f.size_bytes && (
               <p className="text-caption text-label-tertiary">
-                {(f.size_bytes / 1024).toFixed(1)} KB
+                {(f.size_bytes / 1024).toFixed(0)} KB
               </p>
             )}
           </div>
@@ -346,10 +373,10 @@ function OriginalTab({ contract }: { contract: any }) {
             <a
               href={`/api/v1/contracts/blob/${encodeURIComponent(f.minio_key)}`}
               download={f.filename}
-              className="p-2 rounded-lg active:bg-bg-tertiary no-tap-highlight"
               aria-label={`Download ${f.filename}`}
+              className="rounded-lg p-2 text-accent active:bg-bg-tertiary no-tap-highlight"
             >
-              <Download className="h-4 w-4 text-accent" />
+              <Download className="h-4 w-4" />
             </a>
           )}
         </div>
@@ -373,15 +400,15 @@ function DraftTab({
   // Drafting in progress
   if (contract.status === "drafting") {
     return (
-      <div className="space-y-4">
+      <div className="space-y-3">
         <DraftAttorneyBanner />
-        <div className="flex items-center gap-3 rounded-xl bg-bg-elevated border border-separator px-4 py-4">
+        <div className="flex items-center gap-3 rounded-2xl border border-hairline bg-bg-elevated px-4 py-4">
           <Loader2 className="h-5 w-5 animate-spin text-accent shrink-0" />
           <div>
             <p className="text-callout font-medium text-label-primary">
               Axe is drafting your contract…
             </p>
-            <p className="text-caption text-label-secondary mt-0.5">
+            <p className="mt-0.5 text-caption text-label-secondary">
               This usually takes a few minutes. Check back shortly.
             </p>
           </div>
@@ -402,9 +429,9 @@ function DraftTab({
 
     if (!draftArtifact) {
       return (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <DraftAttorneyBanner />
-          <div className="rounded-xl bg-bg-elevated px-4 py-6 text-center text-callout text-label-secondary">
+          <div className="rounded-2xl border border-hairline bg-bg-elevated p-6 text-center text-callout text-label-secondary">
             Draft artifact not found.
           </div>
         </div>
@@ -418,35 +445,32 @@ function DraftTab({
         {parsed.success ? (
           <ContractDraftView artifact={parsed.data} />
         ) : (
-          <div className="rounded-xl bg-bg-elevated px-4 py-4 text-caption text-label-secondary">
+          <div className="rounded-2xl border border-hairline bg-bg-elevated p-4 text-caption text-label-secondary">
             Could not render draft data.
           </div>
         )}
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onRedraft}
-            className="flex items-center gap-1.5 rounded-xl border border-accent px-4 py-2.5 min-h-[44px] text-callout font-medium text-accent active:bg-accent/5 no-tap-highlight"
-          >
-            <PenLine className="h-4 w-4" />
-            Revise this draft
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onRedraft}
+          className="flex items-center gap-1.5 rounded-xl border border-accent px-4 py-2.5 min-h-[44px] text-callout font-medium text-accent active:bg-accent/5 no-tap-highlight"
+        >
+          <PenLine className="h-4 w-4" />
+          Revise this draft
+        </button>
       </div>
     );
   }
 
   // Fallback
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <DraftAttorneyBanner />
-      <div className="rounded-xl bg-bg-elevated px-4 py-6 text-center text-callout text-label-secondary">
+      <div className="rounded-2xl border border-hairline bg-bg-elevated p-6 text-center text-callout text-label-secondary">
         Draft not yet available. Status: {contract.status}
       </div>
     </div>
   );
 }
-
 
 // ── Main page ──────────────────────────────────────────────────────────────
 export default function ContractDetailPage() {
@@ -483,20 +507,20 @@ export default function ContractDetailPage() {
   ];
 
   const title = contract
-    ? (contract as any).project_label ||
-      `Contract ${uploadId.slice(0, 8)}…`
+    ? (contract as any).project_label || `Contract ${uploadId.slice(0, 8)}…`
     : "Contract";
 
   return (
     <MobileShell>
       <TopBar
         title={title}
-        left={
-          <BackButton href="/contracts" label="Contracts" />
-        }
+        left={<BackButton href="/contracts" label="Contracts" />}
       />
 
-      <div className="flex-1 overflow-y-auto">
+      {/* ModuleAgentBar — shows contract-reviewer + coordinator agents */}
+      <ModuleAgentBar moduleKey="contracts" />
+
+      <div className="mx-auto w-full max-w-[708px] px-4 pt-3 pb-16 md:max-w-4xl md:px-8">
         {isLoading && (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-label-tertiary" />
@@ -504,7 +528,7 @@ export default function ContractDetailPage() {
         )}
 
         {error && (
-          <div className="px-4 pt-4">
+          <div className="mb-3">
             <ErrorBanner message="Failed to load contract." />
           </div>
         )}
@@ -512,28 +536,43 @@ export default function ContractDetailPage() {
         {contract && (
           <>
             {/* Status banner */}
-            <div className="px-4 pt-3 pb-2">
-              <StatusBanner
-                status={(contract as any).status}
-                onRunReview={handleRunReview}
-                reviewPending={dispatchReview.isPending}
-              />
-            </div>
+            <StatusBanner
+              status={(contract as any).status}
+              onRunReview={handleRunReview}
+              reviewPending={dispatchReview.isPending}
+            />
 
-            {/* Tab selector */}
-            <div className="px-4 pb-3">
-              <SegmentedControl
-                options={TABS}
-                value={activeTab}
-                onChange={(v) => setActiveTab(v as TabValue)}
-              />
+            {/* Tab bar — Lovable style: bg-bg-elevated pill, active bg-bg-primary shadow-card */}
+            <div
+              role="tablist"
+              aria-label="Contract tabs"
+              className="mb-4 flex gap-1 rounded-xl bg-bg-elevated p-1"
+            >
+              {TABS.map((t) => {
+                const active = activeTab === t.value;
+                return (
+                  <button
+                    key={t.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setActiveTab(t.value)}
+                    className={cn(
+                      "flex-1 rounded-lg py-2 text-caption font-semibold transition-all duration-tap ease-ios no-tap-highlight",
+                      active
+                        ? "bg-bg-primary text-label-primary shadow-card"
+                        : "text-label-secondary active:bg-bg-primary/50",
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Tab content */}
-            <div className="px-4 pb-8 space-y-3">
-              {activeTab === "summary" && (
-                <SummaryTab contract={contract} />
-              )}
+            <div className="space-y-3">
+              {activeTab === "summary" && <SummaryTab contract={contract} />}
               {activeTab === "draft" && isDrafted && (
                 <DraftTab
                   uploadId={uploadId}
@@ -552,9 +591,7 @@ export default function ContractDetailPage() {
               {activeTab === "ask" && (
                 <AskTab uploadId={uploadId} contract={contract} />
               )}
-              {activeTab === "original" && (
-                <OriginalTab contract={contract} />
-              )}
+              {activeTab === "original" && <OriginalTab contract={contract} />}
             </div>
           </>
         )}

@@ -1,15 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { ShieldAlert } from "lucide-react";
+import { Scale } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * DraftAttorneyBanner — prominent, non-dismissible amber alert that must
+ * DraftAttorneyBanner — prominent, non-dismissible legal disclaimer that must
  * appear on every AI-drafted contract view (including print mode).
  *
- * Design: rounded card with amber border + background, ShieldAlert icon,
- * bold canonical legal disclaimer text.
+ * Lovable redesign: Scale icon, warning design tokens (bg-warning/10,
+ * border-warning/30, text-warning, text-caption). Non-dismissible.
+ * Print: border opacity stays fully visible.
  */
 export function DraftAttorneyBanner({ className }: { className?: string }) {
   return (
@@ -17,20 +18,18 @@ export function DraftAttorneyBanner({ className }: { className?: string }) {
       role="alert"
       aria-live="polite"
       className={cn(
-        "flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3",
-        // Print: keep visible, don't hide
-        "print:border-amber-400 print:bg-amber-50",
+        "flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-caption text-warning",
+        "print:border-warning/60 print:bg-warning/10",
         className,
       )}
     >
-      <ShieldAlert
-        className="mt-0.5 h-5 w-5 shrink-0 text-amber-600"
+      <Scale
+        className="mt-0.5 h-3.5 w-3.5 shrink-0"
         aria-hidden="true"
       />
-      <p className="text-sm font-medium leading-snug text-amber-900">
-        <span className="font-semibold">AI-generated draft contract — requires attorney review.</span>{" "}
-        Do not execute, send, or rely on this draft for any binding obligation without review by
-        qualified legal counsel.
+      <p>
+        AI-generated draft. Not legal advice — have licensed counsel review before
+        executing.
       </p>
     </div>
   );
