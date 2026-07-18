@@ -279,7 +279,7 @@ function CatalogSkeleton() {
             {[0, 1, 2].map((i) => (
               <span
                 key={i}
-                className="h-[44px] w-[130px] animate-pulse rounded-full bg-bg-elevated"
+                className="h-[44px] animate-pulse rounded-full bg-bg-elevated"
                 style={{ width: `${110 + ((row + i) % 3) * 30}px` }}
               />
             ))}

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import type { ProjectRequest } from "@/lib/schemas";
 
 /**
- * RequestBubble — renders a single user-submitted project request.
+ * RequestBubble - renders a single user-submitted project request.
  *
  * Layout: right-aligned (user message), with:
  *   - message text
@@ -51,7 +51,7 @@ function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKi
 }) {
   if (status === "processing") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-caption-2 text-amber-600 dark:text-amber-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-caption-2 text-warning">
         <Loader2 className="h-3 w-3 animate-spin" />
         Processing…
       </span>
@@ -59,7 +59,7 @@ function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKi
   }
 
   if (status === "complete") {
-    // Phase G4: co-development gate — deliverable is awaiting_human with a
+    // Phase G4: co-development gate - deliverable is awaiting_human with a
     // co_development hitl kind. Show a distinct badge pointing to the
     // Deliverables tab (where the DeliverableDetailSheet can be opened).
     if (
@@ -69,8 +69,8 @@ function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKi
       return (
         <Link
           href="/projects"
-          className="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2 py-0.5 text-caption-2 text-purple-600 dark:text-purple-400 underline-offset-2 hover:underline"
-          title="Open your project’s Deliverables tab to co-develop this item with AI"
+          className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-caption-2 text-accent underline-offset-2 hover:underline"
+          title="Open your project's Deliverables tab to co-develop this item with AI"
         >
           <GitPullRequest className="h-3 w-3" />
           Awaiting your input — co-develop
@@ -85,13 +85,13 @@ function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKi
     return href ? (
       <Link
         href={href}
-        className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-caption-2 text-green-600 dark:text-green-400 underline-offset-2 hover:underline"
+        className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-caption-2 text-success underline-offset-2 hover:underline"
       >
         <CheckCircle className="h-3 w-3" />
         {label}
       </Link>
     ) : (
-      <span className="inline-flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-0.5 text-caption-2 text-green-600 dark:text-green-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-0.5 text-caption-2 text-success">
         <CheckCircle className="h-3 w-3" />
         {label}
       </span>
@@ -100,7 +100,7 @@ function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKi
 
   if (status === "failed") {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-caption-2 text-red-600 dark:text-red-400">
+      <span className="inline-flex items-center gap-1 rounded-full bg-danger/10 px-2 py-0.5 text-caption-2 text-danger">
         <XCircle className="h-3 w-3" />
         Failed
       </span>
@@ -108,12 +108,12 @@ function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKi
   }
 
   // Modular Framework Phase 2: the owning module is turned off, so the request
-  // was skipped rather than dispatched. Neutral badge — not an error.
+  // was skipped rather than dispatched. Neutral badge - not an error.
   if (status === "skipped") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-label-tertiary/10 px-2 py-0.5 text-caption-2 text-label-secondary">
         <MinusCircle className="h-3 w-3" />
-        Skipped — module off
+        Skipped - module off
       </span>
     );
   }

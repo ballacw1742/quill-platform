@@ -118,7 +118,7 @@ export function ApprovalRow({
             chip
           )
         }
-        chevron={false}
+        chevron={true}
         accent={accent}
         onClick={() => onOpen(item.approval_id)}
         ariaLabel={`Open approval ${item.approval_id}`}

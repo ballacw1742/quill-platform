@@ -250,7 +250,7 @@ export function AgentSelector({ selected, onSelect }: AgentSelectorProps) {
           aria-label="Agent options"
           className={cn(
             "absolute left-4 right-4 top-full mt-1 z-50",
-            "rounded-2xl border border-separator/60 bg-chrome shadow-lg shadow-black/20",
+            "rounded-2xl border border-separator/60 bg-chrome shadow-card shadow-black/20",
             "overflow-hidden",
           )}
         >
@@ -270,8 +270,6 @@ export function AgentSelector({ selected, onSelect }: AgentSelectorProps) {
                     isSelected && "bg-accent/5",
                   )}
                 >
-                  <span className="text-xl leading-none shrink-0 w-7 text-center">
-                  </span>
                   <div className="flex-1 min-w-0">
                     <p
                       className={cn(
