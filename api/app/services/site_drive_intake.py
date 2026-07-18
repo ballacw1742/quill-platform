@@ -68,6 +68,15 @@ _GOOGLE_EXPORT_MIMES = {
 }
 
 SUPPORTED_EXTS = {".pdf", ".docx", ".txt", ".md"}
+# Image site docs (site plans, parcel maps, aerials, scans) analyzed by
+# DataSite's document-analyst vision pass.
+SUPPORTED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+SUPPORTED_IMAGE_MIMES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+}
 FOLDER_MIME = "application/vnd.google-apps.folder"
 MAX_FILES = 25
 MAX_DEPTH = 2
@@ -279,8 +288,11 @@ def _is_supported(filename: str, mime_type: str) -> bool:
     # _GOOGLE_EXPORT_MIMES); they often carry no filename extension.
     if mime_type in _GOOGLE_EXPORT_MIMES:
         return True
+    # Images (site plans, maps, scans) — analyzed via the vision pass.
+    if mime_type in SUPPORTED_IMAGE_MIMES:
+        return True
     ext = os.path.splitext(filename)[1].lower()
-    return ext in SUPPORTED_EXTS
+    return ext in SUPPORTED_EXTS or ext in SUPPORTED_IMAGE_EXTS
 
 
 async def run_intake(site_id: str, folder_url: str) -> dict[str, Any]:
