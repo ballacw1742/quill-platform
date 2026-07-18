@@ -12,8 +12,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Building2, Plus } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Building2 } from "lucide-react";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { SiteCard } from "@/components/sites/SiteCard";
 import { useSites } from "@/lib/api";
@@ -95,19 +94,9 @@ export default function SitesPage() {
 
   return (
     <MobileShell>
-      <TopBar
-        title="Sites"
-        right={
-          <button
-            type="button"
-            onClick={() => router.push("/sites/new")}
-            className="text-callout flex items-center gap-1 font-semibold text-accent"
-          >
-            <Plus className="h-4 w-4" />
-            New
-          </button>
-        }
-      />
+      {/* Sites is a read-only board. New sites are started from the home
+          screen (or Requests) — not created here. */}
+      <TopBar title="Sites" />
 
       {error && (
         <div className="mx-auto w-full max-w-[708px] px-4 pt-3 md:max-w-4xl md:px-8">
@@ -122,15 +111,16 @@ export default function SitesPage() {
           <Building2 className="h-12 w-12 text-label-quaternary" />
           <div className="text-center">
             <p className="mb-1 text-body font-semibold text-label-primary">No sites yet.</p>
-            <p className="text-callout text-label-secondary">Submit your first site evaluation.</p>
+            <p className="text-callout text-label-secondary">
+              Start a new site from the home screen.
+            </p>
           </div>
           <button
             type="button"
-            onClick={() => router.push("/sites/new")}
+            onClick={() => router.push("/")}
             className="mt-2 flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-callout font-semibold text-white"
           >
-            <Plus className="h-4 w-4" />
-            New Site
+            Go to Home
           </button>
         </div>
       )}
@@ -150,20 +140,6 @@ export default function SitesPage() {
         </div>
       )}
 
-      {/* FAB */}
-      <button
-        type="button"
-        aria-label="New site"
-        onClick={() => router.push("/sites/new")}
-        className={cn(
-          "fixed bottom-[calc(env(safe-area-inset-bottom)+96px)] right-4 z-40",
-          "flex h-14 w-14 items-center justify-center rounded-full bg-accent",
-          "shadow-lg shadow-accent/30",
-          "transition-transform active:scale-95 no-tap-highlight",
-        )}
-      >
-        <Plus className="h-6 w-6 text-white" strokeWidth={2.5} />
-      </button>
     </MobileShell>
   );
 }
