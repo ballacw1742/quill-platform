@@ -1,84 +1,42 @@
 "use client";
 
 /**
- * /sites/new — Submit a new site evaluation (Sprint DC.2)
+ * /sites/new — Submit a new site evaluation
  *
- * Uses the simplified CreateSiteRequest model (flat fields) via POST /api/v1/sites.
- * On success, redirects to /sites/[id].
+ * Visual layer ported from quill-platform-builder/src/routes/sites.new.tsx.
+ * Data wired to prod useCreateSite() from @/lib/api.
  *
- * Design: dark Quill theme, iOS-style form cards.
+ * Key differences from Lovable version:
+ * - Prod's form includes GPS coordinates (latitude/longitude) which Lovable omits
+ * - Prod validates "address OR coords" while Lovable requires address fields
+ * - Drive folder attachment and document upload are real POST calls, not mocked
+ * - Error display matches Lovable's danger token pattern
  */
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Building2, Loader2, FolderOpen, Paperclip } from "lucide-react";
+import { ArrowLeft, Building2, FolderOpen, Loader2, Paperclip } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
 import { useCreateSite } from "@/lib/api";
 
 // ── Field helpers ─────────────────────────────────────────────────────────────
 
-function FieldLabel({ children }: { children: React.ReactNode }) {
+function inputCls(extra?: string) {
+  return cn(
+    "text-body w-full rounded-xl px-4 py-3 text-label-primary",
+    "border border-hairline bg-bg-elevated",
+    "placeholder:text-label-quaternary",
+    "transition-colors focus:border-accent focus:outline-none",
+    extra,
+  );
+}
+
+function Label({ children }: { children: React.ReactNode }) {
   return (
-    <label className="block text-footnote font-semibold text-label-secondary uppercase tracking-wide mb-1.5">
+    <label className="text-footnote mb-1.5 block font-semibold uppercase tracking-wide text-label-secondary">
       {children}
     </label>
-  );
-}
-
-function FieldInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={cn(
-        "w-full rounded-xl px-4 py-3 text-body text-label-primary",
-        "bg-bg-elevated border border-separator/60",
-        "placeholder:text-label-quaternary",
-        "focus:outline-none focus:border-accent",
-        "transition-colors",
-        props.className,
-      )}
-    />
-  );
-}
-
-function FieldSelect(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className={cn(
-        "w-full rounded-xl px-4 py-3 text-body text-label-primary",
-        "bg-bg-elevated border border-separator/60",
-        "focus:outline-none focus:border-accent",
-        "transition-colors appearance-none",
-        props.className,
-      )}
-    />
-  );
-}
-
-function FieldTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      {...props}
-      rows={props.rows ?? 3}
-      className={cn(
-        "w-full rounded-xl px-4 py-3 text-body text-label-primary",
-        "bg-bg-elevated border border-separator/60",
-        "placeholder:text-label-quaternary",
-        "focus:outline-none focus:border-accent",
-        "transition-colors resize-none",
-        props.className,
-      )}
-    />
-  );
-}
-
-function FormCard({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <div className={cn("rounded-2xl bg-chrome/80 border border-separator/40 p-5 mb-4", className)}>
-      {children}
-    </div>
   );
 }
 
@@ -120,10 +78,10 @@ const INITIAL_STATE: FormState = {
 
 const WORKLOAD_OPTIONS = [
   { value: "hyperscale_compute", label: "Hyperscale Compute" },
-  { value: "ai_hpc", label: "AI / HPC" },
-  { value: "edge_latency", label: "Edge / Latency" },
-  { value: "colocation", label: "Colocation" },
-  { value: "mixed", label: "Mixed" },
+  { value: "ai_hpc",            label: "AI / HPC" },
+  { value: "edge_latency",      label: "Edge / Latency" },
+  { value: "colocation",        label: "Colocation" },
+  { value: "mixed",             label: "Mixed" },
 ];
 
 const US_STATES = [
@@ -146,7 +104,7 @@ export default function NewSitePage() {
   const createSite = useCreateSite({
     onSuccess: async (site) => {
       const siteId = site.site_id;
-      // Step 2: Attach Drive folder if provided
+      // Attach Drive folder if provided
       if (form.drive_folder_url.trim()) {
         setSubmitStep("Attaching Drive folder…");
         try {
@@ -163,7 +121,7 @@ export default function NewSitePage() {
           // Non-fatal — continue to file upload and redirect
         }
       }
-      // Step 3: Upload supporting documents one at a time
+      // Upload supporting documents one at a time
       if (uploadFiles.length > 0) {
         setSubmitStep(`Uploading ${uploadFiles.length} document(s)…`);
         const token = typeof window !== "undefined" ? localStorage.getItem("quill_token") : null;
@@ -179,11 +137,10 @@ export default function NewSitePage() {
               body: fd,
             });
           } catch {
-            // Non-fatal — document upload failure shouldn't block redirect
+            // Non-fatal
           }
         }
       }
-      // Step 4: Redirect to site detail
       router.push(`/sites/${siteId}`);
     },
     onError: (err) => {
@@ -200,8 +157,7 @@ export default function NewSitePage() {
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(e.target.files ?? []);
-    setUploadFiles(files);
+    setUploadFiles(Array.from(e.target.files ?? []));
   }
 
   function removeFile(idx: number) {
@@ -211,8 +167,6 @@ export default function NewSitePage() {
 
   function validate(): boolean {
     const e: Partial<Record<keyof FormState, string>> = {};
-
-    // At-least-one rule: address OR (latitude AND longitude)
     const hasAddress = form.address.trim().length > 0;
     const latStr = form.latitude.trim();
     const lonStr = form.longitude.trim();
@@ -223,11 +177,9 @@ export default function NewSitePage() {
     if (!hasAddress && !hasCoords) {
       e.address = "Provide a street address or GPS coordinates (latitude + longitude)";
     }
-    // Partial coords: one without the other
     if (hasLat && !hasLon) e.longitude = "Longitude is required when latitude is provided";
     if (hasLon && !hasLat) e.latitude = "Latitude is required when longitude is provided";
 
-    // Range validation for coordinates
     if (hasLat) {
       const lat = parseFloat(latStr);
       if (isNaN(lat) || lat < -90 || lat > 90)
@@ -238,7 +190,6 @@ export default function NewSitePage() {
       if (isNaN(lon) || lon < -180 || lon > 180)
         e.longitude = "Longitude must be a number between -180 and 180";
     }
-
     if (!form.target_workload) e.target_workload = "Workload type is required";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -249,21 +200,18 @@ export default function NewSitePage() {
     if (!validate()) return;
 
     setSubmitStep("Creating site record…");
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       target_workload: form.target_workload,
       lead_source: "internal",
     };
-    // Include address fields only if provided
     if (form.address.trim()) payload.address = form.address.trim();
     if (form.city.trim()) payload.city = form.city.trim();
     if (form.state.trim()) payload.state = form.state.toUpperCase();
     if (form.zip.trim()) payload.zip = form.zip.trim();
-    // Include coordinates if provided
     if (form.latitude.trim()) payload.latitude = parseFloat(form.latitude.trim());
     if (form.longitude.trim()) payload.longitude = parseFloat(form.longitude.trim());
     if (form.acres) payload.acres = parseFloat(form.acres);
     if (form.target_mw) payload.target_mw = parseFloat(form.target_mw);
-    // Store extras in a notes-like field; DataSite's CreateSiteRequest is lean
     const noteParts: string[] = [];
     if (form.fiber_providers) noteParts.push(`Fiber providers: ${form.fiber_providers}`);
     if (form.zoning_status) noteParts.push(`Zoning: ${form.zoning_status}`);
@@ -280,81 +228,84 @@ export default function NewSitePage() {
     <MobileShell>
       <TopBar
         title="New Site"
-        left={
+        right={
           <button
             type="button"
             onClick={() => router.back()}
-            className="flex items-center gap-1 text-accent font-semibold text-callout"
+            className="text-callout flex items-center gap-1 font-semibold text-accent"
           >
-            <ArrowLeft className="h-4 w-4" />
-            Sites
+            <ArrowLeft className="h-4 w-4" /> Sites
           </button>
         }
       />
 
-      <form onSubmit={handleSubmit} className="px-4 pt-3 pb-12">
+      <form
+        onSubmit={handleSubmit}
+        className="mx-auto w-full max-w-[708px] px-4 pt-3 pb-12 md:max-w-4xl md:px-8"
+      >
         {/* Location */}
-        <FormCard>
-          <p className="text-callout font-semibold text-label-primary mb-4">Location</p>
+        <div className="glass mb-4 rounded-2xl border border-hairline p-5">
+          <p className="text-callout mb-4 font-semibold text-label-primary">Location</p>
 
           <div className="mb-4">
-            <FieldLabel>Street Address</FieldLabel>
-            <FieldInput
+            <Label>Street Address</Label>
+            <input
+              className={inputCls()}
               placeholder="3990 E Broad Street"
               value={form.address}
               onChange={set("address")}
               autoComplete="street-address"
             />
-            {/* Address error shown in coords section below when combined with coords */}
             {errors.address && form.address.trim() && (
-              <p className="text-caption-1 text-red-400 mt-1">{errors.address}</p>
+              <p className="text-caption-1 mt-1 text-danger">{errors.address}</p>
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="mb-4 grid grid-cols-2 gap-3">
             <div>
-              <FieldLabel>City</FieldLabel>
-              <FieldInput
+              <Label>City</Label>
+              <input
+                className={inputCls()}
                 placeholder="Columbus"
                 value={form.city}
                 onChange={set("city")}
               />
-              {errors.city && <p className="text-caption-1 text-red-400 mt-1">{errors.city}</p>}
+              {errors.city && <p className="text-caption-1 mt-1 text-danger">{errors.city}</p>}
             </div>
             <div>
-              <FieldLabel>State</FieldLabel>
-              <FieldSelect value={form.state} onChange={set("state")}>
+              <Label>State</Label>
+              <select className={inputCls("appearance-none")} value={form.state} onChange={set("state")}>
                 <option value="">Select</option>
-                {US_STATES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </FieldSelect>
-              {errors.state && <p className="text-caption-1 text-red-400 mt-1">{errors.state}</p>}
+                {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {errors.state && <p className="text-caption-1 mt-1 text-danger">{errors.state}</p>}
             </div>
           </div>
 
           <div>
-            <FieldLabel>ZIP Code</FieldLabel>
-            <FieldInput
+            <Label>ZIP Code</Label>
+            <input
+              className={inputCls()}
               placeholder="43213"
               value={form.zip}
               onChange={set("zip")}
               inputMode="numeric"
               maxLength={10}
             />
-            {errors.zip && <p className="text-caption-1 text-red-400 mt-1">{errors.zip}</p>}
+            {errors.zip && <p className="text-caption-1 mt-1 text-danger">{errors.zip}</p>}
           </div>
 
-          {/* Coordinate entry (alternative to address) */}
-          <div className="mt-4 pt-4 border-t border-separator/30">
-            <p className="text-caption-1 text-label-tertiary mb-3">
+          {/* GPS coordinates (alternative to address) */}
+          <div className="mt-4 border-t border-hairline pt-4">
+            <p className="text-caption-1 mb-3 text-label-tertiary">
               <strong className="text-label-secondary">Or enter GPS coordinates</strong>
               {" "}— provide latitude + longitude instead of (or in addition to) an address.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <FieldLabel>Latitude</FieldLabel>
-                <FieldInput
+                <Label>Latitude</Label>
+                <input
+                  className={inputCls()}
                   placeholder="39.9612"
                   type="number"
                   step="any"
@@ -364,12 +315,13 @@ export default function NewSitePage() {
                   onChange={set("latitude")}
                 />
                 {errors.latitude && (
-                  <p className="text-caption-1 text-red-400 mt-1">{errors.latitude}</p>
+                  <p className="text-caption-1 mt-1 text-danger">{errors.latitude}</p>
                 )}
               </div>
               <div>
-                <FieldLabel>Longitude</FieldLabel>
-                <FieldInput
+                <Label>Longitude</Label>
+                <input
+                  className={inputCls()}
                   placeholder="-82.9988"
                   type="number"
                   step="any"
@@ -379,33 +331,41 @@ export default function NewSitePage() {
                   onChange={set("longitude")}
                 />
                 {errors.longitude && (
-                  <p className="text-caption-1 text-red-400 mt-1">{errors.longitude}</p>
+                  <p className="text-caption-1 mt-1 text-danger">{errors.longitude}</p>
                 )}
               </div>
             </div>
             {errors.address && !form.address.trim() && (
-              <p className="text-caption-1 text-red-400 mt-2">{errors.address}</p>
+              <p className="text-caption-1 mt-2 text-danger">{errors.address}</p>
             )}
           </div>
-        </FormCard>
+        </div>
 
         {/* Site Details */}
-        <FormCard>
-          <p className="text-callout font-semibold text-label-primary mb-4">Site Details</p>
+        <div className="glass mb-4 rounded-2xl border border-hairline p-5">
+          <p className="text-callout mb-4 font-semibold text-label-primary">Site Details</p>
 
           <div className="mb-4">
-            <FieldLabel>Target Workload *</FieldLabel>
-            <FieldSelect value={form.target_workload} onChange={set("target_workload")}>
+            <Label>Target Workload *</Label>
+            <select
+              className={inputCls("appearance-none")}
+              value={form.target_workload}
+              onChange={set("target_workload")}
+            >
               {WORKLOAD_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
-            </FieldSelect>
+            </select>
+            {errors.target_workload && (
+              <p className="text-caption-1 mt-1 text-danger">{errors.target_workload}</p>
+            )}
           </div>
 
-          <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <FieldLabel>Parcel Size (acres)</FieldLabel>
-              <FieldInput
+              <Label>Parcel Size (acres)</Label>
+              <input
+                className={inputCls()}
                 placeholder="250"
                 type="number"
                 min="0"
@@ -415,8 +375,9 @@ export default function NewSitePage() {
               />
             </div>
             <div>
-              <FieldLabel>Available Power (MW)</FieldLabel>
-              <FieldInput
+              <Label>Available Power (MW)</Label>
+              <input
+                className={inputCls()}
                 placeholder="100"
                 type="number"
                 min="0"
@@ -427,79 +388,85 @@ export default function NewSitePage() {
             </div>
           </div>
 
-          <div className="mb-4">
-            <FieldLabel>Fiber Providers Present</FieldLabel>
-            <FieldInput
+          <div className="mt-4">
+            <Label>Fiber Providers Present</Label>
+            <input
+              className={inputCls()}
               placeholder="AT&T, Lumen, Zayo"
               value={form.fiber_providers}
               onChange={set("fiber_providers")}
             />
           </div>
 
-          <div className="mb-4">
-            <FieldLabel>Zoning Status</FieldLabel>
-            <FieldInput
+          <div className="mt-4">
+            <Label>Zoning Status</Label>
+            <input
+              className={inputCls()}
               placeholder="M-2 Industrial, pending rezoning"
               value={form.zoning_status}
               onChange={set("zoning_status")}
             />
           </div>
 
-          <div>
-            <FieldLabel>Flood Zone</FieldLabel>
-            <FieldSelect value={form.flood_zone} onChange={set("flood_zone")}>
+          <div className="mt-4">
+            <Label>Flood Zone</Label>
+            <select
+              className={inputCls("appearance-none")}
+              value={form.flood_zone}
+              onChange={set("flood_zone")}
+            >
               <option value="no">No</option>
               <option value="yes">Yes</option>
               <option value="unknown">Unknown</option>
-            </FieldSelect>
+            </select>
           </div>
-        </FormCard>
+        </div>
 
         {/* Notes + Drive + Docs */}
-        <FormCard>
-          <p className="text-callout font-semibold text-label-primary mb-4">Additional Notes</p>
+        <div className="glass mb-4 rounded-2xl border border-hairline p-5">
+          <p className="text-callout mb-4 font-semibold text-label-primary">Additional Notes</p>
 
           <div className="mb-4">
-            <FieldTextarea
+            <textarea
+              rows={4}
+              className={inputCls("resize-none")}
               placeholder="Any other context about this site…"
               value={form.notes}
               onChange={set("notes")}
-              rows={4}
             />
           </div>
 
           {/* Google Drive Folder */}
           <div className="mb-4">
-            <FieldLabel>Google Drive Folder (optional)</FieldLabel>
+            <Label>Google Drive Folder (optional)</Label>
             <div className="relative">
-              <FolderOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-label-tertiary pointer-events-none" />
-              <FieldInput
+              <FolderOpen className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-label-tertiary" />
+              <input
+                className={inputCls("pl-9")}
                 placeholder="https://drive.google.com/drive/folders/…"
                 value={form.drive_folder_url}
                 onChange={set("drive_folder_url")}
-                className="pl-9"
                 type="url"
                 inputMode="url"
               />
             </div>
-            <p className="text-caption-1 text-label-quaternary mt-1">
-              Share a Drive folder containing site docs — the research agents will index it.
+            <p className="text-caption-1 mt-1 text-label-quaternary">
+              Share a Drive folder with site docs — the research agents will index it.
             </p>
           </div>
 
           {/* File Upload */}
           <div>
-            <FieldLabel>Supporting Documents (optional)</FieldLabel>
+            <Label>Supporting Documents (optional)</Label>
             <label
               className={cn(
-                "flex flex-col items-center justify-center gap-2 w-full",
-                "rounded-xl border border-dashed border-separator/60 bg-bg-elevated",
-                "px-4 py-5 cursor-pointer transition-colors",
-                "hover:border-accent/50 hover:bg-accent/5",
+                "flex w-full cursor-pointer flex-col items-center justify-center gap-2",
+                "rounded-xl border border-dashed border-hairline bg-bg-elevated px-4 py-5",
+                "transition-colors hover:border-accent/50 hover:bg-accent/5",
               )}
             >
               <Paperclip className="h-5 w-5 text-label-tertiary" />
-              <span className="text-caption-1 text-label-secondary text-center">
+              <span className="text-caption-1 text-center text-label-secondary">
                 {uploadFiles.length > 0
                   ? `${uploadFiles.length} file${uploadFiles.length > 1 ? "s" : ""} selected`
                   : "Tap to attach PDF or DOCX files"}
@@ -513,18 +480,21 @@ export default function NewSitePage() {
                 onChange={handleFileChange}
               />
             </label>
-            <p className="text-caption-1 text-label-quaternary mt-1">
+            <p className="text-caption-1 mt-1 text-label-quaternary">
               Phase 1 ESA, geotech reports, utility LOIs, title docs, appraisals
             </p>
             {uploadFiles.length > 0 && (
               <ul className="mt-2 space-y-1">
                 {uploadFiles.map((f, i) => (
-                  <li key={i} className="flex items-center justify-between gap-2 text-caption-1 text-label-secondary">
+                  <li
+                    key={i}
+                    className="text-caption-1 flex items-center justify-between gap-2 text-label-secondary"
+                  >
                     <span className="truncate">{f.name}</span>
                     <button
                       type="button"
                       onClick={() => removeFile(i)}
-                      className="text-label-tertiary hover:text-red-400 transition-colors shrink-0 text-caption-1"
+                      className="text-caption-1 shrink-0 text-label-tertiary transition-colors hover:text-danger"
                     >
                       Remove
                     </button>
@@ -533,18 +503,16 @@ export default function NewSitePage() {
               </ul>
             )}
           </div>
-        </FormCard>
+        </div>
 
         {/* Submit */}
         <button
           type="submit"
           disabled={isPending}
           className={cn(
-            "w-full py-3.5 rounded-2xl font-semibold text-body",
-            "bg-accent text-white",
-            "transition-all active:scale-[0.98]",
-            "flex items-center justify-center gap-2",
-            isPending && "opacity-60 cursor-not-allowed",
+            "text-body w-full rounded-2xl bg-accent py-3.5 font-semibold text-white",
+            "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
+            isPending && "cursor-not-allowed opacity-60",
           )}
         >
           {isPending ? (
@@ -559,6 +527,12 @@ export default function NewSitePage() {
             </>
           )}
         </button>
+
+        {createSite.isError && !isPending && (
+          <p className="text-caption-1 mt-2 text-center text-danger">
+            {(createSite.error as Error)?.message ?? "Submission failed."}
+          </p>
+        )}
       </form>
     </MobileShell>
   );
