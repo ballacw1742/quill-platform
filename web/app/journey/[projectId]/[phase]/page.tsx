@@ -22,8 +22,9 @@ import {
   JOURNEY,
   type JourneyPhaseKey,
 } from "@/lib/journey";
-import { useProject } from "@/lib/api";
+import { useProject, useSubmitProjectRequest } from "@/lib/api";
 import { AgentChip } from "@/components/journey/AgentChip";
+import { RequestInput, type RequestInputValue } from "@/components/requests/RequestInput";
 import { cn } from "@/lib/utils";
 
 const PHASE_KEYS: JourneyPhaseKey[] = ["site", "estimate", "contract", "project", "operate"];
@@ -37,6 +38,7 @@ export default function PhaseDetailPage() {
   const projectId = params.projectId;
   const phaseKey: JourneyPhaseKey = isJourneyPhaseKey(params.phase) ? params.phase : "site";
   const { data: project, isLoading } = useProject(projectId);
+  const submit = useSubmitProjectRequest();
 
   const journeyPhase = findPhase(phaseKey);
   const steps = journeyPhase.steps;
@@ -65,6 +67,17 @@ export default function PhaseDetailPage() {
   const prevPhase = phaseIdx > 0 ? PHASE_KEYS[phaseIdx - 1] : null;
   const nextPhase = phaseIdx < PHASE_KEYS.length - 1 ? PHASE_KEYS[phaseIdx + 1] : null;
   const selectedStep = steps[selectedIdx]!;
+
+  // Step-scoped composer: submits a project request tagged with the step's
+  // intent, via prod's real useSubmitProjectRequest (FormData) mutation.
+  function handleSend(value: RequestInputValue) {
+    const form = new FormData();
+    form.append("message", value.message.trim());
+    form.append("intent", selectedStep.intent);
+    if (value.driveUrl) form.append("drive_url", value.driveUrl);
+    for (const f of value.files) form.append("files", f);
+    submit.mutate(form);
+  }
 
   return (
     <MobileShell>
@@ -205,6 +218,17 @@ export default function PhaseDetailPage() {
             ))}
           </div>
         </section>
+      </div>
+
+      {/* Step-scoped chat composer (fixed, above the floating home button) */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-hairline bg-chrome pb-safe">
+        <div className="mx-auto w-full max-w-[708px] px-4 py-2 md:max-w-4xl md:px-8">
+          <RequestInput
+            onSend={handleSend}
+            isProcessing={submit.isPending}
+            examples={[`Ask about ${selectedStep.label.toLowerCase()}`]}
+          />
+        </div>
       </div>
     </MobileShell>
   );

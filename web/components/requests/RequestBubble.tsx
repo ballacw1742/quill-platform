@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import type { ProjectRequest } from "@/lib/schemas";
 
 /**
- * RequestBubble - renders a single user-submitted project request.
+ * RequestBubble — renders a single user-submitted project request.
  *
  * Layout: right-aligned (user message), with:
  *   - message text
@@ -59,7 +59,7 @@ function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKi
   }
 
   if (status === "complete") {
-    // Phase G4: co-development gate - deliverable is awaiting_human with a
+    // Phase G4: co-development gate — deliverable is awaiting_human with a
     // co_development hitl kind. Show a distinct badge pointing to the
     // Deliverables tab (where the DeliverableDetailSheet can be opened).
     if (
@@ -108,12 +108,12 @@ function StatusBadge({ status, intent, outputModule, outputId, deliverableHitlKi
   }
 
   // Modular Framework Phase 2: the owning module is turned off, so the request
-  // was skipped rather than dispatched. Neutral badge - not an error.
+  // was skipped rather than dispatched. Neutral badge — not an error.
   if (status === "skipped") {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-label-tertiary/10 px-2 py-0.5 text-caption-2 text-label-secondary">
         <MinusCircle className="h-3 w-3" />
-        Skipped - module off
+        Skipped — module off
       </span>
     );
   }
