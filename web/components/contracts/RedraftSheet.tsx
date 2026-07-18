@@ -137,7 +137,7 @@ export function RedraftSheet({ uploadId, open, onOpenChange }: RedraftSheetProps
           </div>
 
           {redraft.isError && (
-            <div className="text-caption text-red-600 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+            <div className="text-caption text-danger rounded-lg bg-danger/10 border border-danger/20 px-3 py-2">
               {(redraft.error as Error)?.message ?? "Failed to request redraft."}
             </div>
           )}

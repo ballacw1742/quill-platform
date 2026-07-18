@@ -54,9 +54,9 @@ type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
 function severityCls(sev: string): string {
   switch (sev) {
     case "P1": return "bg-danger text-white";
-    case "P2": return "bg-orange-500 text-white";
-    case "P3": return "bg-yellow-500 text-black";
-    default:   return "bg-zinc-500 text-white";
+    case "P2": return "bg-warning text-white";
+    case "P3": return "bg-fill-quaternary text-label-secondary";
+    default:   return "bg-fill-quaternary text-label-secondary";
   }
 }
 

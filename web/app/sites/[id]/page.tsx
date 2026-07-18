@@ -66,8 +66,8 @@ function statusBadge(status: string): { label: string; cls: string } {
 }
 
 function scoreBarColor(score: number): string {
-  if (score >= 70) return "bg-green-500";
-  if (score >= 50) return "bg-yellow-500";
+  if (score >= 70) return "bg-success";
+  if (score >= 50) return "bg-warning";
   return "bg-danger";
 }
 

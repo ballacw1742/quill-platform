@@ -190,7 +190,7 @@ function PartyRow({
             <button
               type="button"
               onClick={onRemove}
-              className="flex items-center gap-1 text-caption text-red-600 active:opacity-70 no-tap-highlight mt-1"
+              className="flex items-center gap-1 text-caption text-danger active:opacity-70 no-tap-highlight mt-1"
             >
               <Trash2 className="h-3.5 w-3.5" />
               Remove party
@@ -643,7 +643,7 @@ export function DraftContractSheet({ open, onOpenChange }: DraftContractSheetPro
               )}
             </div>
             {createDraft.isError && (
-              <div className="text-caption text-red-600 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+              <div className="text-caption text-danger rounded-lg bg-danger/10 border border-danger/20 px-3 py-2">
                 {(createDraft.error as Error)?.message ?? "Failed to create draft request."}
               </div>
             )}

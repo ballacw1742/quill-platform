@@ -190,6 +190,13 @@
     border-bottom: 0;
   }
 
+  /* iOS system fill tier 4 — barely-visible neutral surface (~5 % opacity).
+     Used by Lovable redesign for waived/cancelled badges and active press
+     states on list rows. Equivalent to iOS UIColor.systemFill (.quaternary). */
+  .bg-fill-quaternary {
+    background-color: rgb(var(--label-quaternary) / 0.08);
+  }
+
   /* Prevent text selection on swipeable list rows. */
   .no-select {
     -webkit-user-select: none;
