@@ -23,6 +23,7 @@ import {
   type JourneyPhaseKey,
 } from "@/lib/journey";
 import { useProject } from "@/lib/api";
+import { AgentChip } from "@/components/journey/AgentChip";
 import { cn } from "@/lib/utils";
 
 const PHASE_KEYS: JourneyPhaseKey[] = ["site", "estimate", "contract", "project", "operate"];
@@ -200,12 +201,7 @@ export default function PhaseDetailPage() {
           </Link>
           <div className="flex flex-wrap gap-2">
             {selectedStep.agents.map((a) => (
-              <span
-                key={a}
-                className="inline-flex items-center gap-1.5 rounded-full border border-hairline bg-bg-elevated px-3 py-1.5 text-footnote shadow-card text-label-primary font-medium"
-              >
-                {a}
-              </span>
+              <AgentChip key={a} agentId={a} />
             ))}
           </div>
         </section>
