@@ -1,95 +1,62 @@
 "use client";
 
 /**
- * / — iOS-style Home Screen (UI_REDESIGN_BRIEF §3, decisions locked §9).
+ * / — Home Screen (Lovable redesign, ported 2026-07-18).
  *
- * Layout, top to bottom:
- *  - Greeting header ("Good morning, {name}") + date; avatar top-right opens
- *    a sheet with Profile / Settings / Dev Chat / Sign out.
- *  - Compact Today strip: pending approvals + open requests, tappable.
- *  - Responsive grid of 15 squircle ModuleTiles (roster locked in brief §9.1):
- *    4-up on mobile so all tiles are visible without scrolling, scaling to
- *    5/6/8 columns on sm/md/lg. Container widens on tablet/desktop rather
- *    than staying phone-width.
+ * The redesigned home is a project "journey map": each active project is an
+ * expandable accordion showing its 5-phase lifecycle (Site → Estimate →
+ * Contract → Project → Operate). Tapping a phase opens its journey detail.
+ * Below the accordion sits a 2-col action-tile row (Requests / Approvals /
+ * Metrics / Pipeline).
  *
- * Auth-gated like every other page (MobileShell redirects to /login).
- * The FloatingHomeButton is hidden here (MobileShell hides it on "/").
+ * Ported from quill-platform-builder src/routes/index.tsx. Wired to prod's
+ * real api.ts hooks (envelope-adapted: useProjects/useProjectRequests return
+ * {items,...}). Prod's AvatarMenu (profile / settings / sign-out sheet) is
+ * preserved — the Lovable mock dropped it, but it is required functionality.
+ *
+ * Auth-gated via MobileShell (redirects to /login). FloatingHomeButton is
+ * hidden on "/" by the shell.
  */
 
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
 import {
-  Bot,
-  Brain,
-  Calculator,
+  BarChart3,
+  Check,
   CheckCircle2,
-  ClipboardList,
-  DollarSign,
-  Factory,
-  FileText,
-  FolderKanban,
-  Inbox,
+  ChevronDown,
+  ChevronRight,
+  FolderOpen,
   LogOut,
-  MapPin,
   MessageSquare,
-  Package,
   Settings,
-  Shield,
+  ShieldCheck,
   Sparkles,
+  Target,
   Terminal,
-  TrendingUp,
+  Truck,
   User,
   Users,
-  Workflow,
   X,
 } from "lucide-react";
 import { MobileShell } from "@/components/layout/MobileShell";
-import { ModuleTile } from "@/components/home/ModuleTile";
-import { MODULE_ROSTER } from "@/lib/modules";
+import {
+  JOURNEY,
+  phaseStatus,
+  stepStatus,
+  currentJourneyPhase,
+  type JourneyPhaseKey,
+} from "@/lib/journey";
 import {
   useApprovals,
   useLogout,
-  useModuleConfig,
+  useProjects,
   useProjectRequests,
   useSession,
 } from "@/lib/api";
-import type { Session } from "@/lib/schemas";
+import type { QuillProject, Session } from "@/lib/schemas";
 import { cn } from "@/lib/utils";
-
-/* ── Module roster — exactly 15 tiles, order locked (brief §3) ───────────
-   Names/order/gradients live in lib/modules.ts (shared with the Requests
-   action catalog). Icons + badge wiring stay local to the home grid. */
-const MODULE_ICONS: Record<string, LucideIcon> = {
-  requests: MessageSquare,
-  approvals: Inbox,
-  projects: FolderKanban,
-  sites: MapPin,
-  contracts: ClipboardList,
-  estimates: Calculator,
-  documents: FileText,
-  operations: Factory,
-  sales: TrendingUp,
-  customers: Users,
-  "supply-chain": Package,
-  finance: DollarSign,
-  compliance: Shield,
-  intelligence: Brain,
-  agents: Bot,
-};
-
-const MODULES = MODULE_ROSTER.map((m) => ({
-  key: m.key,
-  href: m.href,
-  label: m.label,
-  gradient: m.gradient,
-  icon: MODULE_ICONS[m.key] ?? Bot,
-  badge: m.key === "approvals" ? ("approvals" as const) : undefined,
-}));
-const ROSTER_ORDER: Record<string, number> = Object.fromEntries(
-  MODULE_ROSTER.map((m, i) => [m.key, i]),
-);
 
 function greetingFor(hour: number): string {
   if (hour < 12) return "Good morning";
@@ -108,49 +75,34 @@ export default function HomePage() {
 function HomeScreen() {
   const { data: rawSession } = useSession();
   const session = rawSession as Session | null | undefined;
+  const { data: projectsData } = useProjects();
   const { data: approvals } = useApprovals();
   const { data: requestsData } = useProjectRequests();
-  const { data: moduleConfig } = useModuleConfig();
 
-  const pendingApprovals = (approvals ?? []).filter((a) => a.status === "pending").length;
-  const openRequests = (requestsData?.items ?? []).filter((r) => r.status === "processing").length;
+  const projects = React.useMemo<QuillProject[]>(
+    () => projectsData?.items ?? [],
+    [projectsData],
+  );
+  const active = React.useMemo(
+    () => projects.filter((p) => p.status !== "cancelled"),
+    [projects],
+  );
+  const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
-  // Modular framework (Phase 0): show only enabled modules, in the configured
-  // order. Until the config loads (or if the request fails) we fall back to the
-  // full static roster so the home screen is never empty.
-  const visibleModules = React.useMemo(() => {
-    const cfg = moduleConfig?.items;
-    if (!cfg || cfg.length === 0) return MODULES;
-    const byKey = new Map(MODULES.map((m) => [m.key, m] as const));
-    // Walk the config in its (already-sorted) order; include enabled builtins
-    // and enabled custom modules (which aren't in the static MODULES array).
-    const out: typeof MODULES = [];
-    for (const c of cfg) {
-      if (!c.enabled) continue;
-      const builtin = byKey.get(c.key);
-      if (builtin) {
-        out.push(builtin);
-      } else if (c.custom) {
-        out.push({
-          key: c.key,
-          href: c.href ?? "/requests",
-          label: c.label,
-          gradient: c.gradient ?? "from-slate-400 to-slate-600",
-          icon: (c.icon && MODULE_ICONS[c.icon]) || Bot,
-          badge: undefined,
-        });
-      }
-    }
-    return out;
-  }, [moduleConfig]);
+  const pendingApprovals = React.useMemo(
+    () => (approvals ?? []).filter((a) => a.status === "pending").length,
+    [approvals],
+  );
+  const openRequests = React.useMemo(
+    () => (requestsData?.items ?? []).filter((r) => r.status === "processing").length,
+    [requestsData],
+  );
 
   const [now, setNow] = React.useState<Date | null>(null);
   React.useEffect(() => setNow(new Date()), []);
 
   const firstName =
-    session?.display_name?.split(" ")[0] ||
-    session?.email?.split("@")[0] ||
-    "there";
+    session?.display_name?.split(" ")[0] || session?.email?.split("@")[0] || "there";
 
   const dateLabel = now
     ? now.toLocaleDateString("en-US", {
@@ -162,8 +114,8 @@ function HomeScreen() {
     : "";
 
   return (
-    <div className="mx-auto w-full max-w-[708px] px-5 pt-safe md:max-w-4xl md:px-8 lg:px-10">
-      {/* ── Greeting header ── */}
+    <div className="mx-auto w-full max-w-[708px] px-4 pt-safe md:max-w-4xl md:px-8 lg:px-10">
+      {/* ── Greeting ── */}
       <header className="flex items-start justify-between pt-6 pb-4">
         <div className="min-w-0">
           <p className="text-footnote font-medium uppercase tracking-wide text-label-secondary/60">
@@ -172,85 +124,277 @@ function HomeScreen() {
           <h1 className="mt-0.5 text-large-title text-label-primary">
             {now ? greetingFor(now.getHours()) : "Hello"}, {firstName}
           </h1>
+          <p className="mt-1 text-subhead text-label-secondary">
+            Tap a project to see its phases.
+          </p>
         </div>
         <AvatarMenu session={session} />
       </header>
 
-      {/* ── Today strip ── */}
-      <section aria-label="Today" className="mb-6 grid grid-cols-2 gap-3 md:gap-4">
-        <Link
+      {/* ── Projects (accordion) ── */}
+      {active.length > 0 ? (
+        <ProjectsAccordion
+          projects={active}
+          expandedId={expandedId}
+          onToggle={(id) => setExpandedId((cur) => (cur === id ? null : id))}
+        />
+      ) : (
+        <div className="glass mt-6 rounded-2xl p-6 text-center">
+          <p className="text-body text-label-primary">No active projects yet.</p>
+          <p className="mt-1 text-footnote text-label-secondary">
+            Start one from Requests to kick off the journey.
+          </p>
+        </div>
+      )}
+
+      {/* ── Action tiles ── */}
+      <section aria-label="Quick actions" className="mt-6 mb-8 grid grid-cols-2 gap-3">
+        <ActionTile
+          href="/requests"
+          icon={<MessageSquare className="h-6 w-6" aria-hidden />}
+          count={openRequests}
+          label="Requests"
+        />
+        <ActionTile
           href="/queue"
-          className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
-        >
-          <CheckCircle2 className="h-6 w-6 shrink-0 text-accent" aria-hidden="true" />
-          <span className="min-w-0">
-            <span className="block text-title-3 leading-6 text-label-primary">{pendingApprovals}</span>
-            <span className="block text-footnote text-label-secondary">Pending approvals</span>
-          </span>
-        </Link>
-        <Link
-          href="/today"
-          className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
-        >
-          <MessageSquare className="h-6 w-6 shrink-0 text-accent" aria-hidden="true" />
-          <span className="min-w-0">
-            <span className="block text-title-3 leading-6 text-label-primary">{openRequests}</span>
-            <span className="block text-footnote text-label-secondary">Open requests</span>
-          </span>
-        </Link>
-      </section>
-
-      {/* ── Quick access: Lifecycle + Assistant (not in the locked 15-tile roster) ── */}
-      <section aria-label="Quick access" className="mb-6 grid grid-cols-2 gap-3 md:gap-4">
-        <Link
-          href="/lifecycle"
-          className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
-        >
-          <Workflow className="h-6 w-6 shrink-0 text-accent" aria-hidden="true" />
-          <span className="min-w-0">
-            <span className="block text-callout font-semibold leading-6 text-label-primary">Lifecycle</span>
-            <span className="block text-footnote text-label-secondary">Project journey map</span>
-          </span>
-        </Link>
-        <Link
-          href="/assistant"
-          className="glass flex items-center gap-3 rounded-2xl px-4 py-3 no-tap-highlight active:opacity-70 transition-state ease-ios"
-        >
-          <Sparkles className="h-6 w-6 shrink-0 text-accent" aria-hidden="true" />
-          <span className="min-w-0">
-            <span className="block text-callout font-semibold leading-6 text-label-primary">Assistant</span>
-            <span className="block text-footnote text-label-secondary">Agents &amp; builder</span>
-          </span>
-        </Link>
-      </section>
-
-      {/* ── Module grid ──
-          Fixed, even column counts so rows stay symmetric and tiles keep a
-          natural size instead of stretching: 4-up on mobile (all 15 tiles
-          visible without scrolling) → 5-up from sm upward, which lays the 15
-          tiles out as exactly three even rows of five on tablet/desktop.
-          justify-items-center keeps each tile centered in its cell. */}
-      <section
-        aria-label="Modules"
-        className="grid grid-cols-4 justify-items-center gap-x-4 gap-y-6 pb-8 sm:grid-cols-5 sm:gap-x-6 md:gap-x-8 md:gap-y-8"
-      >
-        {visibleModules.map((m) => (
-          <ModuleTile
-            key={m.href}
-            href={m.href}
-            label={m.label}
-            icon={m.icon}
-            gradient={m.gradient}
-            badge={m.badge === "approvals" ? pendingApprovals : undefined}
-            className="w-full max-w-[96px]"
-          />
-        ))}
+          icon={<CheckCircle2 className="h-6 w-6" aria-hidden />}
+          count={pendingApprovals}
+          label="Approvals"
+        />
+        <ActionTile
+          href="/metrics"
+          icon={<BarChart3 className="h-6 w-6" aria-hidden />}
+          label="Metrics"
+        />
+        <ActionTile
+          href="/pipeline"
+          icon={<Target className="h-6 w-6" aria-hidden />}
+          label="Pipeline"
+        />
       </section>
     </div>
   );
 }
 
-/* ── Avatar + account sheet ────────────────────────────────────────────── */
+function ActionTile({
+  href,
+  icon,
+  count,
+  label,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  count?: number;
+  label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="no-tap-highlight ease-ios flex flex-col items-start gap-2 rounded-2xl bg-bg-elevated p-4 shadow-card active:scale-[0.98] duration-tap"
+    >
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-accent-tint text-accent">
+        {icon}
+      </span>
+      <span className="mt-1 flex items-baseline gap-1.5">
+        {typeof count === "number" && (
+          <span className="text-title-3 font-bold text-label-primary">{count}</span>
+        )}
+        <span className="text-footnote font-semibold text-label-secondary">{label}</span>
+      </span>
+    </Link>
+  );
+}
+
+function ProjectsAccordion({
+  projects,
+  expandedId,
+  onToggle,
+}: {
+  projects: QuillProject[];
+  expandedId: string | null;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <section aria-label="Active project" className="mt-3">
+      <p className="text-caption-1 mb-1.5 ml-1 font-semibold uppercase tracking-wide text-label-tertiary">
+        Projects
+      </p>
+      <div className="space-y-3">
+        {projects.map((p) => (
+          <ProjectAccordionItem
+            key={p.id}
+            project={p}
+            expanded={p.id === expandedId}
+            onToggle={() => onToggle(p.id)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ProjectAccordionItem({
+  project,
+  expanded,
+  onToggle,
+}: {
+  project: QuillProject;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const journeyPhase = currentJourneyPhase(project);
+  const currentPhaseLabel = JOURNEY.find((j) => j.key === journeyPhase)?.label ?? "";
+  const progress =
+    project.milestone_total > 0
+      ? `${project.milestone_complete} of ${project.milestone_total} milestones`
+      : "No milestones yet";
+  return (
+    <div className="overflow-hidden rounded-2xl bg-bg-elevated shadow-card">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="no-tap-highlight ease-ios flex w-full items-center gap-3 px-4 py-4 text-left active:bg-bg-tertiary duration-tap"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-headline font-semibold text-label-primary">
+            {project.name}
+          </span>
+          <span className="mt-0.5 block truncate text-footnote text-label-secondary">
+            <span className="font-semibold text-accent">{currentPhaseLabel}</span>
+            <span className="text-label-tertiary"> · {progress}</span>
+          </span>
+        </span>
+        <ChevronDown
+          aria-hidden
+          className={cn(
+            "h-5 w-5 shrink-0 text-label-tertiary transition-transform",
+            expanded && "rotate-180",
+          )}
+        />
+      </button>
+      {expanded && (
+        <div className="border-t border-separator/60">
+          {JOURNEY.map((phase) => (
+            <PhaseSubRow
+              key={phase.key}
+              projectId={project.id}
+              phaseKey={phase.key}
+              label={phase.label}
+              tagline={phase.tagline}
+              project={project}
+              isLast={false}
+            />
+          ))}
+          <ProjectSupportingTiles projectId={project.id} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectSupportingTiles({ projectId }: { projectId: string }) {
+  const items = [
+    { href: "/documents", label: "Documents", Icon: FolderOpen },
+    { href: "/compliance", label: "Compliance", Icon: ShieldCheck },
+    { href: "/supply-chain", label: "Supply chain", Icon: Truck },
+    { href: "/customers", label: "Customers", Icon: Users },
+  ] as const;
+  return (
+    <div className="border-t border-separator/60 bg-bg/40 px-3 py-3">
+      <p className="mb-2 ml-1 text-caption-1 font-semibold uppercase tracking-wide text-label-tertiary">
+        For this project
+      </p>
+      <div className="grid grid-cols-4 gap-2">
+        {items.map(({ href, label, Icon }) => (
+          <Link
+            key={href}
+            href={`${href}?project=${encodeURIComponent(projectId)}`}
+            className="no-tap-highlight ease-ios flex flex-col items-center gap-1.5 rounded-xl bg-bg-elevated px-2 py-3 shadow-card active:scale-[0.97] duration-tap"
+          >
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-accent-tint text-accent">
+              <Icon className="h-4 w-4" />
+            </span>
+            <span className="text-caption-2 font-semibold text-label-secondary text-center leading-tight">
+              {label}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PhaseSubRow({
+  projectId,
+  phaseKey,
+  label,
+  tagline,
+  project,
+  isLast,
+}: {
+  projectId: string;
+  phaseKey: JourneyPhaseKey;
+  label: string;
+  tagline: string;
+  project: QuillProject;
+  isLast: boolean;
+}) {
+  const status = phaseStatus(phaseKey, project);
+  const phase = JOURNEY.find((j) => j.key === phaseKey)!;
+  const complete = phase.steps.filter(
+    (_, i) => stepStatus(phaseKey, i, project) === "complete",
+  ).length;
+  const meta =
+    status === "complete"
+      ? "Complete"
+      : status === "current"
+        ? `${complete}/${phase.steps.length} steps · In progress`
+        : `${phase.steps.length} steps · Upcoming`;
+  return (
+    <Link
+      href={`/journey/${encodeURIComponent(projectId)}/${phaseKey}`}
+      className={cn(
+        "no-tap-highlight ease-ios flex items-center gap-3 px-4 py-3 active:bg-bg-tertiary duration-tap",
+        !isLast && "border-b border-separator/50",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-caption-1 font-bold",
+          status === "complete"
+            ? "bg-success text-white"
+            : status === "current"
+              ? "border-2 border-accent bg-bg text-accent"
+              : "border border-hairline bg-bg text-label-tertiary",
+        )}
+      >
+        {status === "complete" ? <Check className="h-4 w-4" strokeWidth={2.8} /> : null}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span
+          className={cn(
+            "block truncate text-callout",
+            status === "current"
+              ? "font-bold text-label-primary"
+              : status === "complete"
+                ? "font-semibold text-label-primary"
+                : "font-semibold text-label-secondary",
+          )}
+        >
+          {label}
+        </span>
+        <span className="mt-0.5 block truncate text-caption-1 text-label-tertiary">
+          {meta} · {tagline}
+        </span>
+      </span>
+      <ChevronRight aria-hidden className="h-4 w-4 shrink-0 text-label-quaternary" />
+    </Link>
+  );
+}
+
+/* ── Avatar + account sheet (preserved from prod home) ─────────────────── */
 function AvatarMenu({ session }: { session: Session | null | undefined }) {
   const [open, setOpen] = React.useState(false);
   const router = useRouter();
