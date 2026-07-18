@@ -23,6 +23,8 @@
  */
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
+import { Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -39,6 +41,7 @@ import type { ProjectRequest } from "@/lib/schemas";
 // Page
 // ---------------------------------------------------------------------------
 export default function RequestsPage() {
+  const router = useRouter();
   const { data: listData, isLoading } = useProjectRequests();
   const submitMutation = useSubmitProjectRequest();
 
@@ -143,7 +146,21 @@ export default function RequestsPage() {
       <div className="flex flex-col min-h-screen">
         {/* Non-sticky hero: the large title scrolls away (iOS pattern) so the
             long catalog never slides underneath a pinned translucent header. */}
-        <TopBar hero sticky={false} title="Requests" />
+        <TopBar
+          hero
+          sticky={false}
+          title="Requests"
+          right={
+            <button
+              type="button"
+              onClick={() => router.push("/sites/new")}
+              className="text-callout flex items-center gap-1 font-semibold text-accent no-tap-highlight"
+            >
+              <Building2 className="h-4 w-4" aria-hidden />
+              New Site
+            </button>
+          }
+        />
 
         {/* Agent selector — explicit override, always visible below the bar */}
         <AgentSelector selected={selectedAgent} onSelect={handleAgentSelect} />

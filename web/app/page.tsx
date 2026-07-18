@@ -23,6 +23,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   BarChart3,
+  Building2,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -142,13 +143,37 @@ function HomeScreen() {
         <div className="glass mt-6 rounded-2xl p-6 text-center">
           <p className="text-body text-label-primary">No active projects yet.</p>
           <p className="mt-1 text-footnote text-label-secondary">
-            Start one from Requests to kick off the journey.
+            Start by adding a site — that’s the first step of the journey.
           </p>
+          <Link
+            href="/sites/new"
+            className="no-tap-highlight ease-ios mt-4 inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-callout font-semibold text-white active:scale-[0.98] duration-tap"
+          >
+            <Building2 className="h-4 w-4" aria-hidden />
+            Start a New Site
+          </Link>
         </div>
       )}
 
+      {/* ── Primary CTA: start a new site (the entry point for site intake) ── */}
+      <Link
+        href="/sites/new"
+        className="no-tap-highlight ease-ios mt-6 flex items-center gap-3 rounded-2xl bg-accent px-5 py-4 shadow-card active:scale-[0.99] duration-tap"
+      >
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20">
+          <Building2 className="h-5 w-5 text-white" aria-hidden />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-headline font-semibold text-white">Start a New Site</span>
+          <span className="block text-footnote text-white/85">
+            Add a site to kick off a project
+          </span>
+        </span>
+        <ChevronRight className="h-5 w-5 shrink-0 text-white/80" aria-hidden />
+      </Link>
+
       {/* ── Action tiles ── */}
-      <section aria-label="Quick actions" className="mt-6 mb-8 grid grid-cols-2 gap-3">
+      <section aria-label="Quick actions" className="mt-3 mb-8 grid grid-cols-2 gap-3">
         <ActionTile
           href="/requests"
           icon={<MessageSquare className="h-6 w-6" aria-hidden />}
