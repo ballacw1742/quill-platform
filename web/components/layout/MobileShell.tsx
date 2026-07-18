@@ -39,14 +39,24 @@ export function MobileShell({
 
   const router = useRouter();
   const pathname = usePathname();
-  const { data: rawSession, isLoading } = useSession();
+  const { data: rawSession, isLoading, isFetching } = useSession();
   const session = rawSession as Session | null | undefined;
 
   React.useEffect(() => {
     if (!requireAuth) return;
-    if (isLoading) return;
-    if (!session) router.replace("/login");
-  }, [requireAuth, isLoading, session, router]);
+    // Wait until the session query has actually resolved (not just the first
+    // load) before deciding — avoids bouncing on a stale/in-flight result.
+    if (isLoading || isFetching) return;
+    if (session) return;
+    // A token present but no resolved session yet means the query is about to
+    // (re)fetch — don't bounce to /login on this pass; let it settle. Only
+    // redirect when there is genuinely no token. This closes the post-login
+    // flicker loop between /login and / .
+    if (typeof window !== "undefined" && window.localStorage.getItem("quill_session_token")) {
+      return;
+    }
+    router.replace("/login");
+  }, [requireAuth, isLoading, isFetching, session, router]);
 
   const isHome = pathname === "/";
 

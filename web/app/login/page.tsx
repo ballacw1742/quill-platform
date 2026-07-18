@@ -2,57 +2,58 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { QuillLogo } from "@/components/QuillLogo";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { useLogin } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
+  const qc = useQueryClient();
+  const login = useLogin();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [showPassword, setShowPassword] = React.useState(false);
-  const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState("");
+  // Guards against the effect firing a redirect more than once (which was part
+  // of the old flicker loop).
+  const redirectedRef = React.useRef(false);
 
+  const loading = login.isPending;
+
+  // If already authenticated (token present AND the session query confirms it),
+  // go home. We prime the session query rather than trusting localStorage
+  // alone, so we never bounce to "/" before the shell's session gate agrees.
   React.useEffect(() => {
-    if (typeof window !== "undefined") {
-      setError("");
-      const token = window.localStorage.getItem("quill_session_token");
-      if (token) router.replace("/");
-    }
-  }, [router]);
+    if (redirectedRef.current) return;
+    if (typeof window === "undefined") return;
+    const token = window.localStorage.getItem("quill_session_token");
+    if (!token) return;
+    redirectedRef.current = true;
+    // Make the shell's useSession see the token immediately (no stale null).
+    qc.invalidateQueries({ queryKey: ["session"] });
+    router.replace("/");
+  }, [router, qc]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim() || !password) return;
-    setLoading(true);
+    if (!email.trim() || !password || loading) return;
     setError("");
 
     try {
-      const res = await fetch("/api/v1/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-
-      let data: { detail?: string; access_token?: string };
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error(`Server error (${res.status})`);
-      }
-
-      if (!res.ok) throw new Error(data?.detail || `Login failed (${res.status})`);
-
-      if (data.access_token) {
-        window.localStorage.setItem("quill_session_token", data.access_token);
-        router.replace("/");
-      } else {
-        throw new Error("No session token in response");
-      }
+      // useLogin stores the JWT AND invalidates the ["session"] query on
+      // success — so the shell's auth gate re-reads a FRESH session instead of
+      // the stale `null` cached from the /login visit. That stale-cache race
+      // was the cause of the post-login flicker + error + manual-refresh.
+      await login.mutateAsync({ email: email.trim(), password });
+      // Ensure the session query is settled before navigating home.
+      await qc.invalidateQueries({ queryKey: ["session"] });
+      redirectedRef.current = true;
+      router.replace("/");
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+      const msg = err instanceof Error ? err.message : String(err);
+      // Normalize the common credential failure to something friendly.
+      setError(/40[13]/.test(msg) ? "Incorrect email or password." : msg);
     }
   };
 
