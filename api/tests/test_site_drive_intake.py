@@ -57,7 +57,7 @@ async def test_intake_listing_failure_is_honest(client, owner_token, fake_datasi
     _, tok = owner_token
 
     def _boom(folder_id):
-        raise RuntimeError("gog CLI not available: no such file")
+        raise RuntimeError("Drive list failed: folder not shared with service account")
 
     monkeypatch.setattr(intake_svc, "list_folder_files", _boom)
 
@@ -69,7 +69,7 @@ async def test_intake_listing_failure_is_honest(client, owner_token, fake_datasi
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "failed"
-    assert "gog CLI not available" in body["error"]
+    assert "Drive list failed" in body["error"]
     assert body["documents"] == []
     assert "queued" not in str(body)
 
@@ -84,13 +84,13 @@ async def test_intake_per_document_status(client, owner_token, fake_datasite, mo
     ]
     monkeypatch.setattr(intake_svc, "list_folder_files", lambda folder_id: files)
 
-    def _fake_download(file_id, out_path):
+    def _fake_download(file_id, mime_type, out_path):
         if file_id == "f3":
             raise RuntimeError("download failed: permission denied")
         with open(out_path, "wb") as fh:
             fh.write(b"%PDF-1.4 fake")
 
-    monkeypatch.setattr(intake_svc, "_gog_download", _fake_download)
+    monkeypatch.setattr(intake_svc, "_drive_download", _fake_download)
 
     uploaded: list[str] = []
 

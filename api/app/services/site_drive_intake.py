@@ -1,9 +1,11 @@
-"""Drive-folder document intake for Sites — Sprint 2.
+"""Drive-folder document intake for Sites.
 
 Honest pipeline:
-  1. List the Drive folder (recursively, bounded) with the `gog` CLI
-     (OAuth'd as the demo Drive identity on this host).
-  2. Download each supported file locally.
+  1. List the Drive folder (recursively, bounded) via the Google Drive API v3,
+     authenticated with the Quill Drive service account
+     (DRIVE_SERVICE_ACCOUNT_JSON). The folder must be shared with the service
+     account's email (see below).
+  2. Download each supported file locally (Drive files.get / export).
   3. Upload each file's bytes to DataSite's per-site document endpoint.
   4. Ask DataSite to run its document-analyst over the folder, then read
      the site record back and mark which documents were actually analyzed.
@@ -12,20 +14,28 @@ Every document gets a real status: indexed | uploaded | skipped | failed.
 The intake run itself is completed | completed_with_errors | failed.
 No step ever reports success it can't demonstrate.
 
-A GCP service account for Drive access is explicitly post-demo; the `gog`
-CLI path is the intended demo identity (see task brief). When `gog` is not
-available (e.g. Cloud Run), the listing step fails and the intake honestly
-reports `failed` with the underlying error.
+AUTH — production service-account path (replaces the earlier `gog` CLI demo
+identity, which was not available in Cloud Run). Drive access uses the same
+service account as deliverable authoring (DRIVE_SERVICE_ACCOUNT_JSON,
+SA email quill-drive-author@<project>.iam.gserviceaccount.com). For the
+intake to read a folder, that folder must be shared with the SA email
+(Viewer is sufficient). Credential building mirrors
+``app/services/drive_author.py`` (_build_credentials).
+
+The google client libraries (google-auth, google-api-python-client) are
+declared api dependencies (pyproject.toml). If they are somehow absent, the
+listing step raises a clear RuntimeError and the intake honestly reports
+`failed`.
 """
 
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
 import re
-import subprocess
 import tempfile
 from typing import Any
 
@@ -33,11 +43,29 @@ import httpx
 
 log = logging.getLogger("quill.site_drive_intake")
 
-GOG_BIN = os.environ.get("GOG_BIN", "gog")
-DRIVE_ACCOUNT = os.environ.get("DRIVE_INTAKE_ACCOUNT", "white.1284@gmail.com")
 DATASITE_URL = os.environ.get(
     "DATASITE_URL", "https://datasite-agents-894031978246.us-central1.run.app"
 )
+
+# Read-only Drive access is all the intake needs.
+_DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.readonly"]
+
+# Google-native mimetypes that must be exported rather than downloaded, and
+# the export mimetype we request for each.
+_GOOGLE_EXPORT_MIMES = {
+    "application/vnd.google-apps.document": (
+        "application/pdf",
+        ".pdf",
+    ),
+    "application/vnd.google-apps.spreadsheet": (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xlsx",
+    ),
+    "application/vnd.google-apps.presentation": (
+        "application/pdf",
+        ".pdf",
+    ),
+}
 
 SUPPORTED_EXTS = {".pdf", ".docx", ".txt", ".md"}
 FOLDER_MIME = "application/vnd.google-apps.folder"
@@ -77,48 +105,105 @@ def guess_doc_type(filename: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# gog CLI wrappers (module-level so tests can monkeypatch them)
+# Google Drive API v3 client (service-account auth).
+# Module-level wrappers so tests can monkeypatch them.
 # ---------------------------------------------------------------------------
-def _gog_ls(folder_id: str) -> list[dict[str, Any]]:
-    """List files in a Drive folder via gog. Raises RuntimeError on failure."""
-    cmd = [
-        GOG_BIN, "drive", "ls",
-        "-a", DRIVE_ACCOUNT,
-        "--parent", folder_id,
-        "-j", "--max", "100", "--no-input",
-    ]
+def _build_drive_service():
+    """Build a read-only Drive API client from DRIVE_SERVICE_ACCOUNT_JSON.
+
+    Mirrors app/services/drive_author.py:_build_credentials. Raises
+    RuntimeError (not ImportError/ValueError) so callers surface a single,
+    honest failure mode.
+    """
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"gog CLI not available: {exc}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("gog drive ls timed out") from exc
-    if result.returncode != 0:
-        raise RuntimeError(f"gog drive ls failed: {result.stderr.strip()[:300]}")
+        from google.oauth2 import service_account  # type: ignore[import]
+        from googleapiclient.discovery import build  # type: ignore[import]
+    except ImportError as exc:  # pragma: no cover - libs are declared deps
+        raise RuntimeError(
+            "google client libraries not installed "
+            "(google-auth, google-api-python-client)"
+        ) from exc
+
+    # Imported lazily to avoid a hard config dependency at import time.
+    from app.config import get_settings
+
+    sa_json_str = (get_settings().DRIVE_SERVICE_ACCOUNT_JSON or "").strip()
+    if not sa_json_str:
+        raise RuntimeError(
+            "DRIVE_SERVICE_ACCOUNT_JSON is not configured; cannot read Drive folder"
+        )
     try:
-        data = json.loads(result.stdout)
+        sa_info = json.loads(sa_json_str)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(f"gog drive ls returned unparseable output: {exc}") from exc
-    return data.get("files", []) if isinstance(data, dict) else []
+        raise RuntimeError(f"DRIVE_SERVICE_ACCOUNT_JSON is not valid JSON: {exc}") from exc
+
+    creds = service_account.Credentials.from_service_account_info(
+        sa_info, scopes=_DRIVE_SCOPES
+    )
+    # cache_discovery=False avoids a noisy warning + file cache in Cloud Run.
+    return build("drive", "v3", credentials=creds, cache_discovery=False)
 
 
-def _gog_download(file_id: str, out_path: str) -> None:
-    """Download one Drive file via gog. Raises RuntimeError on failure."""
-    cmd = [
-        GOG_BIN, "drive", "download", file_id,
-        "-a", DRIVE_ACCOUNT,
-        "--out", out_path, "--no-input", "-y",
-    ]
+def _drive_ls(folder_id: str) -> list[dict[str, Any]]:
+    """List immediate children of a Drive folder via the Drive API.
+
+    Returns entries shaped like the previous gog output
+    ({id, name, mimeType, size}) so downstream code is unchanged.
+    Supports both My Drive and Shared Drives. Raises RuntimeError on failure.
+    """
+    svc = _build_drive_service()
+    out: list[dict[str, Any]] = []
+    page_token: str | None = None
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"gog CLI not available: {exc}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("gog drive download timed out") from exc
-    if result.returncode != 0:
-        raise RuntimeError(f"download failed: {result.stderr.strip()[:300]}")
-    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+        while True:
+            resp = (
+                svc.files()
+                .list(
+                    q=f"'{folder_id}' in parents and trashed = false",
+                    fields="nextPageToken, files(id, name, mimeType, size)",
+                    pageSize=100,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                    corpora="allDrives",
+                )
+                .execute()
+            )
+            out.extend(resp.get("files", []) or [])
+            page_token = resp.get("nextPageToken")
+            if not page_token or len(out) >= 100:
+                break
+    except Exception as exc:  # noqa: BLE001 - google raises varied error types
+        raise RuntimeError(f"Drive list failed: {str(exc)[:300]}") from exc
+    return out
+
+
+def _drive_download(file_id: str, mime_type: str, out_path: str) -> None:
+    """Download (or export) one Drive file to out_path. Raises on failure."""
+    try:
+        from googleapiclient.http import MediaIoBaseDownload  # type: ignore[import]
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("google-api-python-client not installed") from exc
+
+    svc = _build_drive_service()
+    try:
+        if mime_type in _GOOGLE_EXPORT_MIMES:
+            export_mime, _ext = _GOOGLE_EXPORT_MIMES[mime_type]
+            request = svc.files().export_media(fileId=file_id, mimeType=export_mime)
+        else:
+            request = svc.files().get_media(fileId=file_id, supportsAllDrives=True)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _status, done = downloader.next_chunk()
+        data = buf.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"download failed: {str(exc)[:300]}") from exc
+
+    if not data:
         raise RuntimeError("download produced no file")
+    with open(out_path, "wb") as fh:
+        fh.write(data)
 
 
 def list_folder_files(folder_id: str) -> list[dict[str, Any]]:
@@ -129,7 +214,7 @@ def list_folder_files(folder_id: str) -> list[dict[str, Any]]:
     def _walk(fid: str, depth: int) -> None:
         if len(out) >= MAX_FILES:
             return
-        for f in _gog_ls(fid):
+        for f in _drive_ls(fid):
             if len(out) >= MAX_FILES:
                 return
             mime = f.get("mimeType", "")
@@ -190,6 +275,10 @@ async def fetch_site_documents(site_id: str) -> list[dict[str, Any]]:
 def _is_supported(filename: str, mime_type: str) -> bool:
     if mime_type == "application/pdf":
         return True
+    # Google-native docs/sheets/slides are supported via export (see
+    # _GOOGLE_EXPORT_MIMES); they often carry no filename extension.
+    if mime_type in _GOOGLE_EXPORT_MIMES:
+        return True
     ext = os.path.splitext(filename)[1].lower()
     return ext in SUPPORTED_EXTS
 
@@ -227,12 +316,21 @@ async def run_intake(site_id: str, folder_url: str) -> dict[str, Any]:
     docs: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="quill_drive_intake_") as tmpdir:
         for f in files:
+            # Google-native files export to a different format (e.g. a Google
+            # Doc -> PDF); reflect the resulting extension in the filename so
+            # DataSite stores/recognizes it correctly.
+            upload_name = f["filename"]
+            if f["mime_type"] in _GOOGLE_EXPORT_MIMES:
+                _export_mime, ext = _GOOGLE_EXPORT_MIMES[f["mime_type"]]
+                if not upload_name.lower().endswith(ext):
+                    upload_name = f"{upload_name}{ext}"
+
             entry = {
                 "file_id": f["file_id"],
-                "filename": f["filename"],
+                "filename": upload_name,
                 "mime_type": f["mime_type"],
                 "size": f["size"],
-                "doc_type": guess_doc_type(f["filename"]),
+                "doc_type": guess_doc_type(upload_name),
             }
             if not _is_supported(f["filename"], f["mime_type"]):
                 entry["status"] = "skipped"
@@ -240,9 +338,11 @@ async def run_intake(site_id: str, folder_url: str) -> dict[str, Any]:
                 docs.append(entry)
                 continue
 
-            local_path = os.path.join(tmpdir, f"{f['file_id']}_{os.path.basename(f['filename'])}")
+            local_path = os.path.join(tmpdir, f"{f['file_id']}_{os.path.basename(upload_name)}")
             try:
-                await asyncio.to_thread(_gog_download, f["file_id"], local_path)
+                await asyncio.to_thread(
+                    _drive_download, f["file_id"], f["mime_type"], local_path
+                )
             except RuntimeError as exc:
                 entry["status"] = "failed"
                 entry["detail"] = f"Drive download failed: {exc}"
@@ -252,7 +352,7 @@ async def run_intake(site_id: str, folder_url: str) -> dict[str, Any]:
             try:
                 with open(local_path, "rb") as fh:
                     content = fh.read()
-                await upload_to_datasite(site_id, f["filename"], content, entry["doc_type"])
+                await upload_to_datasite(site_id, upload_name, content, entry["doc_type"])
                 entry["status"] = "uploaded"
                 entry["detail"] = "stored in DataSite; analysis pending"
             except Exception as exc:  # noqa: BLE001
