@@ -186,6 +186,32 @@ class DriveDocumentIn(BaseModel):
     drive_folder_url: str
 
 
+@router.delete("/{site_id}")
+async def delete_site(
+    site_id: str,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete a site record.
+
+    Guarded on DataSite: only a REJECTED site can be deleted (returns 409
+    otherwise). Use this to purge archived/rejected sites. Records an audit
+    event; if the site was somehow linked to a project, that project is left
+    intact (delete only removes the site evaluation record).
+    """
+    result = await _datasite_request("delete", f"/sites/{site_id}")
+
+    await audit_svc.record_event_with_mirror(
+        db,
+        event_type="site.deleted",
+        actor=str(user.id),
+        approval_item_id=None,
+        payload={"site_id": site_id, "was_verdict": result.get("was_verdict")},
+    )
+    await db.commit()
+    return result
+
+
 @router.post("/{site_id}/documents", summary="Upload supporting documents for a site")
 async def upload_site_documents(
     site_id: str,

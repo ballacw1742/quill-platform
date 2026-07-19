@@ -22,6 +22,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Archive,
   BarChart3,
   Building2,
   Check,
@@ -59,6 +60,7 @@ import {
 } from "@/lib/api";
 import type { QuillProject, Session, Site } from "@/lib/schemas";
 import { siteAddress, workloadLabel } from "@/components/sites/SiteCard";
+import { isRejectedSite, isSiteInProgress } from "@/lib/sites";
 import { cn } from "@/lib/utils";
 
 function greetingFor(hour: number): string {
@@ -94,9 +96,14 @@ function HomeScreen() {
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
   // Sites still moving through evaluation (not yet decided/advanced to a
-  // project). Surfaced below the projects so a new site is visible from home.
+  // project, and not rejected/archived). Surfaced below the projects so a new
+  // site is visible from home.
   const sitesInProgress = React.useMemo(
-    () => (sitesData ?? []).filter((s) => (s.status ?? "intake") !== "decided"),
+    () => (sitesData ?? []).filter(isSiteInProgress),
+    [sitesData],
+  );
+  const archivedCount = React.useMemo(
+    () => (sitesData ?? []).filter(isRejectedSite).length,
     [sitesData],
   );
 
@@ -168,6 +175,25 @@ function HomeScreen() {
       {/* ── Sites in progress (below projects) ── */}
       {sitesInProgress.length > 0 && (
         <SitesInProgress sites={sitesInProgress} />
+      )}
+
+      {/* ── Archive entry (rejected sites) ── */}
+      {archivedCount > 0 && (
+        <Link
+          href="/sites/archive"
+          className="no-tap-highlight ease-ios mt-3 flex items-center gap-3 rounded-2xl bg-bg-elevated px-4 py-3 border border-hairline active:scale-[0.99] duration-tap"
+        >
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-label-quaternary/15">
+            <Archive className="h-4 w-4 text-label-secondary" aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-callout font-semibold text-label-primary">Archive</span>
+            <span className="block text-caption-1 text-label-tertiary">
+              {archivedCount} rejected {archivedCount === 1 ? "site" : "sites"}
+            </span>
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-label-tertiary" aria-hidden />
+        </Link>
       )}
 
       {/* ── Primary CTA: start a new site (the entry point for site intake) ── */}

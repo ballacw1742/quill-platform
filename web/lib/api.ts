@@ -2135,6 +2135,28 @@ export function useDecideSite(
   });
 }
 
+// ── Delete a (rejected) site record ───────────────────────────────────
+export type SiteDeleteResult = { site_id: string; deleted: boolean; was_verdict?: string | null };
+
+/** DELETE /v1/sites/{id} — permanently delete a rejected site record. */
+export function useDeleteSite(
+  opts?: UseMutationOptions<SiteDeleteResult, Error, string>,
+) {
+  const qc = useQueryClient();
+  return useMutation<SiteDeleteResult, Error, string>({
+    mutationFn: async (siteId: string) => {
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(siteId)}`, {
+        method: "DELETE",
+      });
+    },
+    onSuccess: (_, siteId) => {
+      qc.invalidateQueries({ queryKey: ["sites"] });
+      qc.removeQueries({ queryKey: ["sites", siteId] });
+    },
+    ...opts,
+  });
+}
+
 // ── Sprint 2: Drive-folder document intake (honest per-document status) ─────
 
 export type DriveIntakeDocument = {

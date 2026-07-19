@@ -48,10 +48,12 @@ import {
   useRunSiteEvaluation,
   useAdvanceSite,
   useDecideSite,
+  useDeleteSite,
   useSiteAdvanceStatus,
   useSiteDriveIntake,
   type DriveIntakeDocument,
 } from "@/lib/api";
+import { Trash2 } from "lucide-react";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -93,6 +95,8 @@ export default function SiteDetailPage() {
   const { data: driveIntake } = useSiteDriveIntake(siteId);
   const advanceSite = useAdvanceSite();
   const decideSite = useDecideSite();
+  const deleteSite = useDeleteSite();
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
 
   const backBtn = (
     <button
@@ -369,14 +373,77 @@ export default function SiteDetailPage() {
               <ChevronRight className="h-4 w-4" />
             </button>
           ) : finalVerdict === "rejected" ? (
-            <div
-              className={cn(
-                "text-body w-full rounded-2xl border border-danger/30 bg-danger/10 py-3.5 font-semibold text-danger",
-                "flex items-center justify-center gap-2",
+            <>
+              <div
+                className={cn(
+                  "text-body w-full rounded-2xl border border-danger/30 bg-danger/10 py-3.5 font-semibold text-danger",
+                  "flex items-center justify-center gap-2",
+                )}
+              >
+                <XCircle className="h-4 w-4" /> Rejected — Will not proceed
+              </div>
+              <p className="text-caption-1 text-center text-label-tertiary">
+                This site is archived. You can permanently delete its record.
+              </p>
+              {!confirmDelete ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className={cn(
+                    "text-body w-full rounded-2xl border border-danger/40 py-3.5 font-semibold text-danger",
+                    "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
+                  )}
+                >
+                  <Trash2 className="h-4 w-4" /> Delete Site Record
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-caption-1 text-center font-medium text-danger">
+                    Permanently delete this site and its evaluation? This can’t be undone.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={deleteSite.isPending}
+                      className="text-body flex-1 rounded-2xl border border-hairline py-3.5 font-semibold text-label-secondary transition-all active:scale-[0.98]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deleteSite.isPending}
+                      onClick={() =>
+                        deleteSite.mutate(siteId, {
+                          onSuccess: () => {
+                            toast.success("Site deleted", {
+                              description: "The site record has been permanently removed.",
+                            });
+                            router.push("/sites/archive");
+                          },
+                          onError: (err) =>
+                            toast.error("Delete failed", {
+                              description:
+                                err instanceof Error ? err.message : "Please try again.",
+                            }),
+                        })
+                      }
+                      className={cn(
+                        "text-body flex-1 rounded-2xl bg-danger py-3.5 font-semibold text-white",
+                        "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
+                        deleteSite.isPending && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      {deleteSite.isPending ? (
+                        <><Loader2 className="h-4 w-4 animate-spin" /> Deleting…</>
+                      ) : (
+                        <><Trash2 className="h-4 w-4" /> Delete</>
+                      )}
+                    </button>
+                  </div>
+                </div>
               )}
-            >
-              <XCircle className="h-4 w-4" /> Rejected — Will not proceed
-            </div>
+            </>
           ) : isEvaluated ? (
             <>
               <p className="text-caption-1 text-center text-label-tertiary">
