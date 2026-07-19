@@ -18,7 +18,12 @@ from typing import Any
 import anthropic
 
 from app.config import get_settings
-from app.providers.anthropic_direct import _is_retryable, _normalize
+from app.providers.anthropic_direct import (
+    _cached_system,
+    _cached_tools,
+    _is_retryable,
+    _normalize,
+)
 from app.providers.base import ModelProvider, ModelResponse, ProviderError, with_retries
 
 log = logging.getLogger("agentcloud.providers.vertex")
@@ -58,12 +63,15 @@ class VertexAnthropicProvider(ModelProvider):
     ) -> ModelResponse:
         s = self._settings
 
+        cached_system = _cached_system(system)
+        cached_tools = _cached_tools(tools)
+
         async def _call() -> ModelResponse:
             msg = await self._client.messages.create(
                 model=model,
                 max_tokens=max_tokens,
-                system=system,
-                tools=tools,
+                system=cached_system,
+                tools=cached_tools,
                 messages=messages,
             )
             return _normalize(msg)

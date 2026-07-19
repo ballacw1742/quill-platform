@@ -46,6 +46,10 @@ class ModelResponse:
     model: str
     input_tokens: int = 0
     output_tokens: int = 0
+    # Prompt-caching accounting (Anthropic returns these separately from
+    # input_tokens). cache_read is billed ~10% of input; cache_creation ~125%.
+    cache_read_input_tokens: int = 0
+    cache_creation_input_tokens: int = 0
 
     @property
     def text(self) -> str:

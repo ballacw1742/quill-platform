@@ -78,6 +78,33 @@ def _lookup(model: str) -> tuple[float, float]:
     return FALLBACK
 
 
-def cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+# Anthropic prompt-caching multipliers on the base input rate:
+#   cache READ  ≈ 0.1x (90% cheaper on reuse)
+#   cache WRITE ≈ 1.25x (one-time 25% surcharge to store, 5-min TTL)
+# Applied only to the respective token buckets; regular input_tokens (the
+# uncached portion Anthropic reports) are billed at the normal rate.
+_CACHE_READ_MULT = 0.1
+_CACHE_WRITE_MULT = 1.25
+
+
+def cost_usd(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    cache_read_input_tokens: int = 0,
+    cache_creation_input_tokens: int = 0,
+) -> float:
+    """Cost in USD, cache-aware.
+
+    `input_tokens` is the uncached input Anthropic bills at full rate.
+    Cache reads/writes are billed against the same base input rate with the
+    multipliers above. Passing 0 for the cache buckets (the default) preserves
+    the original non-cached behavior for callers that don't track them.
+    """
     p_in, p_out = _lookup(model)
-    return (input_tokens * p_in + output_tokens * p_out) / 1_000_000.0
+    billable_input = (
+        input_tokens
+        + cache_read_input_tokens * _CACHE_READ_MULT
+        + cache_creation_input_tokens * _CACHE_WRITE_MULT
+    )
+    return (billable_input * p_in + output_tokens * p_out) / 1_000_000.0

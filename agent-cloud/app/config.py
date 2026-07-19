@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     MODEL_LANE_FAIL_OPEN: bool = Field(default=False)
     MAX_TOKENS: int = Field(default=1024)
     MAX_TOOL_ITERATIONS: int = Field(default=6)
+    # Prompt caching: mark the system prompt + tool definitions with an
+    # ephemeral cache breakpoint so Anthropic bills their reuse at ~10%.
+    # Output is unaffected; on = default. Flip off to disable without a deploy.
+    PROMPT_CACHE_ENABLED: bool = Field(default=True)
+
     MODEL_RETRY_ATTEMPTS: int = Field(default=3)
     MODEL_RETRY_BASE_DELAY: float = Field(default=1.0)
 

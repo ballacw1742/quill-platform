@@ -251,6 +251,8 @@ class AdkAgentRunner(TaskAgentRunner):
         proposals: list[dict[str, Any]] = []
         total_in = 0
         total_out = 0
+        total_cache_read = 0
+        total_cache_write = 0
         calls = 0
         reply = ""
 
@@ -265,6 +267,8 @@ class AdkAgentRunner(TaskAgentRunner):
             calls += 1
             total_in += resp.input_tokens
             total_out += resp.output_tokens
+            total_cache_read += getattr(resp, "cache_read_input_tokens", 0)
+            total_cache_write += getattr(resp, "cache_creation_input_tokens", 0)
             messages.append({"role": "assistant", "content": resp.content})
 
             if resp.stop_reason != "tool_use":
@@ -302,7 +306,17 @@ class AdkAgentRunner(TaskAgentRunner):
             model=model,
             input_tokens=total_in,
             output_tokens=total_out,
-            cost_usd=pricing_cost_usd(model, total_in, total_out) if calls else 0.0,
+            cost_usd=(
+                pricing_cost_usd(
+                    model,
+                    total_in,
+                    total_out,
+                    cache_read_input_tokens=total_cache_read,
+                    cache_creation_input_tokens=total_cache_write,
+                )
+                if calls
+                else 0.0
+            ),
         )
 
     async def _exec_tool(
