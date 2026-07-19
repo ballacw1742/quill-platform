@@ -49,11 +49,13 @@ import {
   useAdvanceSite,
   useDecideSite,
   useDeleteSite,
+  useUpdateSite,
+  useUploadSiteDocuments,
   useSiteAdvanceStatus,
   useSiteDriveIntake,
   type DriveIntakeDocument,
 } from "@/lib/api";
-import { Trash2 } from "lucide-react";
+import { Trash2, Pencil, Upload } from "lucide-react";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -96,7 +98,11 @@ export default function SiteDetailPage() {
   const advanceSite = useAdvanceSite();
   const decideSite = useDecideSite();
   const deleteSite = useDeleteSite();
+  const updateSite = useUpdateSite();
+  const uploadDocs = useUploadSiteDocuments();
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const backBtn = (
     <button
@@ -139,7 +145,6 @@ export default function SiteDetailPage() {
     site.status === "researching" ||
     site.status === "scoring" ||
     site.status === "intake_processing";
-  const canRun = site.status === "intake" || site.status === "error";
   const advState = advanceStatus?.status ?? "none";
   const docs = site.documents ?? [];
 
@@ -150,6 +155,19 @@ export default function SiteDetailPage() {
   // verdict === strong/conditional (that gate previously hid the action entirely
   // for weak sites, leaving no way to accept or reject).
   const finalVerdict = site.decision?.final_verdict ?? null; // "accepted" | "rejected" | null
+  const isRejected = finalVerdict === "rejected";
+  // A rejected site is read-only. Any other non-in-flight site can be re-scored
+  // and its inputs edited — site development is additive (add files, refine
+  // inputs, re-score; the ranking updates as the picture fills in).
+  const canEdit = !isRejected && !isRunning;
+  const hasBeenEvaluated = total != null || !!verdict || site.status === "decided";
+  const canRun = !isRejected && !isRunning;
+  const runLabel =
+    site.status === "error"
+      ? "Retry Evaluation"
+      : hasBeenEvaluated
+        ? "Re-score Evaluation"
+        : "Run Evaluation";
   const isEvaluated =
     !canRun &&
     (total != null ||
@@ -287,6 +305,102 @@ export default function SiteDetailPage() {
           </Card>
         )}
 
+        {/* Edit inputs + add files (additive site development) — non-rejected only */}
+        {canEdit && (
+          <Card>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-callout font-semibold text-label-primary">
+                Inputs &amp; documents
+              </p>
+              {!editing && (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="text-caption-1 flex items-center gap-1 font-semibold text-accent"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </button>
+              )}
+            </div>
+
+            {!editing ? (
+              <>
+                <p className="text-caption-1 text-label-tertiary">
+                  Sites develop over time. Add documents or refine the inputs, then
+                  re-score — the ranking updates as the picture fills in.
+                </p>
+                {/* Add files */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    if (files.length === 0) return;
+                    uploadDocs.mutate(
+                      { siteId, files },
+                      {
+                        onSuccess: (r) =>
+                          toast.success(
+                            `Added ${r.documents?.length ?? files.length} file(s)`,
+                            { description: "Re-score to factor them in." },
+                          ),
+                        onError: (err) =>
+                          toast.error("Upload failed", {
+                            description:
+                              err instanceof Error ? err.message : "Please try again.",
+                          }),
+                      },
+                    );
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  disabled={uploadDocs.isPending}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={cn(
+                    "text-callout mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-hairline py-2.5 font-semibold text-label-primary",
+                    "transition-all active:scale-[0.98]",
+                    uploadDocs.isPending && "cursor-not-allowed opacity-60",
+                  )}
+                >
+                  {uploadDocs.isPending ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Uploading…</>
+                  ) : (
+                    <><Upload className="h-4 w-4" /> Add documents</>
+                  )}
+                </button>
+              </>
+            ) : (
+              <EditInputsForm
+                site={site}
+                pending={updateSite.isPending}
+                onCancel={() => setEditing(false)}
+                onSave={(patch) =>
+                  updateSite.mutate(
+                    { siteId, patch },
+                    {
+                      onSuccess: () => {
+                        setEditing(false);
+                        toast.success("Inputs updated", {
+                          description: "Re-score to update the ranking.",
+                        });
+                      },
+                      onError: (err) =>
+                        toast.error("Update failed", {
+                          description:
+                            err instanceof Error ? err.message : "Please try again.",
+                        }),
+                    },
+                  )
+                }
+              />
+            )}
+          </Card>
+        )}
+
         {/* Actions */}
         <div className="space-y-3">
           {/* Background evaluation in progress — safe to leave the page. */}
@@ -340,8 +454,7 @@ export default function SiteDetailPage() {
               {runEvaluation.isPending ? (
                 <><Loader2 className="h-4 w-4 animate-spin" /> Starting…</>
               ) : (
-                <><Play className="h-4 w-4" />{" "}
-                  {site.status === "error" ? "Retry Evaluation" : "Run Evaluation"}</>
+                <><Play className="h-4 w-4" /> {runLabel}</>
               )}
             </button>
           )}
@@ -599,4 +712,154 @@ function IntakeStatusIcon({ status }: { status: DriveIntakeDocument["status"] })
     default:
       return <FileText className="mt-0.5 h-4 w-4 shrink-0 text-label-tertiary" />;
   }
+}
+
+// ── Edit Inputs Form ────────────────────────────────────────────────────────
+
+const WORKLOAD_OPTIONS: { value: string; label: string }[] = [
+  { value: "ai_hpc", label: "AI / HPC" },
+  { value: "hyperscale", label: "Hyperscale" },
+  { value: "enterprise_colo", label: "Enterprise Colo" },
+  { value: "edge", label: "Edge" },
+  { value: "unknown", label: "Unknown" },
+];
+
+type EditPatch = {
+  county?: string;
+  acres?: number;
+  asking_price?: number;
+  target_workload?: string;
+  target_mw?: number;
+};
+
+function EditInputsForm({
+  site,
+  pending,
+  onSave,
+  onCancel,
+}: {
+  site: Site;
+  pending: boolean;
+  onSave: (patch: EditPatch) => void;
+  onCancel: () => void;
+}) {
+  const prop = (site.property ?? {}) as {
+    county?: string | null;
+    acres?: number | null;
+    asking_price?: number | null;
+  };
+  const [county, setCounty] = React.useState(prop.county ?? "");
+  const [acres, setAcres] = React.useState(prop.acres != null ? String(prop.acres) : "");
+  const [askingPrice, setAskingPrice] = React.useState(
+    prop.asking_price != null ? String(prop.asking_price) : "",
+  );
+  const [workload, setWorkload] = React.useState(site.target_workload ?? "unknown");
+  const [mw, setMw] = React.useState(site.target_mw != null ? String(site.target_mw) : "");
+
+  const numOrUndef = (s: string): number | undefined => {
+    const t = s.trim();
+    if (t === "") return undefined;
+    const n = Number(t);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const inputCls =
+    "w-full rounded-xl border border-hairline bg-bg-elevated px-3 py-2 text-callout text-label-primary outline-none focus:border-accent";
+  const labelCls = "text-caption-1 mb-1 block font-medium text-label-secondary";
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <label className={labelCls}>Target workload</label>
+        <select
+          className={inputCls}
+          value={workload}
+          onChange={(e) => setWorkload(e.target.value)}
+        >
+          {WORKLOAD_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelCls}>Target MW</label>
+          <input
+            className={inputCls}
+            inputMode="decimal"
+            value={mw}
+            onChange={(e) => setMw(e.target.value)}
+            placeholder="e.g. 100"
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Acres</label>
+          <input
+            className={inputCls}
+            inputMode="decimal"
+            value={acres}
+            onChange={(e) => setAcres(e.target.value)}
+            placeholder="e.g. 250"
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className={labelCls}>Asking price (USD)</label>
+          <input
+            className={inputCls}
+            inputMode="decimal"
+            value={askingPrice}
+            onChange={(e) => setAskingPrice(e.target.value)}
+            placeholder="e.g. 5000000"
+          />
+        </div>
+        <div>
+          <label className={labelCls}>County</label>
+          <input
+            className={inputCls}
+            value={county}
+            onChange={(e) => setCounty(e.target.value)}
+            placeholder="County"
+          />
+        </div>
+      </div>
+      <div className="flex gap-3 pt-1">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={pending}
+          className="text-callout flex-1 rounded-xl border border-hairline py-2.5 font-semibold text-label-secondary transition-all active:scale-[0.98]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() =>
+            onSave({
+              county: county.trim() || undefined,
+              acres: numOrUndef(acres),
+              asking_price: numOrUndef(askingPrice),
+              target_workload: workload || undefined,
+              target_mw: numOrUndef(mw),
+            })
+          }
+          className={cn(
+            "text-callout flex-1 rounded-xl bg-accent py-2.5 font-semibold text-white",
+            "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
+            pending && "cursor-not-allowed opacity-60",
+          )}
+        >
+          {pending ? (
+            <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</>
+          ) : (
+            "Save inputs"
+          )}
+        </button>
+      </div>
+    </div>
+  );
 }

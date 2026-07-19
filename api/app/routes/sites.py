@@ -91,6 +91,31 @@ async def create_site(
     return await _datasite_request("post", "/sites", json=body)
 
 
+@router.patch("/{site_id}")
+async def update_site(
+    site_id: str,
+    body: dict,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Amend a site's editable inputs (additive site development).
+
+    Sites develop over time — acreage grows, price/workload firm up, more docs
+    arrive. Edit the inputs here, then POST /run to re-score. A rejected site is
+    read-only (DataSite returns 409). Records an audit event.
+    """
+    result = await _datasite_request("patch", f"/sites/{site_id}", json=body)
+    await audit_svc.record_event_with_mirror(
+        db,
+        event_type="site.updated",
+        actor=str(user.id),
+        approval_item_id=None,
+        payload={"site_id": site_id, "changed": result.get("changed", [])},
+    )
+    await db.commit()
+    return result
+
+
 @router.post("/{site_id}/run", status_code=status.HTTP_202_ACCEPTED)
 async def run_site_evaluation(
     site_id: str,

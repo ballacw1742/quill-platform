@@ -2101,6 +2101,82 @@ export function useAdvanceSite(
   });
 }
 
+// ── Edit site inputs (additive development) + upload files ────────────────
+export type SiteUpdateInput = {
+  siteId: string;
+  patch: {
+    city?: string;
+    state?: string;
+    zip?: string;
+    county?: string;
+    acres?: number;
+    asking_price?: number;
+    zoning_current?: string;
+    owner_name?: string;
+    target_workload?: string;
+    target_mw?: number;
+    lead_source?: string;
+  };
+};
+
+/** PATCH /v1/sites/{id} — amend editable inputs (rejected sites are read-only, 409). */
+export function useUpdateSite(
+  opts?: UseMutationOptions<Record<string, unknown>, Error, SiteUpdateInput>,
+) {
+  const qc = useQueryClient();
+  return useMutation<Record<string, unknown>, Error, SiteUpdateInput>({
+    mutationFn: async ({ siteId, patch }: SiteUpdateInput) => {
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(siteId)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+    },
+    onSuccess: (_, { siteId }) => {
+      qc.invalidateQueries({ queryKey: ["sites", siteId] });
+      qc.invalidateQueries({ queryKey: ["sites"] });
+    },
+    ...opts,
+  });
+}
+
+export type SiteDocUploadResult = {
+  site_id: string;
+  documents: { filename: string; status: string; detail?: unknown }[];
+};
+
+/** POST /v1/sites/{id}/documents — upload one or more supporting files. */
+export function useUploadSiteDocuments(
+  opts?: UseMutationOptions<SiteDocUploadResult, Error, { siteId: string; files: File[] }>,
+) {
+  const qc = useQueryClient();
+  return useMutation<SiteDocUploadResult, Error, { siteId: string; files: File[] }>({
+    mutationFn: async ({ siteId, files }) => {
+      const fd = new FormData();
+      for (const f of files) fd.append("files", f);
+      const token = getStoredToken();
+      const res = await fetch(
+        `${API_BASE}/api/v1/sites/${encodeURIComponent(siteId)}/documents`,
+        {
+          method: "POST",
+          credentials: "include",
+          // NOTE: no Content-Type header — the browser sets the multipart boundary.
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: fd,
+        },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new ApiError(res.status, text || res.statusText);
+      }
+      return res.json();
+    },
+    onSuccess: (_, { siteId }) => {
+      qc.invalidateQueries({ queryKey: ["sites", siteId] });
+    },
+    ...opts,
+  });
+}
+
 // ── Human-in-the-loop accept/reject decision on an evaluated site ────────────
 
 export type SiteDecisionInput = { siteId: string; decision: "accept" | "reject"; notes?: string };
