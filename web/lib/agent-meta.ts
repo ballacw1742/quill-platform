@@ -405,11 +405,15 @@ export const AGENT_TRUST: Record<string, AgentTrust> = {
   "contract-reviewer": { tier: "frontier", model: "Claude Opus 4",     dataScope: "sensitive" },
   "change-order":      { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
   "owner-reporting":   { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
-  "site-evaluator":    { tier: "frontier", model: "Claude Sonnet 4.5", dataScope: "sensitive" },
-  // On-prem OSS lane: research + status/scoring rollups on non-sensitive data.
-  "site-researcher":   { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
-  "site-scorer":       { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
-  "site-status":       { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
+  // DataSite runs its ENTIRE pipeline on-prem (ONPREM_LANE_ENABLED=true,
+  // fail-closed) — site/deal documents are sensitive and never leave the
+  // tenant, so evaluation/scoring/research all run on the on-prem Ollama model
+  // over Tailscale, NOT a frontier cloud model. (Previously the evaluator was
+  // mislabeled "Frontier / Claude", which misrepresented where the data went.)
+  "site-evaluator":    { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "sensitive" },
+  "site-researcher":   { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "sensitive" },
+  "site-scorer":       { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "sensitive" },
+  "site-status":       { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "sensitive" },
   "progress-tracker":  { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
   "daily-brief":       { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },
   "safety-aggregator": { tier: "oss",      model: "On-prem (Ollama)",  dataScope: "non-sensitive" },

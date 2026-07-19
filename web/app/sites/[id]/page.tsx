@@ -131,7 +131,11 @@ export default function SiteDetailPage() {
   const status = statusBadge(site.status);
   const v = verdictInfo(verdict);
   const address = siteAddress(site);
-  const canRun = site.status === "intake";
+  const isRunning =
+    site.status === "researching" ||
+    site.status === "scoring" ||
+    site.status === "intake_processing";
+  const canRun = site.status === "intake" || site.status === "error";
   const advState = advanceStatus?.status ?? "none";
   const docs = site.documents ?? [];
 
@@ -281,18 +285,43 @@ export default function SiteDetailPage() {
 
         {/* Actions */}
         <div className="space-y-3">
-          {canRun && (
+          {/* Background evaluation in progress — safe to leave the page. */}
+          {isRunning && (
+            <div
+              className={cn(
+                "text-body w-full rounded-2xl border border-info/30 bg-info/10 py-3.5 font-semibold text-info",
+                "flex flex-col items-center justify-center gap-1",
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                {site.status === "scoring" ? "Scoring…" : "Evaluating…"}
+              </span>
+              <span className="text-caption-1 font-normal text-label-tertiary">
+                Running in the background — you can leave this page and come back.
+              </span>
+            </div>
+          )}
+
+          {site.status === "error" && (
+            <p className="text-caption-1 text-center text-danger">
+              The last evaluation failed. Tap Run Evaluation to try again.
+            </p>
+          )}
+
+          {canRun && !isRunning && (
             <button
               type="button"
               disabled={runEvaluation.isPending}
               onClick={() =>
                 runEvaluation.mutate(siteId, {
                   onSuccess: () =>
-                    toast.success("Evaluation complete", {
-                      description: "The scorecard has been updated.",
+                    toast.success("Evaluation started", {
+                      description:
+                        "Running in the background — you can leave this page; results appear when it finishes.",
                     }),
                   onError: (err) =>
-                    toast.error("Evaluation failed", {
+                    toast.error("Couldn’t start evaluation", {
                       description:
                         err instanceof Error ? err.message : "Please try again.",
                     }),
@@ -305,9 +334,10 @@ export default function SiteDetailPage() {
               )}
             >
               {runEvaluation.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Running…</>
+                <><Loader2 className="h-4 w-4 animate-spin" /> Starting…</>
               ) : (
-                <><Play className="h-4 w-4" /> Run Evaluation</>
+                <><Play className="h-4 w-4" />{" "}
+                  {site.status === "error" ? "Retry Evaluation" : "Run Evaluation"}</>
               )}
             </button>
           )}

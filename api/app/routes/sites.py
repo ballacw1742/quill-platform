@@ -91,12 +91,18 @@ async def create_site(
     return await _datasite_request("post", "/sites", json=body)
 
 
-@router.post("/{site_id}/run")
+@router.post("/{site_id}/run", status_code=status.HTTP_202_ACCEPTED)
 async def run_site_evaluation(
     site_id: str,
     user=Depends(get_current_user),
 ):
-    """Trigger the evaluation pipeline for a site."""
+    """Trigger the evaluation pipeline for a site.
+
+    DataSite runs the pipeline in the BACKGROUND and returns 202 immediately
+    (the eval can take minutes). The client should poll GET /v1/sites/{id} for
+    completion — the evaluation is decoupled from the request/page lifecycle,
+    so navigating away no longer kills it.
+    """
     return await _datasite_request("post", f"/sites/{site_id}/run", json={})
 
 

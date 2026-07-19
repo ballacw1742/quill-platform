@@ -1968,6 +1968,15 @@ export function useSite(
       });
     },
     enabled: !!id,
+    // While an evaluation is running server-side (background pipeline), poll so
+    // the page reflects completion even if the user navigated away and back.
+    // Stops polling once the site reaches a terminal status.
+    refetchInterval: (query) => {
+      const s = (query.state.data as Site | undefined)?.status;
+      return s === "researching" || s === "scoring" || s === "intake_processing"
+        ? 5000
+        : false;
+    },
     ...opts,
   });
 }
@@ -2021,12 +2030,16 @@ export function useSubmitSiteQuestionnaire(
   });
 }
 
-/** POST /v1/sites/{id}/run — trigger evaluation */
+/** POST /v1/sites/{id}/run — start evaluation (runs in the background).
+ *  Returns 202 immediately with { site_id, status, message }; the pipeline
+ *  runs server-side and the caller polls GET /v1/sites/{id} for completion. */
+export type RunEvalStart = { site_id: string; status: string; message?: string };
+
 export function useRunSiteEvaluation(
-  opts?: UseMutationOptions<Site, Error, string>,
+  opts?: UseMutationOptions<RunEvalStart, Error, string>,
 ) {
   const qc = useQueryClient();
-  return useMutation<Site, Error, string>({
+  return useMutation<RunEvalStart, Error, string>({
     mutationFn: async (siteId: string) => {
       return apiFetch(`/api/v1/sites/${encodeURIComponent(siteId)}/run`, {
         method: "POST",
