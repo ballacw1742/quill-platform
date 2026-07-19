@@ -1,0 +1,20 @@
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Quill">
+  <!-- Full-bleed brand tile (iOS applies its own corner mask) -->
+  <rect width="180" height="180" fill="#007AFF"/>
+
+  <!-- Feather-quill mark, scaled/positioned in the upper 2/3 so the wordmark fits below.
+       Base geometry from components/QuillLogo.tsx (64x64), scaled ~1.9x and shifted up. -->
+  <g transform="translate(28,10) scale(1.9)">
+    <path d="M48 10 C48 10 54 18 50 30 C47 39 40 44 34 47 L28 54 C28 54 26 52 27 49 L30 44 C22 42 16 34 20 24 C24 14 36 10 48 10 Z"
+          fill="white" fill-opacity="0.97"/>
+    <path d="M44 14 C44 14 36 22 30 36 C28 41 28 46 28 49"
+          stroke="#007AFF" stroke-width="1.8" stroke-linecap="round" fill="none"/>
+    <path d="M27 49 C25 51 23 53 22 55 C24 55 26 53 28 51 Z" fill="white" fill-opacity="0.9"/>
+    <circle cx="23" cy="54" r="1.5" fill="white" fill-opacity="0.75"/>
+  </g>
+
+  <!-- Wordmark -->
+  <text x="90" y="158" text-anchor="middle"
+        font-family="-apple-system, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif"
+        font-size="34" font-weight="700" letter-spacing="1.5" fill="white">Quill</text>
+</svg>
