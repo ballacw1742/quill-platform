@@ -22,8 +22,18 @@ const CRITERIA: { key: string; label: string; weight: number }[] = [
   { key: "geotechnical",  label: "Geotechnical",         weight: 0.01 },
 ];
 
+// A single per-criterion entry from DataSite's flat scores map.
+type CriterionEntry = {
+  score?: number | null;
+  weight?: number | null;
+  weighted_score?: number | null;
+};
+
 export function Scorecard({ site }: { site: Site }) {
-  const criteria = site.scores?.criteria ?? {};
+  // DataSite stores per-criterion scores FLAT on `scores` (scores.power, scores.fiber, ...).
+  // There is no nested `scores.criteria` object — reading one always yielded {} and rendered
+  // every cell as a dash. Read each criterion key directly off `scores` instead.
+  const scores = (site.scores ?? {}) as Record<string, unknown>;
 
   return (
     <div className="glass rounded-2xl border border-hairline p-5">
@@ -40,7 +50,11 @@ export function Scorecard({ site }: { site: Site }) {
           </thead>
           <tbody>
             {CRITERIA.map((c) => {
-              const entry = criteria[c.key] ?? { score: null, weight: c.weight, weighted_score: null };
+              const raw = scores[c.key];
+              const entry: CriterionEntry =
+                raw && typeof raw === "object"
+                  ? (raw as CriterionEntry)
+                  : { score: null, weight: c.weight, weighted_score: null };
               const score = entry.score ?? null;
               const weight = entry.weight ?? c.weight;
               const weighted = entry.weighted_score ?? (score != null ? score * weight : null);

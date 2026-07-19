@@ -1435,14 +1435,14 @@ export const SiteSchema = z.object({
   }).optional().default({}),
   target_workload: z.string().nullable().optional(),
   target_mw: z.number().nullable().optional(),
-  scores: z.object({
-    criteria: z.record(z.object({
-      score: z.number().nullable().optional(),
-      weight: z.number().nullable().optional(),
-      weighted_score: z.number().nullable().optional(),
-    })).optional().default({}),
-    total_weighted: z.number().nullable().optional(),
-  }).optional().default({}),
+  // DataSite stores per-criterion scores FLAT on `scores` (scores.power, scores.fiber, ...),
+  // each an object { score, weight, weighted_score, evidence, kill_switch_triggered },
+  // plus scores.total_weighted (number) and scores.kill_switches_triggered (string[]).
+  // We model this as a loose record so the flat per-criterion objects survive parsing;
+  // the Scorecard reads each criterion key directly and total_weighted via a number check.
+  // (Previously this expected a nested `criteria` object that DataSite never emits, which
+  // is why every scorecard cell rendered as a dash.)
+  scores: z.record(z.any()).optional().default({}),
   recommendation: z.object({
     verdict: z.string().nullable().optional(),
     summary: z.string().nullable().optional(),
@@ -1455,6 +1455,14 @@ export const SiteSchema = z.object({
     filename: z.string().nullable().optional(),
     type: z.string().nullable().optional(),
   })).optional().default([]),
+  // Human-in-the-loop accept/reject decision recorded via POST /v1/sites/{id}/decide.
+  // final_verdict: "accepted" | "rejected" | null (null until a human decides).
+  decision: z.object({
+    final_verdict: z.string().nullable().optional(),
+    decided_by: z.string().nullable().optional(),
+    decided_at: z.string().nullable().optional(),
+    notes: z.string().nullable().optional(),
+  }).optional().default({}),
   created_at: z.string().nullable().optional(),
   updated_at: z.string().nullable().optional(),
 });

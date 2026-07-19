@@ -100,6 +100,78 @@ async def run_site_evaluation(
     return await _datasite_request("post", f"/sites/{site_id}/run", json={})
 
 
+class SiteDecisionIn(BaseModel):
+    decision: str  # accept | reject
+    notes: str | None = None
+
+
+@router.post("/{site_id}/decide")
+async def decide_site(
+    site_id: str,
+    body: SiteDecisionIn,
+    user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Record a human accept/reject decision on an evaluated site.
+
+    Human-in-the-loop: the AI recommendation is advisory. A human decides
+    whether the site proceeds — regardless of verdict (a 'weak' site can
+    still be accepted; a 'strong' one can still be rejected).
+
+    - reject: records the decision on DataSite (status -> decided, rejected).
+    - accept: records the decision on DataSite AND kicks off the Lane-2
+      advance-to-project flow so the site moves to the next phase. If an
+      advance approval already exists or the site is already advanced, the
+      accept is still recorded and the existing advance state is returned.
+    """
+    decision = (body.decision or "").strip().lower()
+    if decision not in ("accept", "reject"):
+        raise HTTPException(status_code=400, detail="decision must be 'accept' or 'reject'")
+
+    # Record the human decision on DataSite first (source of truth for the site).
+    decide_result = await _datasite_request(
+        "post",
+        f"/sites/{site_id}/decide",
+        json={"decision": decision, "decided_by": user.email, "notes": body.notes},
+    )
+
+    await audit_svc.record_event_with_mirror(
+        db,
+        event_type="site.decision",
+        actor=str(user.id),
+        approval_item_id=None,
+        payload={"site_id": site_id, "decision": decision, "notes": body.notes},
+    )
+    await db.commit()
+
+    if decision == "reject":
+        return {
+            "site_id": site_id,
+            "decision": "reject",
+            "status": "decided",
+            "detail": "Site rejected — will not proceed to a project.",
+            "datasite": decide_result,
+        }
+
+    # accept -> advance to project (Lane-2 gated). Reuse the advance flow so
+    # the accept produces the pending approval that creates the project.
+    # Tolerate the already-advanced case (409): the decision is still recorded.
+    try:
+        advance = await advance_site_to_project(site_id=site_id, user=user, db=db)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_409_CONFLICT:
+            advance = {"status": "already_advanced", "detail": exc.detail}
+        else:
+            raise
+    return {
+        "site_id": site_id,
+        "decision": "accept",
+        "status": "decided",
+        "detail": "Site accepted — advance-to-project requested (Lane-2 approval).",
+        "advance": advance,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Document upload endpoints (Sprint DC.3)
 # ---------------------------------------------------------------------------

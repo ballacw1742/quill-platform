@@ -28,7 +28,6 @@ import {
   ChevronRight,
   Clock,
   FileText,
-  FolderKanban,
   Loader2,
   Play,
   XCircle,
@@ -48,6 +47,7 @@ import {
   useSite,
   useRunSiteEvaluation,
   useAdvanceSite,
+  useDecideSite,
   useSiteAdvanceStatus,
   useSiteDriveIntake,
   type DriveIntakeDocument,
@@ -92,6 +92,7 @@ export default function SiteDetailPage() {
   const { data: advanceStatus } = useSiteAdvanceStatus(siteId);
   const { data: driveIntake } = useSiteDriveIntake(siteId);
   const advanceSite = useAdvanceSite();
+  const decideSite = useDecideSite();
 
   const backBtn = (
     <button
@@ -131,9 +132,24 @@ export default function SiteDetailPage() {
   const v = verdictInfo(verdict);
   const address = siteAddress(site);
   const canRun = site.status === "intake";
-  const canAdvance = verdict === "strong_recommend" || verdict === "conditional";
   const advState = advanceStatus?.status ?? "none";
   const docs = site.documents ?? [];
+
+  // Human-in-the-loop decision state. A site is "evaluated" once it's past the
+  // scoring pipeline (status review/scored/decided or it has a score/verdict).
+  // Regardless of the AI verdict — even a low/"weak" score — a human must accept
+  // or reject to move the site forward. This is intentionally NOT gated on
+  // verdict === strong/conditional (that gate previously hid the action entirely
+  // for weak sites, leaving no way to accept or reject).
+  const finalVerdict = site.decision?.final_verdict ?? null; // "accepted" | "rejected" | null
+  const isEvaluated =
+    !canRun &&
+    (total != null ||
+      !!verdict ||
+      ["review", "scoring", "scored", "decided"].includes(site.status));
+  const isDecided = finalVerdict === "accepted" || finalVerdict === "rejected";
+  const isAdvanced = advState === "advanced";
+  const advancePending = advState === "pending_approval";
 
   return (
     <MobileShell>
@@ -296,8 +312,9 @@ export default function SiteDetailPage() {
             </button>
           )}
 
-          {/* Advance flow — Lane-2 gated: request → pending approval → advanced */}
-          {advState === "advanced" && advanceStatus?.project_id ? (
+          {/* ── Post-evaluation human-in-the-loop decision ─────────────────── */}
+          {/* Terminal states first: advanced (project exists), or rejected. */}
+          {isAdvanced && advanceStatus?.project_id ? (
             <button
               type="button"
               onClick={() => router.push(`/projects/${advanceStatus.project_id}`)}
@@ -306,10 +323,10 @@ export default function SiteDetailPage() {
                 "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
               )}
             >
-              <CheckCircle2 className="h-4 w-4" /> Advanced — View Project
+              <CheckCircle2 className="h-4 w-4" /> Accepted — View Project
               <ChevronRight className="h-4 w-4" />
             </button>
-          ) : advState === "pending_approval" ? (
+          ) : advancePending ? (
             <button
               type="button"
               onClick={() => router.push("/queue")}
@@ -318,27 +335,96 @@ export default function SiteDetailPage() {
                 "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
               )}
             >
-              <Clock className="h-4 w-4" /> Advance Pending Approval
+              <Clock className="h-4 w-4" /> Accepted — Advance Pending Approval
               <ChevronRight className="h-4 w-4" />
             </button>
-          ) : canAdvance ? (
-            <button
-              type="button"
-              disabled={advanceSite.isPending}
-              onClick={() => advanceSite.mutate(siteId)}
+          ) : finalVerdict === "rejected" ? (
+            <div
               className={cn(
-                "text-body w-full rounded-2xl bg-accent py-3.5 font-semibold text-white",
-                "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
-                advanceSite.isPending && "cursor-not-allowed opacity-60",
+                "text-body w-full rounded-2xl border border-danger/30 bg-danger/10 py-3.5 font-semibold text-danger",
+                "flex items-center justify-center gap-2",
               )}
             >
-              {advanceSite.isPending ? (
-                <><Loader2 className="h-4 w-4 animate-spin" /> Requesting Approval…</>
-              ) : (
-                <><FolderKanban className="h-4 w-4" /> Advance to Project</>
-              )}
-            </button>
+              <XCircle className="h-4 w-4" /> Rejected — Will not proceed
+            </div>
+          ) : isEvaluated ? (
+            <>
+              <p className="text-caption-1 text-center text-label-tertiary">
+                Evaluation complete. This decision is yours — accept to move the site
+                to the next phase, or reject to stop here.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={decideSite.isPending}
+                  onClick={() =>
+                    decideSite.mutate(
+                      { siteId, decision: "accept" },
+                      {
+                        onSuccess: () =>
+                          toast.success("Site accepted", {
+                            description: "Advance to project requested (needs approval).",
+                          }),
+                        onError: (err) =>
+                          toast.error("Accept failed", {
+                            description:
+                              err instanceof Error ? err.message : "Please try again.",
+                          }),
+                      },
+                    )
+                  }
+                  className={cn(
+                    "text-body flex-1 rounded-2xl bg-accent py-3.5 font-semibold text-white",
+                    "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
+                    decideSite.isPending && "cursor-not-allowed opacity-60",
+                  )}
+                >
+                  {decideSite.isPending && decideSite.variables?.decision === "accept" ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Accepting…</>
+                  ) : (
+                    <><CheckCircle2 className="h-4 w-4" /> Accept</>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  disabled={decideSite.isPending}
+                  onClick={() =>
+                    decideSite.mutate(
+                      { siteId, decision: "reject" },
+                      {
+                        onSuccess: () =>
+                          toast.success("Site rejected", {
+                            description: "This site will not proceed.",
+                          }),
+                        onError: (err) =>
+                          toast.error("Reject failed", {
+                            description:
+                              err instanceof Error ? err.message : "Please try again.",
+                          }),
+                      },
+                    )
+                  }
+                  className={cn(
+                    "text-body flex-1 rounded-2xl border border-danger/40 py-3.5 font-semibold text-danger",
+                    "flex items-center justify-center gap-2 transition-all active:scale-[0.98]",
+                    decideSite.isPending && "cursor-not-allowed opacity-60",
+                  )}
+                >
+                  {decideSite.isPending && decideSite.variables?.decision === "reject" ? (
+                    <><Loader2 className="h-4 w-4 animate-spin" /> Rejecting…</>
+                  ) : (
+                    <><XCircle className="h-4 w-4" /> Reject</>
+                  )}
+                </button>
+              </div>
+            </>
           ) : null}
+
+          {decideSite.isError && (
+            <p className="text-caption-1 text-center text-danger">
+              {decideSite.error?.message ?? "Decision failed."}
+            </p>
+          )}
           {advanceSite.isError && (
             <p className="text-caption-1 text-center text-danger">
               {advanceSite.error?.message ?? "Advance request failed."}

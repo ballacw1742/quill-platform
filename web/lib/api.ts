@@ -2088,6 +2088,40 @@ export function useAdvanceSite(
   });
 }
 
+// ── Human-in-the-loop accept/reject decision on an evaluated site ────────────
+
+export type SiteDecisionInput = { siteId: string; decision: "accept" | "reject"; notes?: string };
+export type SiteDecisionResult = {
+  site_id: string;
+  decision: "accept" | "reject";
+  status: string;
+  detail?: string;
+  advance?: unknown;
+};
+
+/** POST /v1/sites/{id}/decide — record a human accept/reject decision.
+ *  accept also kicks off the Lane-2 advance-to-project flow. */
+export function useDecideSite(
+  opts?: UseMutationOptions<SiteDecisionResult, Error, SiteDecisionInput>,
+) {
+  const qc = useQueryClient();
+  return useMutation<SiteDecisionResult, Error, SiteDecisionInput>({
+    mutationFn: async ({ siteId, decision, notes }: SiteDecisionInput) => {
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(siteId)}/decide`, {
+        method: "POST",
+        body: JSON.stringify({ decision, notes }),
+      });
+    },
+    onSuccess: (_, { siteId }) => {
+      qc.invalidateQueries({ queryKey: ["sites", siteId] });
+      qc.invalidateQueries({ queryKey: ["sites", siteId, "advance"] });
+      qc.invalidateQueries({ queryKey: ["sites"] });
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+    },
+    ...opts,
+  });
+}
+
 // ── Sprint 2: Drive-folder document intake (honest per-document status) ─────
 
 export type DriveIntakeDocument = {
