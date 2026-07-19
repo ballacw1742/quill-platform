@@ -401,6 +401,8 @@ async def stream_turn(
     turn_events: list[dict[str, Any]] = []
     total_in = 0
     total_out = 0
+    total_cache_read = 0
+    total_cache_write = 0
     calls = 0
     reply = ""
 
@@ -432,6 +434,8 @@ async def stream_turn(
         calls += 1
         total_in += resp.input_tokens
         total_out += resp.output_tokens
+        total_cache_read += getattr(resp, "cache_read_input_tokens", 0)
+        total_cache_write += getattr(resp, "cache_creation_input_tokens", 0)
         messages.append({"role": "assistant", "content": resp.content})
         new_turns.append({"role": "assistant", "content": resp.content})
 
@@ -474,7 +478,17 @@ async def stream_turn(
 
     # cost is deterministic from the pricing table, so turn.completed can be
     # built up front and committed in the same tx2 as the messages (EVENTS.md).
-    expected_cost = pricing_cost_usd(ctx.model, total_in, total_out) if calls else 0.0
+    expected_cost = (
+        pricing_cost_usd(
+            ctx.model,
+            total_in,
+            total_out,
+            cache_read_input_tokens=total_cache_read,
+            cache_creation_input_tokens=total_cache_write,
+        )
+        if calls
+        else 0.0
+    )
     turn_events.append(
         events_mod.make_event(
             tenant_id=tenant_id,
