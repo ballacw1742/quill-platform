@@ -90,7 +90,7 @@ function HomeScreen() {
   const { data: projectsData } = useProjects();
   const { data: approvals } = useApprovals();
   const { data: requestsData } = useProjectRequests();
-  const { data: sitesData } = useSites();
+  const { data: sitesData, isLoading: sitesLoading } = useSites();
 
   const projects = React.useMemo<QuillProject[]>(
     () => projectsData?.items ?? [],
@@ -180,9 +180,16 @@ function HomeScreen() {
         </div>
       )}
 
-      {/* ── Sites in progress (below projects) ── */}
-      {sitesInProgress.length > 0 && (
-        <SitesInProgress sites={sitesInProgress} />
+      {/* ── Sites in progress (below projects) ──
+          Show a skeleton on first load so the section doesn't look broken
+          while DataSite cold-starts (it scales to zero + has a Tailscale
+          sidecar, so the first fetch after idle can take a few seconds). */}
+      {sitesLoading && !sitesData ? (
+        <SitesInProgressSkeleton />
+      ) : (
+        sitesInProgress.length > 0 && (
+          <SitesInProgress sites={sitesInProgress} />
+        )
       )}
 
       {/* ── Archive entry (rejected sites) ──
@@ -300,6 +307,31 @@ const SITE_EVALUATING_STATUSES = new Set([
   "scoring",
   "intake_processing",
 ]);
+
+function SitesInProgressSkeleton() {
+  return (
+    <section aria-label="Sites in progress" className="mt-6">
+      <p className="text-caption-1 mb-1.5 ml-1 font-semibold uppercase tracking-wide text-label-tertiary">
+        Sites in progress
+      </p>
+      <div className="space-y-2" aria-hidden>
+        {[0, 1].map((i) => (
+          <div
+            key={i}
+            className="flex items-center gap-3 rounded-2xl bg-bg-elevated px-4 py-3.5 shadow-card"
+          >
+            <span className="h-10 w-10 shrink-0 animate-pulse rounded-full bg-bg-tertiary" />
+            <span className="min-w-0 flex-1 space-y-2">
+              <span className="block h-3.5 w-2/3 animate-pulse rounded bg-bg-tertiary" />
+              <span className="block h-2.5 w-2/5 animate-pulse rounded bg-bg-tertiary" />
+            </span>
+            <span className="h-5 w-16 shrink-0 animate-pulse rounded-full bg-bg-tertiary" />
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function SitesInProgress({ sites }: { sites: Site[] }) {
   const decideSite = useDecideSite();
