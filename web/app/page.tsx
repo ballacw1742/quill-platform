@@ -279,6 +279,15 @@ const SITE_STATUS_LABEL: Record<string, string> = {
   decided: "Decided",
 };
 
+// Statuses where the background evaluation pipeline is actively running.
+// These get a distinct animated "Evaluating" badge so the user can tell an
+// eval is in flight for that specific site (vs. a static queue state).
+const SITE_EVALUATING_STATUSES = new Set([
+  "researching",
+  "scoring",
+  "intake_processing",
+]);
+
 function SitesInProgress({ sites }: { sites: Site[] }) {
   return (
     <section aria-label="Sites in progress" className="mt-6">
@@ -289,6 +298,7 @@ function SitesInProgress({ sites }: { sites: Site[] }) {
         {sites.map((s) => {
           const status = s.status ?? "intake";
           const score = s.scores?.total_weighted;
+          const isEvaluating = SITE_EVALUATING_STATUSES.has(status);
           return (
             <Link
               key={s.site_id}
@@ -308,9 +318,24 @@ function SitesInProgress({ sites }: { sites: Site[] }) {
                 </span>
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1">
-                <span className="rounded-full bg-bg-tertiary px-2 py-0.5 text-caption-1 font-semibold text-label-secondary">
-                  {SITE_STATUS_LABEL[status] ?? status}
-                </span>
+                {isEvaluating ? (
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    aria-label="Evaluation in progress"
+                    className="flex items-center gap-1.5 rounded-full bg-accent-tint px-2 py-0.5 text-caption-1 font-semibold text-accent"
+                  >
+                    <span className="relative flex h-1.5 w-1.5" aria-hidden>
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-75" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+                    </span>
+                    Evaluating
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-bg-tertiary px-2 py-0.5 text-caption-1 font-semibold text-label-secondary">
+                    {SITE_STATUS_LABEL[status] ?? status}
+                  </span>
+                )}
                 {typeof score === "number" && (
                   <span className="text-caption-2 text-label-tertiary">{Math.round(score)}/100</span>
                 )}
