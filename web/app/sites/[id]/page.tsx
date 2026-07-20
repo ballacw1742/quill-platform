@@ -168,11 +168,18 @@ export default function SiteDetailPage() {
       : hasBeenEvaluated
         ? "Re-score Evaluation"
         : "Run Evaluation";
+  // "Evaluated" == the site has produced a result the human can act on. This is
+  // independent of whether it can ALSO be re-scored — a scored site can be both
+  // re-scored AND accepted/rejected. (Previously this was gated on `!canRun`,
+  // but canRun is true for any non-rejected/non-running site, so a normal scored
+  // site had isEvaluated=false and the Accept/Reject block never rendered —
+  // leaving only Add-documents/Re-score visible.)
+  // While an eval is actively running, don't offer the decision yet.
   const isEvaluated =
-    !canRun &&
+    !isRunning &&
     (total != null ||
       !!verdict ||
-      ["review", "scoring", "scored", "decided"].includes(site.status));
+      ["review", "scored", "decided"].includes(site.status));
   const isDecided = finalVerdict === "accepted" || finalVerdict === "rejected";
   const isAdvanced = advState === "advanced";
   const advancePending = advState === "pending_approval";
