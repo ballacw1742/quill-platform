@@ -31,3 +31,23 @@ export function isSiteInProgress(site: Site): boolean {
   if (isRejectedSite(site)) return false; // belt-and-suspenders
   return true;
 }
+
+/**
+ * A site whose background evaluation has finished and is now waiting for the
+ * human accept/reject decision. Mirrors the decision gate on the site detail
+ * page: evaluated (has a score or verdict, or reached review/scored) AND no
+ * final_verdict recorded yet. Used to surface "Awaiting decision" + a quick
+ * reject affordance on the Home queue so the user doesn't have to drill into
+ * the detail page to find it.
+ */
+export function isSiteAwaitingDecision(site: Site): boolean {
+  if (siteFinalVerdict(site) != null) return false; // already accepted/rejected
+  const status = site.status ?? "intake";
+  if (status === "researching" || status === "scoring" || status === "intake")
+    return false; // still in flight (or not yet evaluated)
+  const scores = (site as { scores?: { total_weighted?: unknown } }).scores;
+  const hasScore = typeof scores?.total_weighted === "number";
+  const hasVerdict = !!(site as { recommendation?: { verdict?: string | null } })
+    .recommendation?.verdict;
+  return hasScore || hasVerdict || status === "review" || status === "scored";
+}

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { Site } from "@/lib/schemas";
-import { isRejectedSite, isSiteInProgress, siteFinalVerdict } from "@/lib/sites";
+import {
+  isRejectedSite,
+  isSiteAwaitingDecision,
+  isSiteInProgress,
+  siteFinalVerdict,
+} from "@/lib/sites";
 
 function makeSite(partial: Partial<Site>): Site {
   return {
@@ -38,6 +43,39 @@ describe("site queue/archive predicates", () => {
     // Rejected → archived, out of the queue (even if status somehow not decided).
     expect(
       isSiteInProgress(
+        makeSite({ status: "review", decision: { final_verdict: "rejected" } }),
+      ),
+    ).toBe(false);
+  });
+
+  it("isSiteAwaitingDecision: evaluated + undecided only", () => {
+    // Reached review with no verdict → awaiting the human decision.
+    expect(isSiteAwaitingDecision(makeSite({ status: "review" }))).toBe(true);
+    // Has a score, still no verdict → awaiting.
+    expect(
+      isSiteAwaitingDecision(
+        makeSite({ status: "scored", scores: { total_weighted: 72 } }),
+      ),
+    ).toBe(true);
+    // Has an AI verdict, undecided → awaiting.
+    expect(
+      isSiteAwaitingDecision(
+        makeSite({ status: "review", recommendation: { verdict: "weak" } }),
+      ),
+    ).toBe(true);
+    // Still evaluating → NOT yet awaiting.
+    expect(isSiteAwaitingDecision(makeSite({ status: "researching" }))).toBe(false);
+    expect(isSiteAwaitingDecision(makeSite({ status: "scoring" }))).toBe(false);
+    // Not yet evaluated (intake) → NOT awaiting.
+    expect(isSiteAwaitingDecision(makeSite({ status: "intake" }))).toBe(false);
+    // Already decided → NOT awaiting.
+    expect(
+      isSiteAwaitingDecision(
+        makeSite({ status: "review", decision: { final_verdict: "accepted" } }),
+      ),
+    ).toBe(false);
+    expect(
+      isSiteAwaitingDecision(
         makeSite({ status: "review", decision: { final_verdict: "rejected" } }),
       ),
     ).toBe(false);

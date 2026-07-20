@@ -30,6 +30,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderOpen,
+  Loader2,
   LogOut,
   MessageSquare,
   Settings,
@@ -50,8 +51,10 @@ import {
   currentJourneyPhase,
   type JourneyPhaseKey,
 } from "@/lib/journey";
+import { toast } from "sonner";
 import {
   useApprovals,
+  useDecideSite,
   useLogout,
   useProjects,
   useProjectRequests,
@@ -60,7 +63,11 @@ import {
 } from "@/lib/api";
 import type { QuillProject, Session, Site } from "@/lib/schemas";
 import { siteAddress, workloadLabel } from "@/components/sites/SiteCard";
-import { isRejectedSite, isSiteInProgress } from "@/lib/sites";
+import {
+  isRejectedSite,
+  isSiteAwaitingDecision,
+  isSiteInProgress,
+} from "@/lib/sites";
 import { cn } from "@/lib/utils";
 
 function greetingFor(hour: number): string {
@@ -106,6 +113,7 @@ function HomeScreen() {
     () => (sitesData ?? []).filter(isRejectedSite).length,
     [sitesData],
   );
+  const hasAnySites = (sitesData?.length ?? 0) > 0;
 
   const pendingApprovals = React.useMemo(
     () => (approvals ?? []).filter((a) => a.status === "pending").length,
@@ -177,8 +185,11 @@ function HomeScreen() {
         <SitesInProgress sites={sitesInProgress} />
       )}
 
-      {/* ── Archive entry (rejected sites) ── */}
-      {archivedCount > 0 && (
+      {/* ── Archive entry (rejected sites) ──
+          Always visible once there are any sites, so the archive is
+          discoverable even before anything has been rejected. (Previously it
+          only appeared after a rejection, which hid the entry point.) */}
+      {hasAnySites && (
         <Link
           href="/sites/archive"
           className="no-tap-highlight ease-ios mt-3 flex items-center gap-3 rounded-2xl bg-bg-elevated px-4 py-3 border border-hairline active:scale-[0.99] duration-tap"
@@ -189,7 +200,9 @@ function HomeScreen() {
           <span className="min-w-0 flex-1">
             <span className="block text-callout font-semibold text-label-primary">Archive</span>
             <span className="block text-caption-1 text-label-tertiary">
-              {archivedCount} rejected {archivedCount === 1 ? "site" : "sites"}
+              {archivedCount > 0
+                ? `${archivedCount} rejected ${archivedCount === 1 ? "site" : "sites"}`
+                : "No rejected sites yet"}
             </span>
           </span>
           <ChevronRight className="h-4 w-4 shrink-0 text-label-tertiary" aria-hidden />
@@ -289,6 +302,38 @@ const SITE_EVALUATING_STATUSES = new Set([
 ]);
 
 function SitesInProgress({ sites }: { sites: Site[] }) {
+  const decideSite = useDecideSite();
+
+  const handleReject = React.useCallback(
+    (e: React.MouseEvent, s: Site) => {
+      // The row is a Link; don't navigate when tapping the reject action.
+      e.preventDefault();
+      e.stopPropagation();
+      if (decideSite.isPending) return;
+      const label = siteAddress(s);
+      if (
+        typeof window !== "undefined" &&
+        !window.confirm(
+          `Reject "${label}"? It will move to the Archive and won't proceed.`,
+        )
+      ) {
+        return;
+      }
+      decideSite.mutate(
+        { siteId: s.site_id, decision: "reject" },
+        {
+          onSuccess: () =>
+            toast.success("Site rejected", {
+              description: `${label} moved to the Archive.`,
+            }),
+          onError: (err) =>
+            toast.error("Reject failed", { description: String(err) }),
+        },
+      );
+    },
+    [decideSite],
+  );
+
   return (
     <section aria-label="Sites in progress" className="mt-6">
       <p className="text-caption-1 mb-1.5 ml-1 font-semibold uppercase tracking-wide text-label-tertiary">
@@ -299,6 +344,9 @@ function SitesInProgress({ sites }: { sites: Site[] }) {
           const status = s.status ?? "intake";
           const score = s.scores?.total_weighted;
           const isEvaluating = SITE_EVALUATING_STATUSES.has(status);
+          const awaitingDecision = isSiteAwaitingDecision(s);
+          const rejecting =
+            decideSite.isPending && decideSite.variables?.siteId === s.site_id;
           return (
             <Link
               key={s.site_id}
@@ -316,6 +364,29 @@ function SitesInProgress({ sites }: { sites: Site[] }) {
                   {workloadLabel(s.target_workload)}
                   {s.target_mw ? ` · ${s.target_mw} MW` : ""}
                 </span>
+                {awaitingDecision && (
+                  <span className="mt-1.5 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => handleReject(e, s)}
+                      disabled={rejecting}
+                      className={cn(
+                        "no-tap-highlight ease-ios inline-flex items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-2.5 py-1 text-caption-1 font-semibold text-danger active:scale-[0.97] duration-tap",
+                        rejecting && "cursor-not-allowed opacity-60",
+                      )}
+                    >
+                      {rejecting ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                      ) : (
+                        <X className="h-3.5 w-3.5" aria-hidden />
+                      )}
+                      {rejecting ? "Rejecting…" : "Reject"}
+                    </button>
+                    <span className="text-caption-2 text-label-tertiary">
+                      Open to accept
+                    </span>
+                  </span>
+                )}
               </span>
               <span className="flex shrink-0 flex-col items-end gap-1">
                 {isEvaluating ? (
@@ -330,6 +401,10 @@ function SitesInProgress({ sites }: { sites: Site[] }) {
                       <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
                     </span>
                     Evaluating
+                  </span>
+                ) : awaitingDecision ? (
+                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-caption-1 font-semibold text-warning">
+                    Awaiting decision
                   </span>
                 ) : (
                   <span className="rounded-full bg-bg-tertiary px-2 py-0.5 text-caption-1 font-semibold text-label-secondary">
