@@ -32,6 +32,7 @@ import {
   FolderOpen,
   Loader2,
   LogOut,
+  MapPin,
   MessageSquare,
   Settings,
   ShieldCheck,
@@ -170,13 +171,6 @@ function HomeScreen() {
           <p className="mt-1 text-footnote text-label-secondary">
             Start by adding a site — that’s the first step of the journey.
           </p>
-          <Link
-            href="/sites/new"
-            className="no-tap-highlight ease-ios mt-4 inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-callout font-semibold text-white active:scale-[0.98] duration-tap"
-          >
-            <Building2 className="h-4 w-4" aria-hidden />
-            Start a New Site
-          </Link>
         </div>
       )}
 
@@ -222,7 +216,7 @@ function HomeScreen() {
         className="no-tap-highlight ease-ios mt-6 flex items-center gap-3 rounded-2xl bg-accent px-5 py-4 shadow-card active:scale-[0.99] duration-tap"
       >
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20">
-          <Building2 className="h-5 w-5 text-white" aria-hidden />
+          <MapPin className="h-5 w-5 text-white" aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-headline font-semibold text-white">Start a New Site</span>
