@@ -55,6 +55,7 @@ import {
   useSiteDriveIntake,
   type DriveIntakeDocument,
 } from "@/lib/api";
+import type { Site } from "@/lib/schemas";
 import { Trash2, Pencil, Upload } from "lucide-react";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -196,9 +197,24 @@ export default function SiteDetailPage() {
             <div>
               <p className="text-callout mb-1 font-medium text-label-secondary">{address}</p>
               <div className="flex flex-wrap gap-2">
-                <span className={cn("text-caption-1 rounded-full px-2 py-0.5 font-semibold", status.cls)}>
-                  {status.label}
-                </span>
+                {isRunning ? (
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    aria-label="Evaluation in progress"
+                    className="text-caption-1 flex items-center gap-1.5 rounded-full bg-info/10 px-2 py-0.5 font-semibold text-info"
+                  >
+                    <span className="relative flex h-1.5 w-1.5" aria-hidden>
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-info opacity-75" />
+                      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-info" />
+                    </span>
+                    {site.status === "scoring" ? "Scoring…" : "Evaluating…"}
+                  </span>
+                ) : (
+                  <span className={cn("text-caption-1 rounded-full px-2 py-0.5 font-semibold", status.cls)}>
+                    {status.label}
+                  </span>
+                )}
                 {site.target_workload && (
                   <span className="text-caption-1 rounded-full bg-bg-elevated px-2 py-0.5 font-medium text-label-secondary border border-hairline">
                     {workloadLabel(site.target_workload)}
