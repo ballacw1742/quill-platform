@@ -1981,6 +1981,63 @@ export function useSite(
   });
 }
 
+/** Structured Site Evaluation Report payload (in-app report view). */
+export type SiteReportCriterion = {
+  key: string;
+  label: string;
+  score: number | null;
+  weight: number | null;
+  weighted_score: number | null;
+  evidence: string | null;
+  kill_switch_triggered: boolean;
+};
+export type SiteReport = {
+  site_id: string | null;
+  generated_at: string;
+  location: string;
+  property: Record<string, any>;
+  target_workload: string | null;
+  target_mw: number | null;
+  status: string | null;
+  score: { total_weighted: number | null; band: string | null };
+  verdict: { key: string | null; label: string };
+  recommendation: {
+    summary: string | null;
+    strengths: string[];
+    risks: string[];
+    conditions: string[];
+    next_steps: string[];
+    estimated_timeline_months?: number | null;
+    generated_by?: string | null;
+    generated_at?: string | null;
+  };
+  kill_switches_triggered: string[];
+  criteria: SiteReportCriterion[];
+  documents: { doc_id: string | null; filename: string | null; type: string | null }[];
+  decision: { final_verdict: string | null; decided_by: string | null; decided_at: string | null };
+};
+
+/** GET /v1/sites/{id}/report — structured report + markdown. */
+export function useSiteReport(
+  id: string | null | undefined,
+  opts?: UseQueryOptions<{ report: SiteReport; markdown: string } | undefined>,
+) {
+  return useQuery<{ report: SiteReport; markdown: string } | undefined>({
+    queryKey: ["sites", id, "report"],
+    queryFn: async () => {
+      if (!id) return undefined;
+      return apiFetch(`/api/v1/sites/${encodeURIComponent(id)}/report`);
+    },
+    enabled: !!id,
+    ...opts,
+  });
+}
+
+/** Absolute URL to the report PDF (opens/downloads directly). */
+export function siteReportPdfUrl(id: string): string {
+  return `${API_BASE}/api/v1/sites/${encodeURIComponent(id)}/report.pdf`;
+}
+
 /** POST /v1/sites — create a new site */
 export function useCreateSite(
   opts?: UseMutationOptions<Site, Error, Record<string, any>>,

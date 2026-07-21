@@ -201,7 +201,7 @@ export default function PhaseDetailPage() {
             <p className="mt-1 text-callout text-label-secondary">{selectedStep.description}</p>
           </div>
           <Link
-            href={selectedStep.target({ id: projectId }).href}
+            href={selectedStep.target({ id: projectId, site_id: project.site_id }).href}
             className="no-tap-highlight flex items-center gap-3 rounded-2xl bg-bg-elevated border border-hairline p-4 shadow-card active:scale-[0.99] transition-transform"
           >
             <div className="min-w-0 flex-1">

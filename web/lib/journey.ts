@@ -56,7 +56,7 @@ export interface JourneyStep {
    * resolved from the project so we can target the right project detail
    * page or a filtered documents view. Returns a Next.js href.
    */
-  target: (project: Pick<QuillProject, "id">) => DeliverableTarget;
+  target: (project: Pick<QuillProject, "id" | "site_id">) => DeliverableTarget;
 }
 
 export interface JourneyPhase {
@@ -90,7 +90,13 @@ export const JOURNEY: JourneyPhase[] = [
         agents: ["site-researcher", "coordinator"],
         intent: "site_research",
         deliverable: "Datasite report",
-        target: (p) => href("/documents", { project: p.id, tag: "site-research" }),
+        // The report is a rendered, PDF-downloadable evaluation living at the
+        // site's report page. Fall back to the tagged documents view if the
+        // project has no linked site yet.
+        target: (p) =>
+          p.site_id
+            ? href(`/sites/${encodeURIComponent(p.site_id)}/report`)
+            : href("/documents", { project: p.id, tag: "site-research" }),
       },
       {
         key: "evaluate",

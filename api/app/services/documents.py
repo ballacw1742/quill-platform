@@ -239,6 +239,101 @@ class DocumentsService:
 
         return doc
 
+    # ---- Create (direct, non-approval artifacts) -------------------------
+    async def create_site_report(
+        self,
+        session: AsyncSession,
+        *,
+        site_id: str,
+        title: str,
+        summary: str,
+        body_markdown: str,
+        meta: dict[str, Any] | None,
+        project_id: str | None = None,
+        actor: str = "system",
+    ) -> Document:
+        """File a DataSite Site Evaluation Report as a first-class Document.
+
+        Not approval-gated (the report is a rendering of an already-approved
+        evaluation, not a new system-of-record write). Idempotent on
+        artifact_id = 'site-report:{site_id}': re-filing updates the existing
+        row in place (new evaluations refresh the report) rather than
+        duplicating. Tagged 'site-research' + 'datasite-report' and carries
+        site_id/project_id in tags + meta so /documents filtering can find it.
+        """
+        artifact_id = f"site-report:{site_id}"
+        tags = ["site-research", "datasite-report", f"site:{site_id}"]
+        if project_id:
+            tags.append(f"project:{project_id}")
+
+        meta_payload = dict(meta or {})
+        meta_payload.setdefault("site_id", site_id)
+        if project_id:
+            meta_payload.setdefault("project_id", project_id)
+
+        now = _utcnow()
+        existing = await session.execute(
+            select(Document).where(Document.artifact_id == artifact_id)
+        )
+        doc = existing.scalar_one_or_none()
+        if doc is not None:
+            # Refresh in place (idempotent update on re-accept / re-score).
+            doc.title = (title or doc.title)[:255]
+            doc.summary = (summary or "")[:511]
+            doc.body_markdown = body_markdown
+            doc.tags = tags
+            doc.meta = meta_payload
+            doc.created_at = now
+            try:
+                self._write_blob(doc.minio_path, body_markdown)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("documents.blob_write_failed artifact_id=%s err=%s", artifact_id, exc)
+            await session.flush()
+            return doc
+
+        doc = Document(
+            artifact_id=artifact_id,
+            artifact_type="site_evaluation_report",
+            title=(title or "DataSite Site Evaluation Report")[:255],
+            summary=(summary or "")[:511],
+            body_markdown=body_markdown,
+            agent_id="datasite_site_evaluator",
+            agent_display_name="DataSite Site Evaluator",
+            created_at=now,
+            approved_at=now,
+            approved_by=actor,
+            approval_id=None,
+            tags=tags,
+            minio_path=_blob_key(artifact_id, now),
+            meta=meta_payload,
+        )
+        session.add(doc)
+        await session.flush()
+        try:
+            self._write_blob(doc.minio_path, body_markdown)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("documents.blob_write_failed artifact_id=%s err=%s", artifact_id, exc)
+
+        try:
+            await audit_svc.record_event_with_mirror(
+                session,
+                event_type=DOCUMENT_PUBLISHED_EVENT,
+                actor=actor,
+                approval_item_id=None,
+                payload={
+                    "document_id": doc.id,
+                    "artifact_id": artifact_id,
+                    "artifact_type": "site_evaluation_report",
+                    "site_id": site_id,
+                    "title": doc.title,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("documents.site_report_audit_failed site_id=%s err=%s", site_id, exc)
+
+        log.info("documents.site_report_filed id=%s site_id=%s", doc.id, site_id)
+        return doc
+
     # ---- Read ------------------------------------------------------------
     async def get(self, session: AsyncSession, doc_id: str) -> Document | None:
         return await session.get(Document, doc_id)

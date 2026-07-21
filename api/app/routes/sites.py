@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,11 @@ from app.services import approvals as approvals_svc
 from app.services import audit as audit_svc
 from app.services import site_drive_intake as intake_svc
 from app.services.approvals import SITE_ADVANCE_WORKFLOW
+from app.services.documents import service as docs_service
+
+import logging
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/sites", tags=["sites"])
 
@@ -57,6 +63,39 @@ async def get_site(
 ):
     """Get a single site evaluation."""
     return await _datasite_request("get", f"/sites/{site_id}")
+
+
+@router.get("/{site_id}/report")
+async def get_site_report(
+    site_id: str,
+    user=Depends(get_current_user),
+):
+    """Structured Site Evaluation Report (for the in-app report view).
+
+    Proxies DataSite GET /sites/{id}/report -> { report, markdown }.
+    """
+    return await _datasite_request("get", f"/sites/{site_id}/report")
+
+
+@router.get("/{site_id}/report.pdf")
+async def get_site_report_pdf(
+    site_id: str,
+    user=Depends(get_current_user),
+):
+    """Print-ready PDF of the Site Evaluation Report (binary passthrough)."""
+    async with httpx.AsyncClient(timeout=300) as client:
+        resp = await client.get(f"{DATASITE_URL}/sites/{site_id}/report.pdf")
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
+        return Response(
+            content=resp.content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": resp.headers.get(
+                    "content-disposition", f'inline; filename="DataSite_Report_{site_id[:8]}.pdf"'
+                )
+            },
+        )
 
 
 @router.post("")
@@ -184,9 +223,12 @@ async def decide_site(
             "datasite": decide_result,
         }
 
-    # accept -> advance to project (Lane-2 gated). Reuse the advance flow so
-    # the accept produces the pending approval that creates the project.
-    # Tolerate the already-advanced case (409): the decision is still recorded.
+    # accept -> file the DataSite report into Documents, then advance to
+    # project (Lane-2 gated). Reuse the advance flow so the accept produces
+    # the pending approval that creates the project. Tolerate the
+    # already-advanced case (409): the decision is still recorded.
+    report_doc_id = await _file_site_report(db, site_id, actor=user.email)
+
     try:
         advance = await advance_site_to_project(site_id=site_id, user=user, db=db)
     except HTTPException as exc:
@@ -200,7 +242,45 @@ async def decide_site(
         "status": "decided",
         "detail": "Site accepted — advance-to-project requested (Lane-2 approval).",
         "advance": advance,
+        "report_document_id": report_doc_id,
     }
+
+
+async def _file_site_report(db: AsyncSession, site_id: str, *, actor: str) -> str | None:
+    """Render the DataSite report and file it as a Document. Best-effort:
+    a failure here must never block the accept decision.
+
+    Also links the report to the site's project if one already exists.
+    """
+    try:
+        report = await _datasite_request("get", f"/sites/{site_id}/report")
+        data = report.get("report") or {}
+        markdown = report.get("markdown") or ""
+        loc = data.get("location") or "Site"
+        verdict = (data.get("verdict") or {}).get("label") or ""
+        score = (data.get("score") or {}).get("total_weighted")
+        score_txt = f"{score:.0f}/100" if isinstance(score, (int, float)) else "not scored"
+        title = f"DataSite Report — {loc}"
+        summary = f"Evaluation: {score_txt} · {verdict}".strip(" ·")
+
+        project = await _find_project_for_site(db, site_id)
+        project_id = project.id if project is not None else None
+
+        doc = await docs_service.create_site_report(
+            db,
+            site_id=site_id,
+            title=title,
+            summary=summary,
+            body_markdown=markdown,
+            meta={"report": data},
+            project_id=project_id,
+            actor=actor,
+        )
+        await db.commit()
+        return doc.id
+    except Exception as exc:  # noqa: BLE001
+        log.warning("sites.file_report_failed site_id=%s err=%s", site_id, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------

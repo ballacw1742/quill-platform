@@ -600,6 +600,38 @@ async def execute_approval(
                 session.add(proj)
                 await session.flush()
                 project_id = proj.id
+
+            # Link the (already-filed-on-accept) DataSite report to this
+            # project so the journey "Datasite report" deliverable resolves.
+            # Best-effort: never fail the project creation over report linkage.
+            if adv_site_id and project_id:
+                try:
+                    from app.services.documents import service as _docs_service
+                    from app.models import Document as _Document
+
+                    _res = await session.execute(
+                        _select(_Document).where(
+                            _Document.artifact_id == f"site-report:{adv_site_id}"
+                        )
+                    )
+                    _rep = _res.scalar_one_or_none()
+                    if _rep is not None:
+                        _tags = list(_rep.tags or [])
+                        _ptag = f"project:{project_id}"
+                        if _ptag not in _tags:
+                            _tags.append(_ptag)
+                            _rep.tags = _tags
+                        _meta = dict(_rep.meta or {})
+                        _meta.setdefault("project_id", project_id)
+                        _rep.meta = _meta
+                        await session.flush()
+                except Exception as _exc:  # noqa: BLE001
+                    import logging as _logging
+                    _logging.getLogger("quill.approvals").warning(
+                        "approvals.site_report_link_failed site_id=%s err=%s",
+                        adv_site_id,
+                        _exc,
+                    )
         except Exception as exc:  # noqa: BLE001
             item.status = ApprovalStatus.EXECUTION_FAILED.value
             item.executed_at = _utcnow()
