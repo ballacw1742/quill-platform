@@ -346,6 +346,8 @@ class DocumentsService:
         agent_id: str | None = None,
         since: datetime | None = None,
         q: str | None = None,
+        project_id: str | None = None,
+        tag: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> tuple[list[Document], int]:
@@ -358,6 +360,25 @@ class DocumentsService:
             stmt = stmt.where(Document.created_at >= since)
         if q:
             stmt = self._apply_search_filter(session, stmt, q)
+
+        # project_id / tag filter on the JSON `tags` list. Tags carry
+        # 'project:{id}' and 'site:{id}' plus free tags (e.g. 'site-research').
+        # We filter in Python for DB portability (SQLite dev / Postgres prod)
+        # since the dataset is bounded by approved artifacts.
+        want_tags: list[str] = []
+        if project_id:
+            want_tags.append(f"project:{project_id}")
+        if tag:
+            want_tags.append(tag)
+
+        if want_tags:
+            rows = list((await session.execute(stmt)).scalars().all())
+            filtered = [
+                d for d in rows
+                if all(t in (d.tags or []) for t in want_tags)
+            ]
+            total = len(filtered)
+            return filtered[offset:offset + limit], total
 
         # Cheap count (small dataset; cardinality of `documents` is bounded by
         # approved artifacts, not raw events).

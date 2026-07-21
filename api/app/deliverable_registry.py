@@ -644,3 +644,31 @@ INTENT_TO_DELIVERABLE["delivery"] = _SC_ENTRY
 # Sales: pipeline → same pipeline_summary type
 _SALES_ENTRY = DELIVERABLE_REGISTRY["pipeline_summary"]
 INTENT_TO_DELIVERABLE["pipeline"] = _SALES_ENTRY
+
+# ── Journey-step intents (web/lib/journey.ts) ─────────────────────────────
+# The 5-phase journey UI submits step-specific intent strings. These were
+# previously absent from the registry, so submitting a journey step fell
+# through classify_intent() and produced the wrong artifact (or none). Map
+# each journey intent onto the existing, tested deliverable generator for its
+# module so the step produces the RIGHT deliverable type end-to-end.
+_ESTIMATE_ENTRY = DELIVERABLE_REGISTRY["cost_estimate"]
+_CONTRACT_ENTRY = DELIVERABLE_REGISTRY["change_order_package"]
+_SCHEDULE_ENTRY = DELIVERABLE_REGISTRY["schedule_package"]
+_RFI_ENTRY = DELIVERABLE_REGISTRY["rfi_response"]
+
+# Estimate phase
+INTENT_TO_DELIVERABLE["cost_takeoff"] = _ESTIMATE_ENTRY
+INTENT_TO_DELIVERABLE["estimate_package"] = _ESTIMATE_ENTRY
+# Contract phase
+INTENT_TO_DELIVERABLE["contract_draft"] = _CONTRACT_ENTRY
+INTENT_TO_DELIVERABLE["contract_review"] = _CONTRACT_ENTRY
+INTENT_TO_DELIVERABLE["contract_execute"] = _CONTRACT_ENTRY
+INTENT_TO_DELIVERABLE["change_order"] = _CONTRACT_ENTRY
+# Project phase
+INTENT_TO_DELIVERABLE["schedule_build"] = _SCHEDULE_ENTRY
+INTENT_TO_DELIVERABLE["rfi_management"] = _RFI_ENTRY
+# Progress + Operate phase → operations report generator
+INTENT_TO_DELIVERABLE["progress_report"] = _OPS_ENTRY
+INTENT_TO_DELIVERABLE["commissioning"] = _OPS_ENTRY
+INTENT_TO_DELIVERABLE["owner_reporting"] = _OPS_ENTRY
+INTENT_TO_DELIVERABLE["operations_status"] = _OPS_ENTRY

@@ -84,6 +84,19 @@ INTENT_TO_MODULE: dict[str, str] = {
     "finance": "finance",
     "compliance": "compliance",
     "intelligence": "intelligence",
+    # Journey-step intents → owning module (for the enable/disable gate).
+    "cost_takeoff": "estimates",
+    "estimate_package": "estimates",
+    "contract_draft": "contracts",
+    "contract_review": "contracts",
+    "contract_execute": "contracts",
+    "change_order": "contracts",
+    "schedule_build": "projects",
+    "rfi_management": "projects",
+    "progress_report": "operations",
+    "commissioning": "operations",
+    "owner_reporting": "operations",
+    "operations_status": "operations",
     # "general" intentionally omitted — the coordinator/general path is never
     # gated so a catch-all request always gets a response.
 }
@@ -116,6 +129,20 @@ INTENT_TO_ADK_AGENT: dict[str, str] = {
     "site_research":   "datasite_site_researcher",
     "site_scoring":    "datasite_site_scorer",
     "site_status":     "datasite_site_status",
+    # Journey-step intents (web/lib/journey.ts) → route to the module agent
+    # that owns the matching deliverable generator.
+    "cost_takeoff":     "quill_coordinator",
+    "estimate_package": "quill_coordinator",
+    "contract_draft":   "quill_change_order",
+    "contract_review":  "quill_change_order",
+    "contract_execute": "quill_change_order",
+    "change_order":     "quill_change_order",
+    "schedule_build":   "quill_schedule_monitor",
+    "rfi_management":   "quill_rfi_triage",
+    "progress_report":  "quill_facility_ops",
+    "commissioning":    "quill_facility_ops",
+    "owner_reporting":  "quill_facility_ops",
+    "operations_status": "quill_facility_ops",
     # Sprint 1A — Facility Operations
     "facility_ops":    "quill_facility_ops",
     "campus":          "quill_facility_ops",
@@ -1106,6 +1133,12 @@ async def submit_request(
         # Sprint 5.2 — specialist data agents (allow explicit intent override)
         "facility_ops", "sales", "customer_success", "finance",
         "intelligence", "compliance", "supply_chain",
+        # Journey-step intents (web/lib/journey.ts) — map onto existing
+        # generators via INTENT_TO_ADK_AGENT + INTENT_TO_DELIVERABLE below.
+        "cost_takeoff", "estimate_package",
+        "contract_draft", "contract_review", "contract_execute", "change_order",
+        "schedule_build", "rfi_management",
+        "progress_report", "commissioning", "owner_reporting", "operations_status",
     }
     file_names = [f.filename or "" for f in files if f.filename]
     if intent_override and intent_override in _VALID_INTENTS:

@@ -811,6 +811,8 @@ export type DocumentListParams = {
   agent_id?: string;
   q?: string;
   since?: string;
+  project_id?: string;
+  tag?: string;
   limit?: number;
   offset?: number;
 };
@@ -821,6 +823,8 @@ function buildDocsQuery(params: DocumentListParams = {}): string {
   if (params.agent_id) u.set("agent_id", params.agent_id);
   if (params.q) u.set("q", params.q);
   if (params.since) u.set("since", params.since);
+  if (params.project_id) u.set("project_id", params.project_id);
+  if (params.tag) u.set("tag", params.tag);
   u.set("limit", String(params.limit ?? 50));
   u.set("offset", String(params.offset ?? 0));
   return u.toString();

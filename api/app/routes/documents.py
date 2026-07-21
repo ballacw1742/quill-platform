@@ -86,6 +86,8 @@ async def list_documents(
     agent_id: str | None = Query(default=None),
     since: datetime | None = Query(default=None),
     q: str | None = Query(default=None, min_length=1, max_length=256),
+    project_id: str | None = Query(default=None, max_length=36),
+    tag: str | None = Query(default=None, max_length=64),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -97,6 +99,8 @@ async def list_documents(
         agent_id=agent_id,
         since=since,
         q=q,
+        project_id=project_id,
+        tag=tag,
         limit=limit,
         offset=offset,
     )

@@ -13,7 +13,7 @@
  */
 
 import * as React from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ChevronRight,
@@ -1393,7 +1393,15 @@ export default function ProjectDetailPage() {
   const { data: project, isLoading, error } = useProject(projectId);
   const updateProject = useUpdateProject();
 
-  const [activeTab, setActiveTab] = React.useState<TabValue>("overview");
+  // Deep-link the active tab from ?tab= (journey deliverables link to
+  // ?tab=milestones|log|deliverables). Fall back to overview.
+  const searchParams = useSearchParams();
+  const _tabParam = searchParams.get("tab");
+  const _validTabs: TabValue[] = ["overview", "milestones", "log", "links", "deliverables"];
+  const _initialTab: TabValue = _validTabs.includes(_tabParam as TabValue)
+    ? (_tabParam as TabValue)
+    : "overview";
+  const [activeTab, setActiveTab] = React.useState<TabValue>(_initialTab);
 
   if (isLoading) {
     return (

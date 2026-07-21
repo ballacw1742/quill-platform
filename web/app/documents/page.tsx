@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import { FileText, Search, SlidersHorizontal, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { MobileShell, TopBar } from "@/components/layout/MobileShell";
@@ -48,6 +49,16 @@ type DocumentLike = DocumentSummary | DocumentSearchHit;
  * search + segmented filter; richer multi-axis filtering can land later.
  */
 export default function DocumentsPage() {
+  // useSearchParams (in DocumentsPageInner) requires a Suspense boundary for
+  // Next's static prerender/CSR-bailout.
+  return (
+    <React.Suspense fallback={null}>
+      <DocumentsPageInner />
+    </React.Suspense>
+  );
+}
+
+function DocumentsPageInner() {
   const qc = useQueryClient();
 
   const [filter, setFilter] = React.useState<DocumentFilterValue>("all");
@@ -62,8 +73,20 @@ export default function DocumentsPage() {
   // keystroke. 200ms is fast enough to feel live, slow enough to coalesce.
   const debouncedSearch = useDebouncedValue(search, 200);
 
+  // Deep-link filters: /documents?project=<id>&tag=<tag> (e.g. from the
+  // project journey). When present, scope the list to that project/tag.
+  const searchParams = useSearchParams();
+  const projectFilter = searchParams.get("project") || undefined;
+  const tagFilter = searchParams.get("tag") || undefined;
+  const isScoped = Boolean(projectFilter || tagFilter);
+
   const listQuery = useDocuments(
-    { artifact_type: filterToArtifactType(filter), limit: 100 },
+    {
+      artifact_type: filterToArtifactType(filter),
+      project_id: projectFilter,
+      tag: tagFilter,
+      limit: 100,
+    },
     { enabled: debouncedSearch.trim().length === 0 },
   );
   const searchQuery = useSearchDocuments(debouncedSearch);
@@ -196,6 +219,20 @@ export default function DocumentsPage() {
         </div>
 
         <div className="flex-1 bg-bg-elevated">
+          {isScoped && (
+            <div className="flex items-center justify-between gap-2 border-b border-hairline bg-accent-tint px-4 py-2">
+              <span className="text-caption-1 font-semibold text-accent">
+                Filtered{tagFilter ? ` · ${tagFilter}` : ""}
+                {projectFilter ? " · this project" : ""}
+              </span>
+              <a
+                href="/documents"
+                className="text-caption-1 font-semibold text-accent underline"
+              >
+                Clear
+              </a>
+            </div>
+          )}
           {error && (
             <ErrorBanner
               message="Couldn't load documents. Try again."
